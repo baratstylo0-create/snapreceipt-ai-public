@@ -2,8 +2,8 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P0 — Intake & Brainstorm** → exiting, pending **Jeevan's GO sign-off** on `docs/PROJECT_BRIEF.md`.
-Next phase: **P1 — Plan & Design** (modularization design is written in ARCHITECTURE.md; first code task is the refactor).
+**P1 — Plan & Design.** ✅ Brief signed GO (Jeevan, 2026-07-01). ✅ Repo published: `Jeevan1811/receipt-analyser-saas` (private), `main` + `develop`.
+First code task: the modularization refactor (ADR-001) on `feature/jeevan-p2-modularize-server`.
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
@@ -21,9 +21,10 @@ Kickoff: repo set up, Brief signed off, modularization PR opened. No feature cod
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| Brief GO sign-off needed before any feature branch | Jeevan | OPEN |
-| GitHub remote + collaborators (Barat, Mugi) not yet created | Jeevan | OPEN (commands ready in HANDOFF.md) |
-| AI monthly cost cap not set (PROJECT_BRIEF §10) | Jeevan | OPEN |
+| Brief GO sign-off | Jeevan | ✅ DONE (2026-07-01) |
+| GitHub remote created | Jeevan | ✅ DONE |
+| AI monthly cost cap | Jeevan | ✅ DONE (provisional $50/mo dev) |
+| Add Barat + Mugi as collaborators (need their GitHub usernames) | Jeevan | OPEN |
 
 ## Definition of Done for this kickoff sprint
 - [ ] Jeevan signs GO on PROJECT_BRIEF.md
