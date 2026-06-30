@@ -13,7 +13,11 @@
 - Module dirs scaffolded: `lib/ routes/ docs/ docs/roles docs/templates docs/specs templates/ .githooks/`.
 - Git safety: `.githooks/pre-push` (blocks direct push to main/develop) + `setup-git-hooks.ps1`.
 - Governance docs written: `FRICTION_PROJECT_SOP.md`, `PROJECT_BRIEF.md` (filled kickoff), `ARCHITECTURE.md` (module map + frozen interfaces), `STATUS.md`, `WORKLOG.md`, `DECISIONS.md`, this `HANDOFF.md`, `roles/{JEEVAN,BARAT,MUGI}.md`, root `CLAUDE.md` updated, `MEMORY_LEDGER.md`.
-- **No feature code written. No git commit yet. No GitHub remote yet.** (Awaiting Jeevan's GO.)
+- **Brief signed GO; repo published to GitHub; modularization MERGED to `main`.**
+  - `main` is now the modularized codebase: `server.js` 31 lines (wiring only) + `lib/{money,categorize,http,config,groq,supabase,telegram,ocr,bot}.js` + `routes/{webhook,expenses,receipt,misc}.js` + `tests/`. **`npm test` = 8/8 green.**
+  - Merged: PR #1 (kickoff docs), PR #2 (modularization). Barat collaborator = `baratstylo0-create` (push).
+  - ⚠️ Run `npm install` after cloning (node_modules is git-ignored).
+  - ⚠️ Direct push to `main` is blocked by the pre-push hook — all changes via branch + PR.
 
 ## Decisions locked (see DECISIONS.md)
 - Repo Owner = Jeevan (gh: Jeevan1811); Deputy = Barat.
@@ -21,25 +25,15 @@
 - Modularize server.js FIRST (ADR-001). Groq data = masking + retention (ADR-002). CSV field template #12 foundational (ADR-003). Coupling-based split (ADR-004): Barat=infra+#4,#1,#11,#12; Jeevan=#5,#6,#8,#9,#2,#10,#7; Mugi=#3+business. Currency = FX API not LLM (ADR-005).
 
 ## EXACT NEXT ACTIONS (in order)
-1. **Jeevan signs GO** in `docs/PROJECT_BRIEF.md` (CTO Validation → Decision line). Until then, no feature code.
-2. **First git commit** of the scaffolding (suggested):
-   ```
-   cd C:\Users\Asus\Downloads\receipt-analyser-saas
-   powershell -ExecutionPolicy Bypass -File .\setup-git-hooks.ps1
-   git add -A
-   git commit -m "chore: kickoff scaffolding, Friction governance docs, git hooks"
-   ```
-3. **Create GitHub remote + add collaborators** (gh is authed as Jeevan1811):
-   ```
-   gh repo create receipt-analyser-saas --private --source=. --remote=origin --push
-   gh repo edit --enable-issues
-   gh api -X PUT repos/Jeevan1811/receipt-analyser-saas/collaborators/<barat-gh>   -f permission=push
-   gh api -X PUT repos/Jeevan1811/receipt-analyser-saas/collaborators/<mugi-gh>    -f permission=push
-   ```
-   (Replace `<barat-gh>` / `<mugi-gh>` with their GitHub usernames — still NEEDED from Jeevan.)
-4. (Optional, paid/public) branch protection: a `setup-branch-protection.ps1` can be added; local pre-push hook already enforces it for free private repos.
-5. **First feature branch = the modularization** (ADR-001): `feature/jeevan-p2-modularize-server` — move logic from `server.js` into `lib/` + `routes/` per ARCHITECTURE §2, no behaviour change. Open PR, Barat reviews, Owner merges.
-6. Then Barat starts P3 infra; parallel feature work begins.
+1. **Barat (off merged `main`):** branch `feature/barat-p3-...`, fill `lib/groq.js`, `lib/supabase.js`, `lib/templates.js` against ARCHITECTURE §3 frozen interfaces; run his `schema.sql` in his own Supabase SQL Editor; confirm vision-model routing (is `llama-4-scout` alive? maverick is gone → ADR-007). His `feature/barat-p3-infra-schema` PR (schema + .env verification) may need a rebase onto the new `main`.
+2. **Jeevan (Owner):** after Barat's infra PR is reviewed, merge it. Then Jeevan's feature work begins.
+3. **Jeevan's features** (build against real interfaces once Barat's infra lands): #5 anomaly, #6 categorization, #8 reports, #9 agent, #2 Excel, #10 currency, #7 mass upload. Each = one branch = one PR = cross-reviewed.
+4. **Mugi:** deferred until he starts (#3 dashboard + business structure) — needs GitHub username then.
+
+## Pending inputs / open items
+- Barat: run schema in his Supabase; invite Jeevan to that project for visibility; confirm vision routing (ADR-007).
+- CTO flag (open question): production Supabase should move off Barat's personal account to a shared org/Owner account before launch.
+- Mugi GitHub username (when he starts).
 
 ## STILL NEEDED FROM JEEVAN (open inputs)
 - Barat's + Mugi's **GitHub usernames** (to add as collaborators).
