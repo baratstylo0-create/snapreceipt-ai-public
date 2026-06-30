@@ -21,9 +21,9 @@ Kickoff: repo set up, Brief signed off, modularization PR opened. No feature cod
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| Credentials needed (BOT_TOKEN, GROQ_KEY, SB_URL, SB_KEY) → fill .env | Jeevan→Barat | OPEN |
-| ADR-007 owner confirmation (qwen vision model substitution) | Jeevan | OPEN |
-| Schema not yet applied in Supabase (waiting on SB credentials) | Barat | OPEN |
+| Credentials (BOT_TOKEN, GROQ_KEY, SB_URL, SB_KEY) → fill .env | Jeevan→Barat | ✅ DONE — .env filled, keys verified live |
+| ADR-007 owner confirmation (qwen vision model) | Jeevan | ✅ CONFIRMED 2026-07-01 |
+| Apply schema.sql in Supabase + invite Jeevan as project member | Owner (handling all Supabase ops directly) | OPEN — owner-owned; Barat verifies via REST once applied |
 | modularization PR not yet opened/merged (lib/*.js still blocked) | Jeevan | OPEN |
 | GitHub remote + collaborators (Barat, Mugi) not yet created | Jeevan | OPEN (commands ready in HANDOFF.md) |
 | AI monthly cost cap not set (PROJECT_BRIEF §10) | Jeevan | OPEN |
