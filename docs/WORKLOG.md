@@ -32,6 +32,14 @@
   - **`.env.example` and ARCHITECTURE.md §3.5 updated** with verified IDs.
   - **`.env` created locally** (git-ignored, never committed) with blanks ready to fill.
   - Setup: ran `setup-git-hooks.ps1` (hooks active, main/develop push blocked).
+- **WIRE-UP VERIFICATION (2026-07-01, live, with real keys):**
+  - `.env` filled: BOT_TOKEN, GROQ_KEY, SB_URL (https://xurnpvesgcybrnilxszf.supabase.co), SB_KEY (sb_secret_…). Owner provided.
+  - **Supabase REST**: service key authenticates ✅ (GET /rest/v1/expenses → 404 PGRST205 "table not found" = auth OK, schema not yet applied).
+  - **Groq /models live list confirms ADR-007**: `qwen/qwen3.6-27b` ✅ present; `llama-3.3-70b-versatile` ✅; `openai/gpt-oss-20b` ✅; **`llama-4-maverick` CONFIRMED ABSENT**; `llama-4-scout` present but Preview-only.
+  - **Groq chat round-trips** (HTTP 200): llama-3.3-70b-versatile ✅, openai/gpt-oss-20b ✅.
+  - **Groq vision round-trip** (HTTP 200): qwen/qwen3.6-27b accepted an inline base64 PNG and analyzed it ✅ — OCR vision pathway proven.
+  - Bonus: `openai/gpt-oss-safeguard-20b` + `meta-llama/llama-prompt-guard-2-*` available on the account → candidates for prompt-injection defense at P6.
+  - ADR-007 marked Owner-confirmed.
 - **What's next:**
   1. **Barat needs credentials from Jeevan**: `BOT_TOKEN`, `GROQ_KEY`, `SB_URL`, `SB_KEY` to fill `.env`.
   2. **Owner action**: Jeevan to confirm ADR-007 (qwen vision model substitution).

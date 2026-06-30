@@ -40,7 +40,7 @@ Findings:
 - `qwen/qwen3.6-27b` — **Production** vision model; 27B params; supports images, tool use, JSON mode, 131K ctx, up to 5 images/req.
 - `llama-3.3-70b-versatile` ✅ Production. `openai/gpt-oss-20b` ✅ Production (ADR-006 confirmed).
 **Decision:** Switch `VISION_MODEL` and `VISION_MODEL_HEAVY` to `qwen/qwen3.6-27b`. Updated `.env.example` and `ARCHITECTURE.md §3.5`. Since there is currently no heavier production vision model, both slots use the same model; escalation means higher `max_tokens` / retry with more context.
-**Owner action required:** Jeevan to confirm this substitution is acceptable. If a production llama-4-maverick equivalent ships on Groq, update `VISION_MODEL_HEAVY` and log in WORKLOG.
+**Owner action required:** ~~Jeevan to confirm this substitution is acceptable.~~ ✅ **Confirmed by Owner 2026-07-01.** If a production llama-4-maverick equivalent ships on Groq, update `VISION_MODEL_HEAVY` and log in WORKLOG.
 **Consequences:** Code using `VISION_MODEL`/`VISION_MODEL_HEAVY` env vars requires no change (ADR-006 general rule: IDs always from `.env`). Reassess when Groq graduates llama-4-scout or releases a production-grade heavy vision model.
 
 ## ADR-005 · Currency conversion is NOT an LLM task
