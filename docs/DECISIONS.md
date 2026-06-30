@@ -31,17 +31,35 @@
 **Decision:** Switch the cheap-classify/narrate slot (#6 categorization, report narration) to `openai/gpt-oss-20b`. Updated `.env.example`, `ARCHITECTURE.md` §3.5, `PROJECT_BRIEF.md` §4.
 **Consequences:** No code depends on the old ID (none written yet). Barat must confirm `openai/gpt-oss-20b` is live at wire-up. General rule reinforced: **all model IDs come from `.env`, never hardcoded**, so future deprecations are a one-line config change. Set a reminder before 2026-08-16 if anything still points at the old model.
 
-## ADR-007 · VISION_MODEL = qwen/qwen3.6-27b (llama-4-scout is Preview-only; llama-4-maverick not listed)
+## ADR-007 · VISION_MODEL = qwen/qwen3.6-27b for BOTH slots (maverick dead; scout alive but Preview-only)
 **Date:** 2026-07-01 · **Status:** Accepted · **Author:** Barat (verified at wire-up per BARAT.md §1)
-**Context:** Barat verified all model IDs against `console.groq.com/docs/models` on 2026-07-01.
-Findings:
-- `meta-llama/llama-4-scout-17b-16e-instruct` — **Preview only**; docs say "intended for evaluation purposes only and should not be used in production; may be discontinued at short notice."
-- `meta-llama/llama-4-maverick-17b-128e-instruct` — **Not listed** anywhere in the current model docs. Likely not available or not yet GA on Groq.
-- `qwen/qwen3.6-27b` — **Production** vision model; 27B params; supports images, tool use, JSON mode, 131K ctx, up to 5 images/req.
-- `llama-3.3-70b-versatile` ✅ Production. `openai/gpt-oss-20b` ✅ Production (ADR-006 confirmed).
-**Decision:** Switch `VISION_MODEL` and `VISION_MODEL_HEAVY` to `qwen/qwen3.6-27b`. Updated `.env.example` and `ARCHITECTURE.md §3.5`. Since there is currently no heavier production vision model, both slots use the same model; escalation means higher `max_tokens` / retry with more context.
-**Owner action required:** ~~Jeevan to confirm this substitution is acceptable.~~ ✅ **Confirmed by Owner 2026-07-01.** If a production llama-4-maverick equivalent ships on Groq, update `VISION_MODEL_HEAVY` and log in WORKLOG.
-**Consequences:** Code using `VISION_MODEL`/`VISION_MODEL_HEAVY` env vars requires no change (ADR-006 general rule: IDs always from `.env`). Reassess when Groq graduates llama-4-scout or releases a production-grade heavy vision model.
+**Context:** Barat verified every model ID against the **live account** on 2026-07-01 — both the
+`GET /v1/models` list AND real `chat/completions` round-trips with a base64 image (not just docs):
+
+| Model | Live test | Status |
+|---|---|---|
+| `meta-llama/llama-4-maverick-17b-128e-instruct` | **absent from `/models`** | ❌ decommissioned — do not use anywhere |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | base64 image → **HTTP 200**, answered "Red." | ⚠️ ALIVE but **Preview-only** ("should not be used in production; may be discontinued at short notice") |
+| `qwen/qwen3.6-27b` | base64 image → **HTTP 200**, analyzed image | ✅ **Production** vision (27B; images + tool use + JSON; 131K ctx; ≤5 img/req). Verbatim id confirmed from the 200 request body. |
+| `llama-3.3-70b-versatile` | chat → HTTP 200 | ✅ Production |
+| `openai/gpt-oss-20b` | chat → HTTP 200 | ✅ Production (ADR-006) |
+
+Note: qwen runs a `<think>` reasoning pass; a 50-token cap was fully consumed by reasoning. OCR must
+use a generous `max_tokens` or disable thinking. (scout replied tersely with no think pass.)
+
+**Decision:** Set **both** `VISION_MODEL` and `VISION_MODEL_HEAVY` = `qwen/qwen3.6-27b`. Rationale:
+maverick is dead, and the only alternative (scout) is Preview-only — putting a Preview model in the
+production path violates the SOP stability/security baseline (§1.4, §7). With one production vision
+model, "escalation" = same model with higher `max_tokens`/more context (multi-receipt/PDF page), not
+a model swap. The `visionEscalate` interface stays intact so no consumer code changes when a real
+heavy vision model later lands.
+**Owner action:** ✅ **Confirmed by Owner 2026-07-01.** Override available: if you accept Preview risk,
+set `VISION_MODEL_HEAVY=meta-llama/llama-4-scout-17b-16e-instruct` now (it has a larger ctx window for
+hard pages); otherwise promote scout only when Groq graduates it to Production. Either way, log in WORKLOG.
+**Consequences:** All routing is env-driven (ADR-006 rule), so swaps are one-line config changes.
+⚠️ Follow-up: `lib/config.js` (created by the modularization) still defaults `visionEscalate` to the dead
+maverick id — env overrides it so nothing breaks at runtime, but Barat fixes that default in the
+post-merge infra PR so the dead id is gone from the codebase entirely.
 
 ## ADR-005 · Currency conversion is NOT an LLM task
 **Date:** 2026-07-01 · **Status:** Accepted

@@ -40,6 +40,12 @@
   - **Groq vision round-trip** (HTTP 200): qwen/qwen3.6-27b accepted an inline base64 PNG and analyzed it ✅ — OCR vision pathway proven.
   - Bonus: `openai/gpt-oss-safeguard-20b` + `meta-llama/llama-prompt-guard-2-*` available on the account → candidates for prompt-injection defense at P6.
   - ADR-007 marked Owner-confirmed.
+- **VISION ROUTING FINALISED (2026-07-01):**
+  - Direct base64-image test of the OLD default `meta-llama/llama-4-scout-17b-16e-instruct` → **HTTP 200, alive** ("Red.") — but Groq docs keep it **Preview-only** ("not for production").
+  - Exact qwen id reconfirmed verbatim from the 200 request body: **`qwen/qwen3.6-27b`** (also in `/models`).
+  - **Final routing:** `VISION_MODEL` = `VISION_MODEL_HEAVY` = `qwen/qwen3.6-27b` (only production vision model; escalate = same model + higher max_tokens, not a swap). Scout kept out of prod path; promote only if it graduates. Updated `.env.example`, `ARCHITECTURE.md §3.5`, `DECISIONS ADR-007` together.
+  - qwen `<think>` note: OCR needs generous max_tokens or thinking disabled.
+  - **FOLLOW-UP (post-merge infra PR):** `lib/config.js` (from modularization) still defaults `visionEscalate` to the dead maverick id. Env overrides it (no runtime break) but Barat removes the dead default once the modularization PR is merged and lib/* editing is unblocked.
 - **What's next:**
   1. **Barat needs credentials from Jeevan**: `BOT_TOKEN`, `GROQ_KEY`, `SB_URL`, `SB_KEY` to fill `.env`.
   2. **Owner action**: Jeevan to confirm ADR-007 (qwen vision model substitution).

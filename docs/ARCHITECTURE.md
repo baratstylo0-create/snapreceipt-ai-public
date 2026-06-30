@@ -78,16 +78,23 @@ Existing columns stay. **New columns (Barat adds to schema.sql at P3):**
 `confidence jsonb` (per-field, for #11), `anomaly jsonb` (flags+reason, for #5), `currency_original text` + `amount_original numeric` + `fx_rate numeric` (for #10), `template_id` (FK to field_templates, for #12).
 
 ### 3.5 Model routing (PROJECT_BRIEF §4)
-Verified live by Barat 2026-07-01 — see DECISIONS ADR-007 for full notes.
+Verified live by Barat 2026-07-01 with real base64-image round-trips (HTTP 200) — see DECISIONS ADR-007.
 
 | Use | env var | verified id |
 |---|---|---|
-| Vision default | `VISION_MODEL` | `qwen/qwen3.6-27b` ✅ Production (replaces llama-4-scout — Preview-only; ADR-007) |
-| Vision escalate | `VISION_MODEL_HEAVY` | `qwen/qwen3.6-27b` ✅ (same; llama-4-maverick not listed — monitor for production replacement) |
+| Vision default | `VISION_MODEL` | `qwen/qwen3.6-27b` ✅ Production — the only production vision model on the account |
+| Vision escalate | `VISION_MODEL_HEAVY` | `qwen/qwen3.6-27b` ✅ same id on purpose (see below) |
 | Text / agent / anomaly | `TEXT_MODEL` | `llama-3.3-70b-versatile` ✅ Production |
 | Cheap classify / narrate | `CLASSIFY_MODEL` | `openai/gpt-oss-20b` ✅ Production (ADR-006) |
 
-Escalate vision→heavy when confidence is low or input is a multi-receipt/PDF page.
+**Vision routing decision (maverick is dead):** `meta-llama/llama-4-maverick-17b-128e-instruct` is
+decommissioned (absent from the account's `/models` list). Of the two remaining vision models,
+`qwen/qwen3.6-27b` is **Production** and `meta-llama/llama-4-scout-17b-16e-instruct` is alive but
+**Preview-only** ("should not be used in production"). To keep the prod path stable, **both vision
+slots use `qwen/qwen3.6-27b`**; "escalate" means the SAME model with higher `max_tokens` / more
+context (e.g. on a multi-receipt or PDF page), not a model swap. Promote scout to `VISION_MODEL_HEAVY`
+only if Groq graduates it to Production — announce in WORKLOG first. qwen runs a `<think>` pass, so
+OCR calls need a generous `max_tokens` (or thinking disabled).
 
 ## 4. Data flow (end to end)
 `import CSV template → templates.js stores FieldSpec → receipt in (Telegram/upload, image/PDF/multi) → [massupload.splitReceipts if multi] → ocr.extractReceipt(img, fieldSpec) via groq → confidence.scoreConfidence → categorize + anomaly + currency.convert → supabase insert → dashboard / reports / excel render per FieldSpec`
