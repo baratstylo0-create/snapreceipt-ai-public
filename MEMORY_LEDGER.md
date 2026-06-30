@@ -1,0 +1,28 @@
+# MEMORY_LEDGER — Receipt Analyser SaaS
+> Compact durable memory (lean-context). Load this FIRST on a returning session; don't re-derive.
+
+## What this is
+SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashboard + Excel. Vertical AI track. Under Friction SOP.
+
+## Architecture (one line each)
+- Node 22 + Express, **no build**, deps = express+dotenv (+ approved). Native fetch/Buffer, `hreq()` helper. No axios/node-fetch/multer.
+- Supabase Postgres via REST, **service-role server-side only**; browser uses `/api/*`. RLS on, anon denied.
+- Groq vision OCR + LLM; tiered model routing; backoff on 429.
+- Telegram bot + dashboard upload = inputs. `account_id` scopes everything (multi-tenant-forward).
+- Being modularized: `server.js` (wiring) + `lib/*` (one concern/file) + `routes/*`. See `docs/ARCHITECTURE.md` §3 frozen interfaces.
+
+## Ownership (collision-safe; edit only your files)
+- **Barat:** lib/groq, lib/supabase, schema.sql, lib/templates(#12 shared), lib/ocr(#4,#1), lib/confidence(#11), routes/webhook, routes/templates.
+- **Jeevan:** lib/categorize(#6), lib/anomaly(#5), lib/reports(#8), lib/agent(#9), lib/excel(#2), lib/currency(#10), lib/massupload(#7), routes/{expenses,reports,agent,upload}, setup/CI.
+- **Mugi:** public/index.html (#3) + business-account structure (M2).
+
+## Key facts / GOTCHAS
+- Active repo: `C:\Users\Asus\Downloads\receipt-analyser-saas`. NOT `Gold_Bot` (that's an unrelated forex bot).
+- `expense_date` is TEXT on purpose (messy OCR dates). Don't make it a strict date column.
+- Groq is inference-only (Barat reconfirm at wire-up). No images/PII in logs; mask card last-4; retention policy (ADR-002).
+- Currency conversion = FX API, NOT the LLM (ADR-005).
+- Modularize BEFORE feature work (ADR-001). No feature code until PROJECT_BRIEF signed GO.
+- gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
+
+## Status
+P0 → exiting, awaiting Jeevan GO. See `docs/STATUS.md` + `docs/HANDOFF.md` for exact next actions.

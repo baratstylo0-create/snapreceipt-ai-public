@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Receipt Analyser — Expenses</title>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #161b22; --panel2: #1c2230; --line: #28303e;
+    --txt: #e6edf3; --muted: #8b97a7; --accent: #5b9dff; --accent2: #3ddc97;
+    --red: #ff6b6b; --yellow: #ffd166; --green: #3ddc97; --blue: #5b9dff;
+    --radius: 14px; --shadow: 0 6px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 22px 16px 80px; }
+  header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+  header.top .logo { width: 40px; height: 40px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: grid; place-items: center; font-size: 22px; }
+  header.top h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+  header.top .sub { color: var(--muted); font-size: 13px; }
+
+  .cards-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .stat .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .stat .val { font-size: 26px; font-weight: 700; margin-top: 4px; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  select, .btn { background: var(--panel2); color: var(--txt); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 14px; cursor: pointer; outline: none; }
+  select { appearance: none; padding-right: 30px; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%238b97a7' stroke-width='1.6' fill='none'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; }
+  .btn:hover, select:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b1220; font-weight: 600; }
+  .spacer { flex: 1; }
+  .toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .toggle button { background: var(--panel2); border: 0; color: var(--muted); padding: 9px 14px; cursor: pointer; font-size: 14px; }
+  .toggle button.on { background: var(--accent); color: #0b1220; font-weight: 600; }
+
+  /* cards */
+  #list.cards { display: flex; flex-direction: column; gap: 11px; }
+  .exp { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; gap: 14px; align-items: center; }
+  .exp .thumb { width: 54px; height: 54px; border-radius: 10px; object-fit: cover; background: var(--panel2); flex-shrink: 0; cursor: pointer; border: 1px solid var(--line); }
+  .exp .thumb.ph { display: grid; place-items: center; font-size: 22px; color: var(--muted); cursor: default; }
+  .exp .mid { flex: 1; min-width: 0; }
+  .exp .merchant { font-weight: 600; font-size: 15px; }
+  .exp .meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .exp .amt { font-weight: 700; font-size: 17px; white-space: nowrap; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .cat-Food { background: rgba(255,209,102,.15); color: var(--yellow); }
+  .cat-Petrol { background: rgba(91,157,255,.15); color: var(--blue); }
+  .cat-Software { background: rgba(61,220,151,.15); color: var(--green); }
+  .cat-Inventory { background: rgba(186,140,255,.16); color: #ba8cff; }
+  .cat-Others { background: rgba(139,151,167,.16); color: var(--muted); }
+
+  /* table */
+  #list.table { display: block; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; min-width: 640px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  td.num, th.num { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .empty .big { font-size: 40px; }
+
+  /* receipt modal */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: none; place-items: center; padding: 24px; z-index: 50; }
+  .modal.show { display: grid; }
+  .modal img { max-width: 92vw; max-height: 86vh; border-radius: 12px; box-shadow: var(--shadow); }
+  .modal .x { position: absolute; top: 18px; right: 22px; font-size: 30px; color: #fff; cursor: pointer; }
+
+  /* row actions + edit modal */
+  .exp-acts { display: flex; gap: 4px; flex-shrink: 0; }
+  .ibtn { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; cursor: pointer; font-size: 14px; line-height: 1; }
+  .ibtn:hover { border-color: var(--accent); }
+  .ibtn.del:hover { border-color: var(--red); }
+  .rcpt-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; vertical-align: middle; border: 1px solid var(--line); cursor: pointer; }
+  .rcpt-link { font-size: 12px; color: var(--accent); white-space: nowrap; }
+  .emodal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; padding: 20px; z-index: 60; }
+  .emodal { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; width: 100%; max-width: 440px; box-shadow: var(--shadow); }
+  .emodal h3 { margin: 0 0 8px; }
+  .emodal label { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin: 12px 0 5px; }
+  .emodal input, .emodal select, .emodal textarea { width: 100%; background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; color: var(--txt); font: inherit; outline: none; }
+  .emodal input:focus, .emodal select:focus, .emodal textarea:focus { border-color: var(--accent); }
+  .emodal .erow { display: flex; gap: 12px; } .emodal .erow > div { flex: 1; }
+  .emodal .ebtns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+  .gate { max-width: 360px; margin: 80px auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px; text-align: center; }
+  .gate input { width: 100%; margin: 14px 0; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); color: var(--txt); }
+
+  @media (max-width: 620px) {
+    .cards-row { grid-template-columns: 1fr; }
+    .exp .amt { font-size: 15px; }
+    /* Bigger touch targets for card ✏️ / 🗑️ buttons */
+    .ibtn { padding: 7px 10px; font-size: 16px; min-width: 38px; min-height: 38px; }
+    /* Drop Tax column in table so it fits on phone screens */
+    table th:nth-child(4), table td:nth-child(4) { display: none; }
+  }
+  @media (max-width: 480px) {
+    /* Stack date+amount / currency+category rows in the edit modal */
+    .emodal .erow { flex-direction: column; gap: 0; }
+    /* Full-width dropdowns in the filter toolbar */
+    .toolbar select { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app" style="display:none">
+  <header class="top">
+    <div class="logo">🧾</div>
+    <div>
+      <h1>Receipt Analyser</h1>
+      <div class="sub">Expenses captured from Telegram receipts</div>
+    </div>
+  </header>
+
+  <div class="cards-row">
+    <div class="stat"><div class="lbl">Total spend</div><div class="val" id="stTotal">—</div></div>
+    <div class="stat"><div class="lbl">Receipts</div><div class="val" id="stCount">—</div></div>
+    <div class="stat"><div class="lbl">Avg / receipt</div><div class="val" id="stAvg">—</div></div>
+  </div>
+
+  <div class="toolbar">
+    <select id="fTime">
+      <option value="all">All time</option>
+      <option value="today">Today</option>
+      <option value="week">This week</option>
+      <option value="month">This month</option>
+      <option value="year">This year</option>
+    </select>
+    <select id="fCat"><option value="all">All categories</option></select>
+    <div class="spacer"></div>
+    <div class="toggle">
+      <button id="vCards" class="on" onclick="setView('cards')">Cards</button>
+      <button id="vTable" onclick="setView('table')">Table</button>
+    </div>
+    <button class="btn" onclick="loadExpenses()">↻ Refresh</button>
+    <button class="btn primary" onclick="exportCSV()">⬇ Export CSV</button>
+  </div>
+
+  <div id="list" class="cards"></div>
+</div>
+
+<div class="gate" id="gate" style="display:none">
+  <div style="font-size:38px">🔒</div>
+  <h2 style="margin:8px 0">Enter access key</h2>
+  <input id="gateKey" type="password" placeholder="Dashboard token" onkeydown="if(event.key==='Enter')saveKey()" />
+  <button class="btn primary" style="width:100%" onclick="saveKey()">Unlock</button>
+</div>
+
+<div class="modal" id="modal" onclick="closeModal()">
+  <span class="x">×</span><img id="modalImg" alt="receipt" />
+</div>
+
+<div id="editRoot"></div>
+
+<script>
+let RAW = [];          // all expenses
+let view = 'cards';
+let TOKEN = localStorage.getItem('rs_token') || '';
+const CUR_SYM = { USD:'$', AUD:'A$', NZD:'NZ$', SGD:'S$', MYR:'RM', EUR:'€', GBP:'£', INR:'₹', JPY:'¥', CAD:'C$' };
+const sym = c => CUR_SYM[String(c||'').toUpperCase()] || (String(c||'').toUpperCase() + ' ');
+const money = (v,c) => sym(c) + (Number(v)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const catClass = c => 'cat-' + (['Food','Petrol','Software','Inventory'].includes(c) ? c : 'Others');
+const receiptUrl = r => r.receipt_url || (r.receipt_file_id ? '/receipt/' + encodeURIComponent(r.receipt_file_id) : '');
+
+function authHeaders() { return TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}; }
+
+async function boot() {
+  let cfg = { auth_required: false };
+  try { cfg = await (await fetch('/api/config')).json(); } catch (e) {}
+  if (cfg.auth_required && !TOKEN) { document.getElementById('gate').style.display = 'block'; return; }
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('fTime').onchange = render;
+  document.getElementById('fCat').onchange = render;
+  loadExpenses();
+}
+function saveKey() {
+  const k = document.getElementById('gateKey').value.trim();
+  if (!k) return;
+  TOKEN = k; localStorage.setItem('rs_token', k);
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('fTime').onchange = render;
+  document.getElementById('fCat').onchange = render;
+  loadExpenses();
+}
+
+async function loadExpenses() {
+  try {
+    const r = await fetch('/api/expenses', { headers: authHeaders() });
+    if (r.status === 401) { localStorage.removeItem('rs_token'); TOKEN=''; location.reload(); return; }
+    RAW = await r.json();
+    if (!Array.isArray(RAW)) RAW = [];
+    populateCats();
+    render();
+  } catch (e) {
+    document.getElementById('list').innerHTML = '<div class="empty"><div class="big">⚠️</div>Could not load expenses.</div>';
+  }
+}
+
+function populateCats() {
+  const sel = document.getElementById('fCat');
+  const cur = sel.value;
+  const cats = [...new Set(RAW.map(r => r.category).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="all">All categories</option>' + cats.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
+  sel.value = cats.includes(cur) ? cur : 'all';
+}
+
+function inRange(dateStr, range) {
+  if (range === 'all') return true;
+  const d = new Date(dateStr); if (isNaN(d)) return true;
+  const now = new Date();
+  if (range === 'today') return d.toDateString() === now.toDateString();
+  if (range === 'year') return d.getFullYear() === now.getFullYear();
+  if (range === 'month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  if (range === 'week') { const wk = new Date(now); wk.setDate(now.getDate() - 6); return d >= wk; }
+  return true;
+}
+
+function filtered() {
+  const t = document.getElementById('fTime').value;
+  const c = document.getElementById('fCat').value;
+  return RAW.filter(r => (c === 'all' || r.category === c) && inRange(r.expense_date || r.created_at, t));
+}
+
+function render() {
+  const rows = filtered();
+  const cur = (rows[0] && rows[0].currency) || (RAW[0] && RAW[0].currency) || 'USD';
+  const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  document.getElementById('stTotal').textContent = money(total, cur);
+  document.getElementById('stCount').textContent = rows.length;
+  document.getElementById('stAvg').textContent = rows.length ? money(total / rows.length, cur) : money(0, cur);
+
+  const list = document.getElementById('list');
+  if (!rows.length) { list.className = 'cards'; list.innerHTML = '<div class="empty"><div class="big">📭</div>No expenses match these filters.<br>Send a receipt photo to your Telegram bot to get started.</div>'; return; }
+
+  if (view === 'cards') {
+    list.className = 'cards';
+    list.innerHTML = rows.map(r => {
+      const thumb = r.receipt_file_id
+        ? '<img class="thumb" src="/receipt/' + encodeURIComponent(r.receipt_file_id) + '" onerror="this.outerHTML=\'<div class=&quot;thumb ph&quot;>🧾</div>\'" onclick="openModal(this.src)">'
+        : '<div class="thumb ph">🧾</div>';
+      return '<div class="exp">' + thumb +
+        '<div class="mid"><div class="merchant">' + esc(r.merchant || 'Unknown') + '</div>' +
+        '<div class="meta">' + esc(r.expense_date || '') + ' · <span class="pill ' + catClass(r.category) + '">' + esc(r.category || 'Others') + '</span>' + (r.rep_name ? ' · ' + esc(r.rep_name) : '') + '</div></div>' +
+        '<div class="amt">' + money(r.amount, r.currency) + '</div>' +
+        '<div class="exp-acts"><button class="ibtn" title="Edit" onclick="expEdit(\'' + r.id + '\')">✏️</button><button class="ibtn del" title="Delete" onclick="expDelete(\'' + r.id + '\')">🗑️</button></div></div>';
+    }).join('');
+  } else {
+    list.className = 'table';
+    list.innerHTML = '<table><thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th class="num">Tax</th><th class="num">Amount</th><th style="text-align:center">Receipt</th><th style="text-align:center">Actions</th></tr></thead><tbody>' +
+      rows.map(r => { const u = receiptUrl(r); return '<tr><td>' + esc(r.expense_date || '') + '</td><td>' + esc(r.merchant || 'Unknown') + '</td>' +
+        '<td><span class="pill ' + catClass(r.category) + '">' + esc(r.category || 'Others') + '</span></td>' +
+        '<td class="num">' + money(r.tax || 0, r.currency) + '</td><td class="num">' + money(r.amount, r.currency) + '</td>' +
+        '<td style="text-align:center">' + (u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener" title="View receipt"><img src="' + esc(u) + '" class="rcpt-thumb" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline\'"><span class="rcpt-link" style="display:none">🧾 View</span></a>' : '—') + '</td>' +
+        '<td style="text-align:center;white-space:nowrap"><button class="ibtn" title="Edit" onclick="expEdit(\'' + r.id + '\')">✏️</button><button class="ibtn del" title="Delete" onclick="expDelete(\'' + r.id + '\')">🗑️</button></td></tr>'; }).join('') +
+      '</tbody></table>';
+  }
+}
+
+function setView(v) {
+  view = v;
+  document.getElementById('vCards').classList.toggle('on', v === 'cards');
+  document.getElementById('vTable').classList.toggle('on', v === 'table');
+  render();
+}
+
+function exportCSV() {
+  const rows = filtered();
+  const head = ['Date', 'Merchant', 'Category', 'Currency', 'Subtotal', 'Tax', 'Amount', 'Logged by', 'Created', 'Receipt'];
+  const body = rows.map(r => {
+    const ru = receiptUrl(r); const abs = ru ? (/^https?:/.test(ru) ? ru : location.origin + ru) : '';
+    return [r.expense_date, r.merchant, r.category, r.currency, r.subtotal, r.tax, r.amount, r.rep_name, r.created_at, abs]
+      .map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',');
+  });
+  const csv = [head.join(','), ...body].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'expenses_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+}
+
+function openModal(src) { document.getElementById('modalImg').src = src; document.getElementById('modal').classList.add('show'); }
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+
+// ── Edit / soft-delete ──────────────────────────────────────────────────────
+const CATS = ['Food', 'Petrol', 'Software', 'Inventory', 'Others'];
+const CURS = Object.keys(CUR_SYM);
+const STATS = ['saved', 'pending', 'reimbursed', 'approved'];
+let editId = null;
+function expById(id) { return RAW.find(r => String(r.id) === String(id)); }
+function optList(list, sel) { return list.map(o => '<option' + (o === sel ? ' selected' : '') + '>' + esc(o) + '</option>').join(''); }
+
+function expEdit(id) {
+  const r = expById(id); if (!r) return;
+  editId = id;
+  const rc = String(r.currency || '').toUpperCase();
+  const cats = CATS.includes(r.category) ? CATS : [r.category, ...CATS];
+  const curs = CURS.includes(rc) ? CURS : [rc, ...CURS];
+  const st = r.status || 'saved';
+  const stats = STATS.includes(st) ? STATS : [st, ...STATS];
+  document.getElementById('editRoot').innerHTML =
+    '<div class="emodal-bg" onclick="if(event.target===this)closeEdit()"><div class="emodal">' +
+    '<h3>Edit Expense</h3>' +
+    '<label>Merchant</label><input id="e_merch" value="' + esc(r.merchant || '') + '">' +
+    '<div class="erow"><div><label>Date</label><input id="e_date" type="date" value="' + esc(r.expense_date || '') + '"></div>' +
+    '<div><label>Amount</label><input id="e_amt" type="number" step="0.01" value="' + (Number(r.amount) || 0) + '"></div></div>' +
+    '<div class="erow"><div><label>Currency</label><select id="e_cur">' + optList(curs, rc) + '</select></div>' +
+    '<div><label>Category</label><select id="e_cat">' + optList(cats, r.category || 'Others') + '</select></div></div>' +
+    '<label>Status</label><select id="e_status">' + optList(stats, st) + '</select>' +
+    '<label>Remark</label><textarea id="e_remark" rows="2">' + esc(r.remark || '') + '</textarea>' +
+    '<div class="ebtns"><button class="btn" onclick="closeEdit()">Cancel</button><button class="btn primary" onclick="saveEdit()">Save</button></div>' +
+    '</div></div>';
+}
+function closeEdit() { document.getElementById('editRoot').innerHTML = ''; editId = null; }
+
+async function saveEdit() {
+  if (!editId) return;
+  const body = {
+    merchant: document.getElementById('e_merch').value.trim() || 'Unknown',
+    expense_date: document.getElementById('e_date').value || null,
+    amount: Number(document.getElementById('e_amt').value) || 0,
+    currency: document.getElementById('e_cur').value,
+    category: document.getElementById('e_cat').value,
+    status: document.getElementById('e_status').value,
+    remark: document.getElementById('e_remark').value.trim() || null
+  };
+  try {
+    const res = await fetch('/api/expenses/' + encodeURIComponent(editId), { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    closeEdit(); loadExpenses();
+  } catch (e) { alert('Update failed: ' + e.message); }
+}
+
+async function expDelete(id) {
+  const r = expById(id); if (!r) return;
+  if (!confirm('Delete this expense?\n\n' + (r.merchant || 'Unknown') + ' — ' + money(r.amount, r.currency) + '\n\nIt will be hidden from the dashboard (recoverable).')) return;
+  try {
+    const res = await fetch('/api/expenses/' + encodeURIComponent(id), { method: 'DELETE', headers: authHeaders() });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    loadExpenses();
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+#!/bin/sh
+# ============================================================================
+# Friction SOP §4.5 — local enforcement of branch protection.
+# Blocks DIRECT pushes to protected branches (main / develop) on every machine,
+# even on a free private repo with no server-side protection.
+#
+# Activate once after cloning:  ./setup-git-hooks.ps1   (sets core.hooksPath)
+# Genuine-emergency override:    git push --no-verify    (MUST be logged in docs/WORKLOG.md)
+# ============================================================================
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/develop)
+      branch=${remote_ref#refs/heads/}
+      echo "──────────────────────────────────────────────────────────────"
+      echo " ❌ BLOCKED: direct push to '$branch' is forbidden (Friction SOP §4.5)."
+      echo ""
+      echo "    No one — Owner included — pushes to '$branch' directly."
+      echo "    Push your feature branch instead, then open a PR:"
+      echo "      git push -u origin feature/<you>-<phase>-<desc>"
+      echo ""
+      echo "    Only the Repo Owner or named Deputy merges approved PRs to '$branch'."
+      echo "    Real emergency override (then log it in docs/WORKLOG.md):"
+      echo "      git push --no-verify"
+      echo "──────────────────────────────────────────────────────────────"
+      exit 1
+      ;;
+  esac
+done
+exit 0
