@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "setup-webhook": "node server.js --register-only"
+    "setup-webhook": "node server.js --register-only",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
