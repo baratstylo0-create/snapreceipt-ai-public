@@ -14,14 +14,17 @@ Kickoff: repo set up, Brief signed off, modularization PR opened. No feature cod
 ## Who's on what
 | Person | Claude | Current task | Branch | State |
 |---|---|---|---|---|
-| Jeevan | J1 | Kickoff docs + repo setup | (setup, pre-branch) | in progress |
-| Barat | B1 | Not started — read onboarding, then P3 infra | — | waiting on GO |
-| Mugi | M1 | Not started — read onboarding, then #3 dashboard | — | waiting on GO |
+| Jeevan | J1 | Kickoff docs + repo setup; modularization PR | (setup, pending) | in progress |
+| Barat | B1 | P3 infra — schema migration + model ID verification | feature/barat-p3-infra-schema | PR ready to open; blocked on credentials |
+| Mugi | M1 | Not started — read onboarding, then #3 dashboard | — | waiting on modularization merge |
 
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| Brief GO sign-off needed before any feature branch | Jeevan | OPEN |
+| Credentials needed (BOT_TOKEN, GROQ_KEY, SB_URL, SB_KEY) → fill .env | Jeevan→Barat | OPEN |
+| ADR-007 owner confirmation (qwen vision model substitution) | Jeevan | OPEN |
+| Schema not yet applied in Supabase (waiting on SB credentials) | Barat | OPEN |
+| modularization PR not yet opened/merged (lib/*.js still blocked) | Jeevan | OPEN |
 | GitHub remote + collaborators (Barat, Mugi) not yet created | Jeevan | OPEN (commands ready in HANDOFF.md) |
 | AI monthly cost cap not set (PROJECT_BRIEF §10) | Jeevan | OPEN |
 

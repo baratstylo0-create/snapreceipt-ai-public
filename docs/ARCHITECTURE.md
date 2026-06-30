@@ -78,12 +78,15 @@ Existing columns stay. **New columns (Barat adds to schema.sql at P3):**
 `confidence jsonb` (per-field, for #11), `anomaly jsonb` (flags+reason, for #5), `currency_original text` + `amount_original numeric` + `fx_rate numeric` (for #10), `template_id` (FK to field_templates, for #12).
 
 ### 3.5 Model routing (PROJECT_BRIEF §4)
-| Use | env var | default id (Barat verifies live) |
+Verified live by Barat 2026-07-01 — see DECISIONS ADR-007 for full notes.
+
+| Use | env var | verified id |
 |---|---|---|
-| Vision default | `VISION_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` |
-| Vision escalate | `VISION_MODEL_HEAVY` | `meta-llama/llama-4-maverick-17b-128e-instruct` |
-| Text / agent / anomaly | `TEXT_MODEL` | `llama-3.3-70b-versatile` |
-| Cheap classify / narrate | `CLASSIFY_MODEL` | `openai/gpt-oss-20b` ⚠️ replaces `llama-3.1-8b-instant` (Groq deprecated; decommission 2026-08-16) |
+| Vision default | `VISION_MODEL` | `qwen/qwen3.6-27b` ✅ Production (replaces llama-4-scout — Preview-only; ADR-007) |
+| Vision escalate | `VISION_MODEL_HEAVY` | `qwen/qwen3.6-27b` ✅ (same; llama-4-maverick not listed — monitor for production replacement) |
+| Text / agent / anomaly | `TEXT_MODEL` | `llama-3.3-70b-versatile` ✅ Production |
+| Cheap classify / narrate | `CLASSIFY_MODEL` | `openai/gpt-oss-20b` ✅ Production (ADR-006) |
+
 Escalate vision→heavy when confidence is low or input is a multi-receipt/PDF page.
 
 ## 4. Data flow (end to end)

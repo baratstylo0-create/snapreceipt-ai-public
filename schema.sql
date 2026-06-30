@@ -50,3 +50,36 @@ alter table expenses enable row level security;
 -- When you add multi-tenant auth later, add a policy like:
 --   create policy tenant_read on expenses for select to authenticated
 --     using (account_id = (auth.jwt() ->> 'account_id'));
+
+-- ============================================================================
+-- Migration M1-P3: new columns for OCR confidence, anomaly, FX, and templates
+-- Barat · 2026-07-01 · ARCHITECTURE §3.4
+-- ============================================================================
+
+-- field_templates: one row per account's imported CSV template (#12)
+create table if not exists field_templates (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  name        text        not null default 'default',   -- e.g. "My Expense Sheet"
+  columns     jsonb       not null default '[]'::jsonb, -- FieldSpec.columns array
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create unique index if not exists field_templates_account_name_idx
+  on field_templates (account_id, name);
+
+alter table field_templates enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied.
+
+-- New columns on expenses (idempotent: each uses ADD COLUMN IF NOT EXISTS)
+alter table expenses
+  add column if not exists confidence        jsonb,       -- { field_key: "high"|"low"|"medium" }  (#11)
+  add column if not exists anomaly           jsonb,       -- { flagged: bool, reason: text }        (#5)
+  add column if not exists currency_original text,        -- source currency before FX conversion   (#10)
+  add column if not exists amount_original   numeric,     -- amount in the original currency        (#10)
+  add column if not exists fx_rate           numeric,     -- rate applied (original → DEFAULT_CURRENCY) (#10)
+  add column if not exists template_id       uuid references field_templates(id) on delete set null; -- (#12)
+
+create index if not exists expenses_template_idx on expenses (account_id, template_id)
+  where template_id is not null;

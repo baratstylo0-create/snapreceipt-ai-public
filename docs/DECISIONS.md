@@ -31,6 +31,18 @@
 **Decision:** Switch the cheap-classify/narrate slot (#6 categorization, report narration) to `openai/gpt-oss-20b`. Updated `.env.example`, `ARCHITECTURE.md` §3.5, `PROJECT_BRIEF.md` §4.
 **Consequences:** No code depends on the old ID (none written yet). Barat must confirm `openai/gpt-oss-20b` is live at wire-up. General rule reinforced: **all model IDs come from `.env`, never hardcoded**, so future deprecations are a one-line config change. Set a reminder before 2026-08-16 if anything still points at the old model.
 
+## ADR-007 · VISION_MODEL = qwen/qwen3.6-27b (llama-4-scout is Preview-only; llama-4-maverick not listed)
+**Date:** 2026-07-01 · **Status:** Accepted · **Author:** Barat (verified at wire-up per BARAT.md §1)
+**Context:** Barat verified all model IDs against `console.groq.com/docs/models` on 2026-07-01.
+Findings:
+- `meta-llama/llama-4-scout-17b-16e-instruct` — **Preview only**; docs say "intended for evaluation purposes only and should not be used in production; may be discontinued at short notice."
+- `meta-llama/llama-4-maverick-17b-128e-instruct` — **Not listed** anywhere in the current model docs. Likely not available or not yet GA on Groq.
+- `qwen/qwen3.6-27b` — **Production** vision model; 27B params; supports images, tool use, JSON mode, 131K ctx, up to 5 images/req.
+- `llama-3.3-70b-versatile` ✅ Production. `openai/gpt-oss-20b` ✅ Production (ADR-006 confirmed).
+**Decision:** Switch `VISION_MODEL` and `VISION_MODEL_HEAVY` to `qwen/qwen3.6-27b`. Updated `.env.example` and `ARCHITECTURE.md §3.5`. Since there is currently no heavier production vision model, both slots use the same model; escalation means higher `max_tokens` / retry with more context.
+**Owner action required:** Jeevan to confirm this substitution is acceptable. If a production llama-4-maverick equivalent ships on Groq, update `VISION_MODEL_HEAVY` and log in WORKLOG.
+**Consequences:** Code using `VISION_MODEL`/`VISION_MODEL_HEAVY` env vars requires no change (ADR-006 general rule: IDs always from `.env`). Reassess when Groq graduates llama-4-scout or releases a production-grade heavy vision model.
+
 ## ADR-005 · Currency conversion is NOT an LLM task
 **Date:** 2026-07-01 · **Status:** Accepted
 **Context:** #10 needs accurate FX rates.
