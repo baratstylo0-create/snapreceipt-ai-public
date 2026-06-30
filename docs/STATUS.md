@@ -2,7 +2,7 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P2 → P3 transition.** ✅ Brief GO. ✅ Repo published. ✅ **Modularization refactor done** (server.js 311→31; lib/ + routes/ + tests; 8/8 green) on `feature/jeevan-p2-modularize-server` — PR open, awaiting **Jeevan's merge**. Once merged, parallel feature work begins from the modularized base.
+**P3 — Data & Infra.** ✅ Brief GO. ✅ Repo published. ✅ **Modularization MERGED to `main`** (PR #1 + #2; server.js 311→31; lib/ + routes/ + tests; 8/8 green). Parallel work now open from the modularized base: Barat fills `lib/` infra, then Jeevan's features begin.
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
