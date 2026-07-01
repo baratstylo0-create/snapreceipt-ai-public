@@ -33,8 +33,14 @@ module.exports = function mountReview(app) {
       const note = req.body && req.body.note ? String(req.body.note).slice(0, 500) : null;
 
       const existing = await supabase.sbSelect('expenses', { eq: { id: req.params.id } });
-      const cur = existing[0] || {};
-      const anomaly = (cur.anomaly && typeof cur.anomaly === 'object') ? cur.anomaly : {};
+      const cur = existing[0];
+      if (!cur) return res.status(404).json({ error: 'expense not found' });
+      // Status machine (saved → needs_review → approved|rejected): only a pending expense may be
+      // decided. Reject re-decision of an already-approved/rejected row or a never-flagged 'saved' one.
+      if (cur.status !== 'needs_review') {
+        return res.status(409).json({ error: 'expense is not pending review (status=' + cur.status + ')' });
+      }
+      const anomaly = (cur.anomaly && typeof cur.anomaly === 'object' && !Array.isArray(cur.anomaly)) ? cur.anomaly : {};
       anomaly.review = { decision, note, at: new Date().toISOString() };
 
       const rows = await supabase.sbUpdate('expenses', { id: req.params.id }, { status, anomaly });

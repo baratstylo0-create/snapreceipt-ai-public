@@ -36,7 +36,7 @@ test('GET /api/review lists needs_review expenses', async () => {
 test('POST approve -> status approved + audit in anomaly', async () => {
   const os = supabase.sbSelect, ou = supabase.sbUpdate;
   let patch = null;
-  supabase.sbSelect = async () => ([{ id: 'e1', anomaly: { reasons: [{ type: 'outlier' }] } }]);
+  supabase.sbSelect = async () => ([{ id: 'e1', status: 'needs_review', anomaly: { reasons: [{ type: 'outlier' }] } }]);
   supabase.sbUpdate = async (t, sel, p) => { patch = p; return [{ id: 'e1', ...p }]; };
   try {
     const { status, body } = await call('POST', '/api/review/e1', { decision: 'approve' });
@@ -50,7 +50,7 @@ test('POST approve -> status approved + audit in anomaly', async () => {
 test('POST reject -> status rejected + note recorded', async () => {
   const os = supabase.sbSelect, ou = supabase.sbUpdate;
   let patch = null;
-  supabase.sbSelect = async () => ([{ id: 'e2' }]);
+  supabase.sbSelect = async () => ([{ id: 'e2', status: 'needs_review' }]);
   supabase.sbUpdate = async (t, sel, p) => { patch = p; return [{ id: 'e2', ...p }]; };
   try {
     const { status } = await call('POST', '/api/review/e2', { decision: 'reject', note: 'not a business expense' });
@@ -72,11 +72,58 @@ test('POST invalid decision -> 400 (no DB write)', async () => {
 
 test('POST DB error -> 502', async () => {
   const os = supabase.sbSelect, ou = supabase.sbUpdate;
-  supabase.sbSelect = async () => ([{ id: 'e4' }]);
+  supabase.sbSelect = async () => ([{ id: 'e4', status: 'needs_review' }]);
   supabase.sbUpdate = async () => { throw new Error('db down'); };
   try {
     const { status, body } = await call('POST', '/api/review/e4', { decision: 'approve' });
     assert.strictEqual(status, 502);
     assert.deepStrictEqual(body, { error: 'review update failed' });
+  } finally { supabase.sbSelect = os; supabase.sbUpdate = ou; }
+});
+
+// --- status-machine integrity regression tests (QA §4.8) ---
+
+test('POST on an already-rejected expense -> 409, no re-decision (no DB write)', async () => {
+  const os = supabase.sbSelect, ou = supabase.sbUpdate;
+  supabase.sbSelect = async () => ([{ id: 'e5', status: 'rejected' }]);
+  supabase.sbUpdate = async () => { throw new Error('must not write'); };
+  try {
+    const { status, body } = await call('POST', '/api/review/e5', { decision: 'approve' });
+    assert.strictEqual(status, 409);
+    assert.match(body.error, /not pending review/);
+  } finally { supabase.sbSelect = os; supabase.sbUpdate = ou; }
+});
+
+test('POST on a never-flagged saved expense -> 409 (cannot jump straight to approved)', async () => {
+  const os = supabase.sbSelect, ou = supabase.sbUpdate;
+  supabase.sbSelect = async () => ([{ id: 'e6', status: 'saved' }]);
+  supabase.sbUpdate = async () => { throw new Error('must not write'); };
+  try {
+    const { status } = await call('POST', '/api/review/e6', { decision: 'approve' });
+    assert.strictEqual(status, 409);
+  } finally { supabase.sbSelect = os; supabase.sbUpdate = ou; }
+});
+
+test('POST on a nonexistent id -> 404 (not a fabricated 200)', async () => {
+  const os = supabase.sbSelect, ou = supabase.sbUpdate;
+  supabase.sbSelect = async () => ([]); // not found
+  supabase.sbUpdate = async () => { throw new Error('must not write'); };
+  try {
+    const { status, body } = await call('POST', '/api/review/nope', { decision: 'approve' });
+    assert.strictEqual(status, 404);
+    assert.match(body.error, /not found/);
+  } finally { supabase.sbSelect = os; supabase.sbUpdate = ou; }
+});
+
+test('pre-existing anomaly as an array does not silently drop the audit record', async () => {
+  const os = supabase.sbSelect, ou = supabase.sbUpdate;
+  let patch = null;
+  supabase.sbSelect = async () => ([{ id: 'e7', status: 'needs_review', anomaly: [] }]); // array, not object
+  supabase.sbUpdate = async (t, sel, p) => { patch = p; return [{ id: 'e7', ...p }]; };
+  try {
+    const { status } = await call('POST', '/api/review/e7', { decision: 'reject', note: 'n' });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(Array.isArray(patch.anomaly), false);
+    assert.strictEqual(patch.anomaly.review.decision, 'reject'); // audit survives serialization
   } finally { supabase.sbSelect = os; supabase.sbUpdate = ou; }
 });
