@@ -19,6 +19,7 @@ const EXCEL_ROW_LIMIT = 10000;
 
 module.exports = function mountExcel(app) {
   app.get('/api/excel', checkDash, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
     try {
       const from = isISO(req.query.from) ? String(req.query.from) : null;
       const to = isISO(req.query.to) ? String(req.query.to) : null;
@@ -28,6 +29,9 @@ module.exports = function mountExcel(app) {
         // never appear in an exported ledger, matching the rule applied to #8.
         extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.desc', limit: EXCEL_ROW_LIMIT,
       });
+      // Truncation reflects the raw DB row cap, NOT the post-date-filter count —
+      // a full-history export that hit the cap is truncated even if the date
+      // window later narrows it.
       const truncated = rows.length >= EXCEL_ROW_LIMIT;
 
       const filtered = rows.filter((e) => {
@@ -46,7 +50,6 @@ module.exports = function mountExcel(app) {
       // literals) -- never raw query input -- to avoid a header-injection vector.
       const filename = 'expenses-' + (from || 'all') + '-' + (to || new Date().toISOString().slice(0, 10)) + '.xlsx';
 
-      res.set('Access-Control-Allow-Origin', '*');
       res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
       if (truncated) res.set('X-Truncated', 'true');

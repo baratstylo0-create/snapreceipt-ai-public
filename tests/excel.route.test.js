@@ -125,9 +125,25 @@ test('route: DB error -> graceful 502 JSON, no crash, no internal leak', async (
   try {
     const { status, headers, buf } = await callExcel();
     assert.strictEqual(status, 502);
+    assert.strictEqual(headers.get('access-control-allow-origin'), '*');
     assert.match(headers.get('content-type'), /json/);
     const body = JSON.parse(buf.toString('utf8'));
     assert.deepStrictEqual(body, { error: 'export failed' });
     assert.ok(!buf.toString('utf8').includes('secret detail'), 'must not leak the real error message');
   } finally { supabase.sbSelect = origSelect; }
+});
+
+test('route: an array-valued from param (?from=a&from=b) is safely ignored, not applied or crashed', async () => {
+  const origSelect = supabase.sbSelect;
+  const origSpec = templates.getFieldSpec;
+  supabase.sbSelect = async () => ([{ merchant: 'A', amount: 1, expense_date: '2026-06-01' }]);
+  templates.getFieldSpec = async () => FIELD_SPEC;
+  try {
+    // Express parses repeated params into an array; isISO must treat it as invalid -> no bound.
+    const { status, buf } = await callExcel('?from=2026-01-01&from=2026-12-31');
+    assert.strictEqual(status, 200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    assert.strictEqual(wb.worksheets[0].rowCount, 2); // header + the one row (array bound ignored, not applied)
+  } finally { supabase.sbSelect = origSelect; templates.getFieldSpec = origSpec; }
 });
