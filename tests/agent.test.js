@@ -47,6 +47,40 @@ test('getReport rejects a bad period and a non-ISO date', () => {
   assert.throws(() => tool.validate({ period: 'day', from: '2026-13-99' }), /date/);
 });
 
+// QA (Tier-2 adversarial pass, PR #25): getReport surfaces truncated/fetched_count when the
+// ROW_FETCH_LIMIT (10000) money-safety cap is hit (see the test above), but listExpenses and
+// topMerchants share the exact same capped loadExpenses() query and DO NOT surface any
+// truncation signal at all. Past the cap, topMerchants' rankings/totals and listExpenses'
+// listing silently reflect a partial dataset with nothing telling the model (which is
+// instructed to "never invent numbers") or the end user that data is missing. This is the
+// same class of bug the WORKLOG says was already fixed for getReport — the fix was not
+// carried over to its sibling tools. Expected to FAIL until they also surface the flags.
+test('QA: topMerchants must signal truncation when the row cap is hit (currently silent)', async () => {
+  const tool = TOOLS.find(t => t.name === 'topMerchants');
+  const many = Array.from({ length: 10000 }, (_, i) => ({
+    merchant: i < 9999 ? 'Big' : 'Small', expense_date: '2026-06-01', amount: 1, status: 'saved',
+  }));
+  const out = await tool.run(tool.validate({}), { sbSelect: async () => many });
+  assert.ok(out && typeof out === 'object' && !Array.isArray(out) && 'truncated' in out,
+    'topMerchants result must carry a truncated/fetched_count signal when loadExpenses() is capped.');
+  assert.equal(out.truncated, true);
+  assert.equal(out.fetched_count, 10000);
+  assert.ok(Array.isArray(out.items) && out.items.length > 0, 'the ranked merchants live under out.items');
+});
+
+test('QA: listExpenses must signal truncation when the row cap is hit (currently silent)', async () => {
+  const tool = TOOLS.find(t => t.name === 'listExpenses');
+  const many = Array.from({ length: 10000 }, (_, i) => ({
+    merchant: 'M', expense_date: '2026-06-01', amount: 1, status: 'saved',
+  }));
+  const out = await tool.run(tool.validate({ limit: 500 }), { sbSelect: async () => many });
+  assert.ok(out && typeof out === 'object' && !Array.isArray(out) && 'truncated' in out,
+    'listExpenses must carry a truncated/fetched_count signal when loadExpenses() is capped.');
+  assert.equal(out.truncated, true);
+  assert.equal(out.fetched_count, 10000);
+  assert.ok(Array.isArray(out.items) && out.items.length === 500, 'the listing lives under out.items, clamped to limit');
+});
+
 test('buildToolSpecs emits one JSON-schema entry per registered tool', () => {
   const specs = buildToolSpecs();
   assert.equal(specs.length, TOOLS.length);
@@ -59,9 +93,11 @@ test('listExpenses filters, projects (no ai_raw), excludes rejected, clamps limi
   assert.equal(clean.limit, 500); // clamped to LIST_LIMIT_MAX
   const withRaw = [{ merchant: 'Shell', expense_date: '2026-06-03', amount: 50, currency: 'USD', category: 'Fuel & Auto', status: 'saved', remark: 'x', ai_raw: { secret: 1 } }];
   const out = await tool.run(clean, { sbSelect: async () => withRaw });
-  assert.equal(out.length, 1);
-  assert.equal(out[0].merchant, 'Shell');
-  assert.equal('ai_raw' in out[0], false); // projection drops ai_raw
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0].merchant, 'Shell');
+  assert.equal('ai_raw' in out.items[0], false); // projection drops ai_raw
+  assert.equal(out.truncated, false);            // under the cap
+  assert.equal(out.fetched_count, 1);
 });
 
 test('listExpenses defaults limit and rejects a non-ISO from', () => {
@@ -82,10 +118,11 @@ test('topMerchants aggregates spend desc, excludes rejected, uses toAmount, clam
   const clean = tool.validate({ limit: 100 });
   assert.equal(clean.limit, 20); // clamped to TOP_LIMIT_MAX
   const out = await tool.run(clean, { sbSelect: async () => rows });
-  assert.deepEqual(out[0], { merchant: 'Shell', total: 80, count: 2 });
-  assert.equal(out[1].merchant, 'Tesco');
-  assert.equal(out.find(m => m.merchant === 'Bad'), undefined); // garbage amount contributed nothing
-  assert.equal(out.find(m => m.merchant === 'Ghost'), undefined); // rejected excluded
+  assert.deepEqual(out.items[0], { merchant: 'Shell', total: 80, count: 2 });
+  assert.equal(out.items[1].merchant, 'Tesco');
+  assert.equal(out.items.find(m => m.merchant === 'Bad'), undefined); // garbage amount contributed nothing
+  assert.equal(out.items.find(m => m.merchant === 'Ghost'), undefined); // rejected excluded
+  assert.equal(out.truncated, false);            // under the cap
 });
 
 // A scripted fake chat: yields queued responses in order. Each is a full assistant message.

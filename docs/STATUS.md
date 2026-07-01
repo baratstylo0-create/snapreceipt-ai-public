@@ -14,7 +14,7 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 | Person | Claude | Current task | State |
 |---|---|---|---|
 | Jeevan | J1 | #9 dashboard agent built (Phase 1, tool-calling + stateless multi-turn), opening PR for Tier-2 QA → then #7 mass upload | #13/#8/#2 merged; #9 ready for QA |
-| Barat | — | Ingestion wiring **merged (PR #22)**. Cross-lane ask from #9: add an **additive** `groqChatTools()` to `lib/groq.js` (full assistant message incl. `tool_calls`, does not change existing `groqChat`) — see `docs/ARCHITECTURE.md` §3.2 for the exact signature. Non-blocking (routes/agent.js's live path is dark until it lands; all tests inject a fake chat). Also: apply `category_corrections` in Supabase (non-blocking, from #6/#22) | done, one new cross-lane ask |
+| Barat | — | Ingestion wiring **merged (PR #22)**. `category_corrections` applied + REST-verified live in Supabase (2026-07-01). Cross-lane ask from #9: add an **additive** `groqChatTools()` to `lib/groq.js` (full assistant message incl. `tool_calls`, does not change existing `groqChat`) — see `docs/ARCHITECTURE.md` §3.2 for the exact signature. Non-blocking (routes/agent.js's live path is dark until it lands; all tests inject a fake chat). Barat's only remaining own item: #1 PDF ingestion (his call) | done, one new cross-lane ask |
 | Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
 
 ## Feature status (personal M1)
@@ -28,7 +28,6 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 | PR #24 (docs refresh) awaiting Owner merge (self-merge auto-blocked) | Owner | OPEN |
 | #9 PR not yet opened — open + dispatch independent Tier-2 QA | J1 | next action |
 | Barat: additive `groqChatTools()` in `lib/groq.js` (#9 cross-lane, non-blocking) | Barat | tracked, non-blocking |
-| Barat: apply `category_corrections` in Supabase (non-blocking) | Barat | tracked, non-blocking |
 | #6 categorizer hardening (GitHub issue #14) | Jeevan | tracked, non-blocking |
 | `/api/templates` label sanitization + control-char rejection (GitHub issue #17) | Jeevan/Mugi | tracked, non-blocking |
 | exceljs transitive `uuid` audit bump (GitHub issue #20) | Jeevan | tracked, non-blocking |
