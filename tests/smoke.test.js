@@ -8,7 +8,7 @@ test('all modules import without throwing', () => {
     require('../lib/supabase'); require('../lib/telegram'); require('../lib/money');
     require('../lib/categorize'); require('../lib/ocr'); require('../lib/bot');
     require('../routes/webhook'); require('../routes/expenses');
-    require('../routes/receipt'); require('../routes/misc');
+    require('../routes/receipt'); require('../routes/templates'); require('../routes/misc');
   });
 });
 
