@@ -1,6 +1,12 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-011 · Build a reference frontend prototype before Mugi's production UI/UX
+**Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
+**Context:** All progress so far is backend/infra; the live dashboard (`public/index.html`) is unchanged from day one and surfaces none of the new features (categorization, anomaly review queue, reports, currency, template import). Handing Mugi a spec alone risks a UI that misses functions/flows.
+**Decision:** Once the core backend features are merged, Jeevan builds a **rough, functional reference frontend** that surfaces every feature's buttons, functions, and displays (template import, category pills, low-confidence flags, the anomaly review queue with approve/reject, reports view, multi-currency totals, Excel export). It is a *design brief in code* — not the final UI. **Mugi** then designs the production UI/UX (#3) from it. Built after the backend lands, not before (avoids churn).
+**Consequences:** Mugi designs from a concrete, working reference instead of prose; the reference doubles as an integration smoke-test of the whole `/api/*` surface.
+
 ## ADR-010 · One codebase + capability flags (personal-first), not a personal/business fork
 **Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
 **Context:** M1 was labelled "personal version," but the highest-value features (tax recovery, bank

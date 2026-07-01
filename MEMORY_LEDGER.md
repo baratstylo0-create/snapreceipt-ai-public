@@ -24,7 +24,10 @@ SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashbo
 - Modularize BEFORE feature work (ADR-001). No feature code until PROJECT_BRIEF signed GO.
 - gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
 
-## Status (2026-07-01)
+## Status (2026-07-01, J1 session end)
+**P4 features.** MERGED to main: #12 template engine (PR#9), **#6 categorization (PR#10)**, **#5 anomaly + ADR-010 (PR#11)**, #10 currency. `npm test` main = 76. Open PRs: **#8** reports (needs QA re-review), **#12** Barat OCR (CHANGES REQUESTED — Critical unterminated-`<think>` parse bug → Barat fixes on branch), **#13** Barat /api/templates (unreviewed, next). #11's Critical review-queue status-machine bug was found by QA + fixed by J1. #6 hardening tracked in GitHub issue #14. ADR-011: build a rough reference frontend for Mugi after backend lands. Merge authority delegated to J1/J2. Next: review #13 → #8 → Barat's #12 fix → unblock Barat ingestion wiring → Jeevan #2/#9/#7. Full detail: `docs/HANDOFF.md` (J1 session-end block at top).
+
+## Status (earlier — 2026-07-01)
 **P4 features underway.** PR #9 (templates #12 FieldSpec, Barat) **MERGED** to `main`. Open: **PR #8** reports (QA fixes pushed, re-review) + **PR #6** categorization (J2 — LLM-supervised learning categorizer, 50/50 tests, `category_corrections` migration in `db/` handed to Barat; code degrades gracefully until applied). Next for Jeevan after #6/#8 land: **#5 anomaly** (duplicates + personal-expense admin accept/reject queue — reuses #6's `flagged` field). Barat: apply the migration + wire `categorizeLineItems` into `lib/ocr.js`. `npm test` on categorize branch = 50/50.
 Modularization MERGED to `main` (PR #1 + #2). `main` = modularized: server.js 31 lines + lib/* + routes/* + tests; `npm test` 8/8. `npm install` needed after clone (node_modules git-ignored). Direct push to main blocked (pre-push hook) — branch + PR only.
 Next: Barat fills lib/ infra (groq/supabase/templates) off main + runs schema + confirms vision routing (ADR-007); then Jeevan's features. Mugi deferred. See `docs/HANDOFF.md` for exact next actions.
