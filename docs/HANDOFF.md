@@ -21,12 +21,12 @@
 | PR | Feature | State |
 |---|---|---|
 | #8 | reports (#8) | QA fixes pushed — needs QA re-review, then merge |
-| #12 | Barat OCR (#4/#1/#11) | CHANGES REQUESTED (Critical) — Barat fixing on branch |
+| #12 | Barat OCR (#4/#1/#11) | ✅ MERGED — Critical fixed by Barat (commit 22bf56e), J1 re-reviewed + merged. main = 91 tests. |
 | #13 | Barat /api/templates (#12) | Not reviewed yet — next in queue |
 
 ### EXACT NEXT ACTIONS for J2 (in order)
 1. **Review PR #13** (Tier-2, untrusted CSV) → merge if clean. Then **re-review PR #8** (reports) → merge; after it merges add `status=neq.rejected` to report/Excel totals (from #5).
-2. **When Barat pushes his #12 fix:** re-review PR #12 → merge. #10+#11 already merged, so #12 is the LAST blocker → then **ping Barat to start the ingestion wiring** (categorizeLineItems + detectAnomalies + convertCurrency into `lib/ocr.js`/`lib/bot.js`; apply `db/2026-07-01-category_corrections.sql`).
+2. **✅ DONE — PR #12 merged.** #10+#11+#12 all on `main`, so **Barat is UNBLOCKED**: he starts the ingestion wiring now (categorizeLineItems + detectAnomalies + convertCurrency into `lib/ocr.js`/`lib/bot.js`; apply `db/2026-07-01-category_corrections.sql`). That wiring is Tier-2 → review before merge.
 3. **Jeevan's remaining features** (each = branch + PR + QA on money/AI surfaces): **#2 Excel** (reads FieldSpec, unblocked), **#9 dashboard agent**, **#7 mass upload**.
 4. **Then ADR-011 reference frontend** for Mugi.
 5. **Merge conflicts:** every feature PR touches WORKLOG/STATUS/HANDOFF/MEMORY. WORKLOG = keep-both (append-only, never drop an entry). State docs (STATUS/HANDOFF/MEMORY) = take `--theirs` (main) then refresh once.
