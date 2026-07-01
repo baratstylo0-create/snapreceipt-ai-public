@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-sop-qa-debug
+- **Files:** `docs/FRICTION_PROJECT_SOP.md` (§4.8), `docs/roles/QA.md`, `docs/roles/DEBUG.md`, `docs/DECISIONS.md` (ADR-009).
+- **What changed:** Codified QA + Debug agents as standard practice (SOP §4.8 + two playbooks). QA = adversarial tester whose output is committed tests + eval cases; Debug = systematic fixer driven by a failing repro; the QA→Debug loop hardens Tier-2 + AI surfaces. Right-sized (skip trivial).
+- **What's next:** first live QA target = the #10 currency PR (already partially done by the Tier-2 review). Tier-1 (docs/process) → Owner may fast-track merge.
+- **Assumptions:** none new.
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p2-modularize-server
 - **Files:** created `lib/{money,categorize,http,config,groq,supabase,telegram,ocr,bot}.js`, `routes/{webhook,expenses,receipt,misc}.js`, `tests/{money,categorize,http,smoke}.test.js`; slimmed `server.js` 311→31 lines (wiring only); added `test` script + ran `npm install`.
 - **What changed:** Executed ADR-001 modularization (plan `docs/plans/2026-07-01-modularize-server.md`). Behaviour-preserving — all logic moved out of single-file server.js into focused modules behind the frozen interfaces (ARCHITECTURE §3). No new runtime deps. **Tests: 8/8 pass** (6 unit + 2 smoke). `node server.js` boots, `/health` OK. Note: cluster-2 subagent stalled after `telegram.js`; controller finished `ocr.js`/`bot.js` + cluster 3 inline.
