@@ -61,14 +61,45 @@ test('API failure → keeps original amount, ok:false (never guesses a rate)', a
   } finally { restore(); }
 });
 
-test('invalid currency code → ok:false, no API call', async () => {
+test('invalid currency code → ok:false (rounded), no API call', async () => {
   _resetCache();
   const getCalls = stubFetch({ MYR: 4.5 });
   try {
-    const r = await convertCurrency(10, 'US', 'MYR'); // "US" is not a 3-letter code
+    const r = await convertCurrency(10.005, 'US', 'MYR'); // "US" is not a 3-letter code
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.reason, 'invalid_currency');
-    assert.strictEqual(r.amount, 10);
+    assert.strictEqual(r.amount, 10.01); // fail-safe amount is rounded (M2)
     assert.strictEqual(getCalls(), 0);
+  } finally { restore(); }
+});
+
+test('negative amount (refund) converts correctly', async () => {
+  _resetCache();
+  stubFetch({ MYR: 4.5 });
+  try {
+    const r = await convertCurrency(-20, 'USD', 'MYR');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.amount, -90); // -20 * 4.5
+  } finally { restore(); }
+});
+
+test('zero amount converts to zero (no divide-by-zero, still ok)', async () => {
+  _resetCache();
+  stubFetch({ MYR: 4.5 });
+  try {
+    const r = await convertCurrency(0, 'USD', 'MYR');
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.amount, 0);
+  } finally { restore(); }
+});
+
+test('unknown but valid-format code (Frankfurter has no rate) → ok:false, fails safe', async () => {
+  _resetCache();
+  stubFetch({}); // response has no rates[to] → _fetchRate throws
+  try {
+    const r = await convertCurrency(10, 'USD', 'XYZ');
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.amount, 10); // original preserved
+    assert.strictEqual(r.rate, null);
   } finally { restore(); }
 });
