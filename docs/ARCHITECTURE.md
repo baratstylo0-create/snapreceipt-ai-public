@@ -61,9 +61,14 @@ OCR (#4), Excel (#2), and the dashboard all read `FieldSpec.columns` to know **w
 ```js
 // groqChat(messages, { model?, max_tokens?, temperature? }) -> string
 // groqVision(imageUrlOrBuffer, promptText, { model?, max_tokens? }) -> string   // returns raw model text
+// groqChatTools(messages, { model?, max_tokens?, temperature?, tools?, tool_choice? })
+//   -> { role:'assistant', content:string|null, tool_calls?:[...] }   // full message, for native function-calling
+//   ADDITIVE — does not change groqChat (ocr/bot/categorize depend on it unchanged). Consumed by #9's
+//   runAgent() (lib/agent.js). Cross-lane: added by Barat; see docs/plans/2026-07-01-dashboard-agent.md
+//   "Cross-lane dependency" section for the exact signature if not yet merged.
 // MODEL_ROUTES = { visionDefault, visionEscalate, text, classify }            // ids resolved from .env
 ```
-Anyone calling vision (#7 mass upload, #9 agent) goes through these — never call the Groq HTTP API directly.
+Anyone calling vision (#7 mass upload) or native tool-calling (#9 agent) goes through these — never call the Groq HTTP API directly.
 
 ### 3.3 Supabase layer — `lib/supabase.js`
 ```js
@@ -95,6 +100,22 @@ slots use `qwen/qwen3.6-27b`**; "escalate" means the SAME model with higher `max
 context (e.g. on a multi-receipt or PDF page), not a model swap. Promote scout to `VISION_MODEL_HEAVY`
 only if Groq graduates it to Production — announce in WORKLOG first. qwen runs a `<think>` pass, so
 OCR calls need a generous `max_tokens` (or thinking disabled).
+
+### 3.6 Dashboard agent — `lib/agent.js` (#9, Phase 1: read-only)
+```js
+// TOOLS: [{ name, kind:'read', destructive:false, description, parameters, validate(args), run(clean, {sbSelect}) }]
+//   Allow-listed read tools ONLY — getReport, listExpenses, topMerchants. The model may never execute
+//   anything; it can only name a registered tool + args, which the server validates then runs itself.
+// buildToolSpecs() -> JSON-schema tool specs for the Groq `tools` param (one per TOOLS entry).
+// runAgent(messages, { chat, sbSelect }) -> { answer, toolCalls:[{name,args}], iterations }
+//   Bounded native tool-calling loop (MAX_ITERATIONS=6, then tool_choice forced to 'none' for a final
+//   answer). Stateless — the caller's transcript holds only user/assistant text turns; runAgent owns
+//   the system prompt. Model output is untrusted: unknown tool / invalid args / bad JSON args all
+//   become a structured `{error}` tool-result fed back to the model (self-correct), never a throw.
+```
+`routes/agent.js` (`POST /api/agent`) is the thin HTTP adapter: `checkDash` auth, transcript caps
+(20 messages / 12k chars → 413), malformed body → 400, upstream failure → 502 (no leak). No session
+state persisted server-side — the dashboard client resends the running transcript each request.
 
 ## 4. Data flow (end to end)
 `import CSV template → templates.js stores FieldSpec → receipt in (Telegram/upload, image/PDF/multi) → [massupload.splitReceipts if multi] → ocr.extractReceipt(img, fieldSpec) via groq → confidence.scoreConfidence → categorize + anomaly + currency.convert → supabase insert → dashboard / reports / excel render per FieldSpec`
