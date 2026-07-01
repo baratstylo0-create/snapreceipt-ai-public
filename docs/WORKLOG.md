@@ -20,6 +20,74 @@
 - **What's next:** open PR (Tier-2 — untrusted CSV over HTTP → non-author review). Independent of the OCR PR (different files); both touch `docs/WORKLOG.md`/`STATUS.md` so expect a keep-both merge there.
 - **Assumptions:** single-account v1 (writes scope to `cfg.ACCOUNT_ID` via the supabase helpers, per the #12 limitation already logged). `server.js` touched for one mount line (shared wiring file — minimal, announced here per SOP §4.6).
 
+## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-handoff-update
+- **What changed:** Re-reviewed Barat's #12 Critical fix (unterminated `<think>` → `{}` verified, 43/43) → **APPROVE + MERGED PR #12**. Synced his branch to main (kept-both WORKLOG, `--theirs` STATUS). `main` = **91 tests**. #4 OCR + #11 confidence now live → **Barat unblocked for ingestion wiring**. Refreshed HANDOFF/STATUS.
+- **What's next (J2):** review #13 → re-review #8 → Jeevan #2/#9/#7. Ping Barat: he's unblocked.
+- **Assumptions:** none new.
+
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ocr (PR #12 review response)
+- **Files:** `lib/ocr.js`, `lib/confidence.js`, `tests/ocr.test.js`, `tests/confidence.test.js`.
+- **What changed:** Fixed Jeevan's Tier-2 CRITICAL + 2 QA nice-to-adds on PR #12:
+  1. **CRITICAL — `parseModelJson` unterminated `<think>`:** the paired-tag strip left an *opened-but-never-closed* `<think>` (qwen truncated mid-reasoning) in place, then brace-scanning grabbed a `{...}`-shaped EXAMPLE from the reasoning text and accepted it as the real extraction. Fix: after stripping paired blocks, if any `<think>` remains, **return `{}`** (unusable) instead of scanning the reasoning (SOP §7.3). Added the exact failing test (`'<think>...a receipt might look like {"merchant":"X","amount":1}...'` → `{}`), plus cut-off-with-no-braces, last-block-truncated, and a sanity closed-think case.
+  2. **QA — garbage confidence stays low:** hardened `isPresent` so a malformed object/array value for a text/date/category field scores `low` (never `high` by accident); added a garbage/malformed test.
+  3. **QA — getFieldSpec-throws graceful:** already graceful at the call site — `expenseFromPhoto` wraps `getFieldSpec` in its try/catch, so a DB error becomes the safe "couldn't read it" reply. `getFieldSpec` lives in the merged `lib/templates.js` (not this branch's file), so no change made here.
+  - **Tests: 43/43 pass** (41 + 2 new). Ready for Jeevan's re-review + merge.
+- **What's next:** on merge (+ #5 anomaly), Barat is unblocked for the ingestion wiring in `lib/ocr.js` + `lib/bot.js`.
+- **Assumptions:** unchanged.
+
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ocr
+- **Files:** rewrote `lib/ocr.js`; created `lib/confidence.js` (#11), `tests/ocr.test.js`, `tests/confidence.test.js`.
+- **What changed:**
+  - **`lib/ocr.js` — FieldSpec-driven OCR (#4).** New frozen export `extractReceipt(image, fieldSpec, opts) -> { fields, rawParsed, raw }` (ARCHITECTURE §2/§3.1/§4): builds the extraction prompt dynamically from `getFieldSpec(account).columns` so it extracts **only the customer's fields** (no hardcoded schema); coerces each value by declared type (date→ISO, currency/number→Number, category→canonical set, text→capped string).
+    - **Security (SOP §7.3):** system prompt separated from the untrusted image; model told to treat image text as data and never obey embedded instructions; **output treated as untrusted** — `<think>` stripped, defensive JSON parse (garbage/array/truncated → `{}`), and **only FieldSpec keys are read** (extra keys the model volunteers are dropped — tested with an `evil_injected` key).
+    - **qwen `<think>` (ADR-007):** `OCR_MAX_TOKENS` defaults to 2500 (env-overridable) so reasoning tokens don't truncate the JSON.
+    - `expenseFromPhoto` (Telegram entry, unchanged signature so `lib/bot.js` is untouched) refactored to `getFieldSpec → extractReceipt → scoreConfidence → map to expense row`; now stores `confidence` (jsonb) + `anomaly` (when a required field is low) + full extracted object in `ai_raw`, and warns the sender on low confidence.
+  - **`lib/confidence.js` — #11.** `scoreConfidence(fieldSpec, rawParsed) -> { perField, low, flagged, reason }`. Never silently guesses: missing/empty (and money `0`) → `low`; a low **required** field sets `flagged` so it's surfaced for review, not hidden.
+  - **Tests: 41/41 pass** (13 new; hermetic — `global.fetch` stub for the Groq call, same pattern as currency/templates).
+  - **Live end-to-end verified** against real qwen vision with a synthetic receipt + a custom FieldSpec: extracted merchant/date(DD/MM/YYYY→ISO)/total/tax/category all correct, confidence all-high, ~1.5s.
+- **What's next:**
+  1. This is **Tier-2** (untrusted input / OCR / AI-prompt boundary) → needs a **non-author review + a QA pass** (SOP §4.7/§4.8) before merge. Open PR.
+  2. **#1 PDF is NOT done** — `extractReceipt` accepts an image (URL/data-URI) so a rasterised PDF *page* flows through, but PDF→image **rasterisation is not implemented** (open question §10: no build step / native-only deps). A PDF sent to the bot today will not read correctly. Deferred to a follow-up branch with the rasterisation decision.
+- **Assumptions:** custom (non-canonical) FieldSpec keys are extracted and stored in `ai_raw` for Excel (#2)/dashboard to render; only canonical keys populate dedicated `expenses` columns in v1.
+
+## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-session-handoff
+- **Files:** `docs/HANDOFF.md` (J1 session-end block), `docs/STATUS.md` (refreshed), `MEMORY_LEDGER.md`, `docs/DECISIONS.md` (ADR-011).
+- **What changed (this session's review train):** Merged **PR #10 (#6 categorization)** — QA APPROVE, clamp proven vs 14 payloads; hardening → issue #14. Merged **PR #11 (#5 anomaly + ADR-010)** — QA found a **Critical** review-queue status-machine bug; **fixed** (404/409 guards + array guard + 4 regression tests + security comment) then merged. Opened + reviewed Barat's PRs: **#12 OCR = CHANGES REQUESTED** (Critical unterminated-`<think>` parse → fabricated data; Barat fixes on branch), **#13 templates-route = unreviewed (next)**. **#8 reports** still needs QA re-review. Built a visual build-status board; ran the real (empty) dashboard for the Owner. **ADR-011:** rough reference frontend for Mugi after backend lands.
+- **What's next (J2):** review #13 → re-review #8 → (Barat's #12 fix) → merge → unblock Barat ingestion wiring → Jeevan #2/#9/#7. See `docs/HANDOFF.md` J1 session-end block.
+- **Assumptions:** merge authority delegated to J1/J2 by Owner. State-doc conflicts: WORKLOG keep-both; STATUS/HANDOFF/MEMORY take `--theirs` then refresh.
+
+## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p5-anomaly (PR #11 QA fix)
+- **Files:** `routes/review.js`, `lib/anomaly.js`, `tests/review.route.test.js`.
+- **What changed:** Fixed the **Critical** integrity bug found by the independent Tier-2/QA review of PR #11: `POST /api/review/:id` had NO status-machine enforcement — a rejected expense could be flipped to approved, a never-flagged `saved` one "reviewed", and a nonexistent id returned a fake 200. Now: 404 if not found, **409 if status !== 'needs_review'**, and the `anomaly` array-guard (`!Array.isArray`) so the audit record can't silently vanish. Added a SECURITY comment in `lib/anomaly.js` (Important #3): `opts` must be built server-side; never spread client body into it (would let a personal account force the LLM personal detector on, ADR-010). +4 integrity regression tests. **54/54 pass.**
+- **What's next:** merge PR #11. Remaining QA minors (money-math boundary tests, decision naming, spec gap) → non-blocking follow-up.
+- **Assumptions:** none new.
+
+## 2026-07-01 · Claude-J2 (for Jeevan) · feature/jeevan-p5-anomaly (PR #5)
+- **Files:** created `lib/anomaly.js`, `lib/account.js`, `routes/review.js`, `tests/anomaly.test.js`, `tests/review.route.test.js`, `docs/specs/2026-07-01-anomaly-design.md`; +1 mount line in `server.js`; **ADR-010** in `docs/DECISIONS.md`; capability flags in `.env.example`.
+- **ADR-010 (account model):** after reviewing a receipt-SaaS video (BookZero.ai) with Owner — decided **one codebase + capability flags** (personal default = all off), NOT a personal/business fork. New `lib/account.js` `getCapabilities()` (env-driven v1, DB later). First consumer: #5's personal-vs-business detector is now **gated on `businessProfile`** (off for personal accounts; the other 3 detectors run for everyone). Video also surfaced future features to consider: **bank reconciliation** (receipt↔statement matching — pairs with #5), tax-recovery metric, observability (Sentry/PostHog), email import.
+- **What changed:** #5 anomaly detection + admin review queue (design approved by Owner). `detectAnomalies(expense, opts)` runs **4 detectors** → `{flagged, reasons[], status_suggestion}`:
+  1. **duplicate** (deterministic) — same merchant+amount+date within ±3d of a `history` row.
+  2. **outlier** (deterministic, robust) — amount > 5× the **median** for that merchant (≥4 peers).
+  3. **data_quality** — missing/≤0 amount, impossible date, `subtotal+tax ≠ total`.
+  4. **personal** (LLM watchdog, TEXT_MODEL) — conservative, **business-context aware**, flags only when clearly personal AND confident ≥0.8. Caged like #6 (JSON, receipt text as untrusted data, graceful on failure).
+  Never auto-acts → flagged expenses get `status='needs_review'`. **Admin queue** = new `routes/review.js`: `GET /api/review` (queue), `POST /api/review/:id {decision,note}` → sets `approved`/`rejected` and records the audit into the existing `expenses.anomaly` jsonb (**no schema change**). Status machine: `saved→needs_review→approved|rejected`. **Tests: 49/49** (21 new).
+- **What's next:**
+  1. Tier-2 + QA review of PR #5.
+  2. **Barat** (`lib/ocr.js`/`lib/bot.js`): at ingestion call `detectAnomalies(expense, {history, businessType})`, store in `expenses.anomaly`, set `status = status_suggestion`.
+  3. **J1** (`reports`/`excel`, after #8 merges): exclude `status='rejected'` from totals (1-line `status=neq.rejected`).
+  4. **Mugi** (later): dashboard review-queue UI.
+- **Assumptions:** single-account v1; thresholds (dup window 3d, outlier 5×/≥4 samples, personal conf ≥0.8) are opts-overridable defaults; review note capped at 500 chars, stored in `anomaly.review`.
+
+## 2026-07-01 · Claude-J2 (for Jeevan) · feature/jeevan-p4-categorize (PR #6)
+- **Files:** created `lib/categoryMemory.js`, `db/2026-07-01-category_corrections.sql`, `tests/categorize.engine.test.js`, `tests/categoryMemory.test.js`, `docs/specs/2026-07-01-categorize-design.md`; extended `lib/categorize.js`; hooked the learning loop into `routes/expenses.js` (PATCH).
+- **What changed:** #6 line-item categorization — **LLM-supervised, learning categorizer** (design approved by Owner; SparkReceipt-benchmarked). Cascade per item: **MEMORY** (learned corrections) → **RULES** (keyword engine, expanded to an ~18-category chart of accounts) → base; then an **LLM WATCHDOG** (one batched Groq `classify` call/receipt) confirms / overrides (only when confident ≥0.75) / flags. LLM is caged: output **clamped to the allow-list** (can't invent a category), receipt text passed as **untrusted DATA** (anti-injection, SOP §7.2). Human corrections are ground truth — the LLM never overrides them, only flags. Learning loop live via `PATCH /api/expenses/:id` → `recordCorrection` (best-effort). New `category_corrections` table (Barat applies) — code **degrades gracefully** if absent. Legacy `normaliseExpenseCategory` (5-bucket; used by ocr.js + dashboard colours) left **UNCHANGED**. **Tests: 50/50** (22 new).
+- **What's next:**
+  1. Tier-2 + QA review of PR #6.
+  2. **Barat:** apply `db/2026-07-01-category_corrections.sql` in Supabase + fold into `schema.sql`; wire `categorizeLineItems(receipt, fieldSpec)` into `lib/ocr.js` where it currently calls `normaliseExpenseCategory` (his file — cross-team handoff).
+  3. **Mugi (later):** expand dashboard category pills/colours from the legacy 5 to the new chart.
+  4. **Jeevan:** #5 anomaly next (duplicates + personal-expense **admin accept/reject queue**) — reuses the `flagged` field this PR introduces.
+- **Assumptions:** single-account v1 (memory scoped via `cfg.ACCOUNT_ID`); per-account custom taxonomy accepted via `opts.categories` now, FieldSpec-sourced once Barat adds a category list to `templates.js` (shared-contract change → WORKLOG first).
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates (PR #9 review response)
 - **Files:** `lib/templates.js`, `tests/templates.test.js`.
 - **What changed:** Addressed Jeevan's Tier-2 review of PR #9 (APPROVE + 1 important + 4 minor):

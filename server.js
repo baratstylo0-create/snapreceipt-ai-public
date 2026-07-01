@@ -12,6 +12,7 @@ const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountTemplates = require('./routes/templates');
 const mountMisc = require('./routes/misc');
+const mountReview = require('./routes/review'); // #5 admin review queue
 
 assertConfig();
 
@@ -22,6 +23,7 @@ mountExpenses(app);
 mountReceipt(app);
 mountTemplates(app);
 mountMisc(app);
+mountReview(app);
 
 // Global error handler: body-parser (express.json/text) throws synchronously
 // on malformed input, before any route's own try/catch runs. Without this,
