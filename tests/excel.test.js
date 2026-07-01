@@ -94,3 +94,17 @@ test('a FieldSpec with no columns produces a workbook with only a header row of 
   const wb = buildWorkbook([{ merchant: 'Cafe' }], { columns: [] });
   assert.strictEqual(wb.worksheets.length, 1);
 });
+
+test('a legitimate zero amount renders as 0, not a blank cell', () => {
+  const wb = buildWorkbook([{ merchant: 'Cafe', amount: 0 }], FIELD_SPEC);
+  assert.strictEqual(dataRow(wb, 1)[2], 0);
+});
+
+test('two FieldSpec columns sharing a key each get their own cell (no silent data loss)', () => {
+  const spec = { columns: [
+    { key: 'merchant', label: 'Vendor', type: 'text', required: true },
+    { key: 'merchant', label: 'Vendor (dup)', type: 'text', required: false },
+  ] };
+  const wb = buildWorkbook([{ merchant: 'Cafe' }], spec);
+  assert.deepStrictEqual(dataRow(wb, 1), ['Cafe', 'Cafe']);
+});
