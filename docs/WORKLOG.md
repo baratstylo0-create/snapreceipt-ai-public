@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-07-01 · Claude-J2 (for Jeevan) · feature/jeevan-p5-anomaly (PR #5)
+- **Files:** created `lib/anomaly.js`, `routes/review.js`, `tests/anomaly.test.js`, `tests/review.route.test.js`, `docs/specs/2026-07-01-anomaly-design.md`; +1 mount line in `server.js`.
+- **What changed:** #5 anomaly detection + admin review queue (design approved by Owner). `detectAnomalies(expense, opts)` runs **4 detectors** → `{flagged, reasons[], status_suggestion}`:
+  1. **duplicate** (deterministic) — same merchant+amount+date within ±3d of a `history` row.
+  2. **outlier** (deterministic, robust) — amount > 5× the **median** for that merchant (≥4 peers).
+  3. **data_quality** — missing/≤0 amount, impossible date, `subtotal+tax ≠ total`.
+  4. **personal** (LLM watchdog, TEXT_MODEL) — conservative, **business-context aware**, flags only when clearly personal AND confident ≥0.8. Caged like #6 (JSON, receipt text as untrusted data, graceful on failure).
+  Never auto-acts → flagged expenses get `status='needs_review'`. **Admin queue** = new `routes/review.js`: `GET /api/review` (queue), `POST /api/review/:id {decision,note}` → sets `approved`/`rejected` and records the audit into the existing `expenses.anomaly` jsonb (**no schema change**). Status machine: `saved→needs_review→approved|rejected`. **Tests: 49/49** (21 new).
+- **What's next:**
+  1. Tier-2 + QA review of PR #5.
+  2. **Barat** (`lib/ocr.js`/`lib/bot.js`): at ingestion call `detectAnomalies(expense, {history, businessType})`, store in `expenses.anomaly`, set `status = status_suggestion`.
+  3. **J1** (`reports`/`excel`, after #8 merges): exclude `status='rejected'` from totals (1-line `status=neq.rejected`).
+  4. **Mugi** (later): dashboard review-queue UI.
+- **Assumptions:** single-account v1; thresholds (dup window 3d, outlier 5×/≥4 samples, personal conf ≥0.8) are opts-overridable defaults; review note capped at 500 chars, stored in `anomaly.review`.
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates (PR #9 review response)
 - **Files:** `lib/templates.js`, `tests/templates.test.js`.
 - **What changed:** Addressed Jeevan's Tier-2 review of PR #9 (APPROVE + 1 important + 4 minor):

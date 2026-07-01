@@ -25,5 +25,6 @@ SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashbo
 - gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
 
 ## Status (2026-07-01)
+**P4 features.** PR #9 templates (#12) **MERGED**. Open PRs: **#8** reports (QA re-review), **#6** categorization (LLM-supervised learning; `category_corrections` migration handed to Barat), **#5** anomaly (4 detectors: duplicate/outlier/data-quality/personal-LLM + admin review queue `routes/review.js`, status `saved→needs_review→approved|rejected`, audit in `expenses.anomaly` jsonb — no schema change). Barat wires `categorizeLineItems` + `detectAnomalies` into `lib/ocr.js` at ingestion; J1 excludes `status=rejected` from report totals after #8. `npm test`: 50 on categorize branch, 49 on anomaly branch.
 Modularization MERGED to `main` (PR #1 + #2). `main` = modularized: server.js 31 lines + lib/* + routes/* + tests; `npm test` 8/8. `npm install` needed after clone (node_modules git-ignored). Direct push to main blocked (pre-push hook) — branch + PR only.
 Next: Barat fills lib/ infra (groq/supabase/templates) off main + runs schema + confirms vision routing (ADR-007); then Jeevan's features. Mugi deferred. See `docs/HANDOFF.md` for exact next actions.

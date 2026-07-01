@@ -1,0 +1,109 @@
+'use strict';
+// #5 detectAnomalies — the four detectors + aggregation. No network: history + groqChat injected.
+const test = require('node:test');
+const assert = require('node:assert');
+const { detectAnomalies } = require('../lib/anomaly');
+
+const noLLM = { useLLM: false };
+const has = (r, type) => r.reasons.some(x => x.type === type);
+
+test('duplicate: same merchant + amount within window is flagged', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const r = await detectAnomalies({ merchant: 'shell', amount: 50, expense_date: '2026-06-02' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), true);
+  assert.strictEqual(r.flagged, true);
+  assert.strictEqual(r.status_suggestion, 'needs_review');
+});
+
+test('duplicate: outside the date window is NOT a duplicate', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-20' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), false);
+});
+
+test('duplicate: different amount is NOT a duplicate', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 51, expense_date: '2026-06-01' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), false);
+});
+
+test('outlier: amount >> median for the merchant is flagged', async () => {
+  const history = ['a', 'b', 'c', 'd'].map((id, i) => ({ id, merchant: 'Cafe', amount: 10 + i, expense_date: '2026-06-0' + (i + 1) }));
+  const r = await detectAnomalies({ merchant: 'Cafe', amount: 500, expense_date: '2026-06-10' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'outlier'), true);
+});
+
+test('outlier: a normal amount is NOT flagged', async () => {
+  const history = ['a', 'b', 'c', 'd'].map((id, i) => ({ id, merchant: 'Cafe', amount: 10 + i }));
+  const r = await detectAnomalies({ merchant: 'Cafe', amount: 14, expense_date: '2026-06-10' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'outlier'), false);
+});
+
+test('outlier: not enough history -> not flagged', async () => {
+  const history = [{ id: 'a', merchant: 'Cafe', amount: 10 }, { id: 'b', merchant: 'Cafe', amount: 11 }];
+  const r = await detectAnomalies({ merchant: 'Cafe', amount: 500, expense_date: '2026-06-10' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'outlier'), false);
+});
+
+test('data_quality: missing/zero amount is flagged', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 0, expense_date: '2026-06-01' }, noLLM);
+  assert.strictEqual(has(r, 'data_quality'), true);
+});
+
+test('data_quality: impossible date is flagged', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 10, expense_date: '2026-13-40' }, noLLM);
+  assert.ok(r.reasons.some(x => x.type === 'data_quality' && /date/.test(x.detail)));
+});
+
+test('data_quality: subtotal + tax != total is flagged', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 100, subtotal: 50, tax: 10, expense_date: '2026-06-01' }, noLLM);
+  assert.ok(r.reasons.some(x => x.type === 'data_quality' && /subtotal/.test(x.detail)));
+});
+
+test('data_quality: a clean expense (no history) is NOT flagged', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 100, subtotal: 90, tax: 10, expense_date: '2026-06-01' }, noLLM);
+  assert.strictEqual(r.flagged, false);
+  assert.strictEqual(r.status_suggestion, 'saved');
+});
+
+test('personal (LLM): confident-personal is flagged', async () => {
+  const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.9, reason: 'toys, clearly personal' });
+  const r = await detectAnomalies({ merchant: 'Toy Store', amount: 40, expense_date: '2026-06-01' }, { groqChat });
+  assert.strictEqual(has(r, 'personal'), true);
+});
+
+test('personal (LLM): business-context says business -> not flagged', async () => {
+  const groqChat = async () => JSON.stringify({ personal: false, confidence: 0.9, reason: 'groceries are inventory for a restaurant' });
+  const r = await detectAnomalies({ merchant: 'Grocery', amount: 40, expense_date: '2026-06-01' }, { businessType: 'restaurant', groqChat });
+  assert.strictEqual(has(r, 'personal'), false);
+});
+
+test('personal (LLM): low confidence -> not flagged', async () => {
+  const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.5, reason: 'maybe' });
+  const r = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { groqChat });
+  assert.strictEqual(has(r, 'personal'), false);
+});
+
+test('personal (LLM): failure/garbage is graceful (no personal flag)', async () => {
+  const thrown = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { groqChat: async () => { throw new Error('down'); } });
+  const garbage = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { groqChat: async () => 'no json here' });
+  assert.strictEqual(has(thrown, 'personal'), false);
+  assert.strictEqual(has(garbage, 'personal'), false);
+});
+
+test('aggregation: multiple detectors -> flagged with multiple reasons', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.95, reason: 'personal' });
+  // duplicate (same merchant/amount/date) + personal (LLM)
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }, { history, groqChat });
+  assert.strictEqual(has(r, 'duplicate'), true);
+  assert.strictEqual(has(r, 'personal'), true);
+  assert.ok(r.reasons.length >= 2);
+  assert.strictEqual(r.flagged, true);
+});
+
+test('garbage input does not throw', async () => {
+  const r = await detectAnomalies(null, noLLM);
+  assert.strictEqual(r.flagged, false);
+  assert.deepStrictEqual(r.reasons, []);
+});
