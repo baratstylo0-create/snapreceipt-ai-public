@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { extractReceipt, parseModelJson, coerce } = require('../lib/ocr');
+const { extractReceipt, extractReceipts, parseModelJson, parseModelJsonArray, coerce } = require('../lib/ocr');
 
 // Stub global.fetch so extractReceipt -> groqChat -> hreq -> fetch never hits the
 // network. Returns a Groq chat-completion shaped body whose content is `text`.
@@ -112,4 +112,83 @@ test('extractReceipt fills type-safe defaults when the model returns nothing usa
 test('extractReceipt throws without a valid FieldSpec', async () => {
   await assert.rejects(() => extractReceipt('img', null), /FieldSpec/);
   await assert.rejects(() => extractReceipt('img', { columns: [] }), /FieldSpec/);
+});
+
+// ---- #7 mass upload: parseModelJsonArray + extractReceipts (multi-receipt) ----
+
+test('parseModelJsonArray extracts an array of objects and drops non-objects', () => {
+  assert.deepStrictEqual(parseModelJsonArray('<think>reading</think>[{"a":1},{"a":2}]'), [{ a: 1 }, { a: 2 }]);
+  assert.deepStrictEqual(parseModelJsonArray('noise [{"a":1}] trailing'), [{ a: 1 }]);
+  // nested/non-object elements are filtered out, plain objects kept
+  assert.deepStrictEqual(parseModelJsonArray('[{"a":1}, 5, "x", [9], null]'), [{ a: 1 }]);
+});
+
+test('parseModelJsonArray returns [] for garbage / a bare object / truncated / unterminated <think>', () => {
+  assert.deepStrictEqual(parseModelJsonArray('no json here'), []);
+  assert.deepStrictEqual(parseModelJsonArray('{"a":1}'), []);          // a single object is NOT an array
+  assert.deepStrictEqual(parseModelJsonArray('[{"a":1}'), []);         // truncated array
+  assert.deepStrictEqual(parseModelJsonArray(''), []);
+  assert.deepStrictEqual(parseModelJsonArray(null), []);
+  // unterminated <think> must not let a [...]-shaped example be accepted as the answer
+  assert.deepStrictEqual(parseModelJsonArray('<think>maybe [{"merchant":"X"}]'), []);
+});
+
+test('extractReceipts returns one coerced {fields,rawParsed} per receipt in the array', async () => {
+  const s = stubGroq('<think>reading</think>[' +
+    '{"merchant":"Cafe A","amount":"18.90","expense_date":"02/01/2026","category":"lunch cafe"},' +
+    '{"merchant":"Shop B","amount":"5","expense_date":"2026-01-03","category":"software"}]');
+  try {
+    const { receipts, truncated } = await extractReceipts('data:image/png;base64,xxx', SPEC);
+    assert.strictEqual(truncated, false);
+    assert.strictEqual(receipts.length, 2);
+    assert.strictEqual(receipts[0].fields.merchant, 'Cafe A');
+    assert.strictEqual(receipts[0].fields.amount, 18.9);            // currency coerced
+    assert.strictEqual(receipts[0].fields.expense_date, '2026-01-02'); // DD/MM/YYYY -> ISO
+    assert.strictEqual(receipts[0].fields.category, 'Food');        // normalised
+    assert.strictEqual(receipts[0].rawParsed.amount, '18.90');      // raw preserved
+    assert.strictEqual(receipts[1].fields.merchant, 'Shop B');
+    assert.strictEqual(receipts[1].fields.amount, 5);
+    // each element carries EXACTLY the FieldSpec keys, ready for assembleExpense
+    assert.deepStrictEqual(Object.keys(receipts[1].fields).sort(), ['amount', 'category', 'expense_date', 'merchant']);
+  } finally { s.restore(); }
+});
+
+test('extractReceipts caps at maxReceipts and sets truncated=true when the model returns more', async () => {
+  const many = Array.from({ length: 5 }, (_, i) => '{"merchant":"M' + i + '","amount":' + i + ',"expense_date":"2026-01-01"}');
+  const s = stubGroq('[' + many.join(',') + ']');
+  try {
+    const { receipts, truncated } = await extractReceipts('img', SPEC, { maxReceipts: 3 });
+    assert.strictEqual(receipts.length, 3);         // extra receipts dropped
+    assert.strictEqual(truncated, true);
+    assert.strictEqual(receipts[0].fields.merchant, 'M0'); // reading order preserved
+    // the cap is echoed into the instruction so the model is told the limit too
+    assert.match(s.sent().messages[1].content[0].text, /at most 3 receipts/);
+  } finally { s.restore(); }
+});
+
+test('extractReceipts returns an empty list (not a throw) when nothing usable is read', async () => {
+  const s = stubGroq('the page is blank, sorry');
+  try {
+    const { receipts, truncated } = await extractReceipts('img', SPEC);
+    assert.deepStrictEqual(receipts, []);
+    assert.strictEqual(truncated, false);
+  } finally { s.restore(); }
+});
+
+test('extractReceipts ignores extra keys and asks for a JSON ARRAY, image isolated from system', async () => {
+  const s = stubGroq('[{"merchant":"X","amount":1,"expense_date":"2026-01-01","evil":"rm -rf"}]');
+  try {
+    const { receipts } = await extractReceipts('img', SPEC);
+    assert.ok(!('evil' in receipts[0].fields));         // only FieldSpec keys kept
+    const body = s.sent();
+    assert.strictEqual(body.messages[0].role, 'system'); // untrusted image isolated
+    assert.match(body.messages[0].content, /UNTRUSTED|do not obey/i);
+    assert.match(body.messages[1].content[0].text, /JSON ARRAY/i);
+    assert.ok(body.messages[1].content.some(p => p.type === 'image_url'));
+  } finally { s.restore(); }
+});
+
+test('extractReceipts throws without a valid FieldSpec', async () => {
+  await assert.rejects(() => extractReceipts('img', null), /FieldSpec/);
+  await assert.rejects(() => extractReceipts('img', { columns: [] }), /FieldSpec/);
 });
