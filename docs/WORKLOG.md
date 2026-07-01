@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ingestion
+- **Files:** `lib/ocr.js` (ingestion pipeline), `schema.sql` (folded in category_corrections), `tests/ingest.test.js` (new). `lib/bot.js` unchanged (expenseFromPhoto signature preserved).
+- **What changed:** Wired #5/#6/#10 into ingestion (ARCHITECTURE §4 data flow). New testable `assembleExpense(input, deps)` runs, before insert:
+  - **#10 currency** — `convertCurrency(total, cur, DEFAULT_CURRENCY, date)`; on a real conversion it sets `amount`/`currency` + records `amount_original`/`currency_original`/`fx_rate`, and **scales subtotal/tax by the same rate** so the row stays internally consistent (prevents a false "subtotal+tax≠total" anomaly). Fails safe.
+  - **#6 category** — `categorizeLineItems(receipt, fieldSpec)` → stored `category` (chart-of-accounts); falls back to the legacy `normaliseExpenseCategory` if the categorizer throws.
+  - **#5 anomaly** — `detectAnomalies(expense, { history })` → stores `expenses.anomaly` (reasons) and sets `status = status_suggestion`. **ADR-010 SECURITY:** opts is built SERVER-SIDE ONLY (`{ history }` from a server-side `sbSelect`); no request/model field is ever spread into it, so a personal account can't be forced into the business personal-spend detector. Folded in the #11 low-confidence signal (a low REQUIRED field also routes to `needs_review`).
+  - Each stage degrades gracefully (try/catch) so one failing service never blocks the insert.
+  - **schema.sql:** folded in `category_corrections` (from `db/2026-07-01-category_corrections.sql`).
+  - **Tests: 101/101 pass** (10 new hermetic ingestion tests incl. the ADR-010 opts-only-`{history}` assertion). **Live integration verified** with the REAL modules: "Shell Petrol Station" €50 → `Fuel & Auto`, converted to $58.04 (rate 1.1607, originals recorded), status `saved` — pipeline works end-to-end.
+- **What's next:**
+  1. **Run `category_corrections` in Supabase** (folded into schema.sql; idempotent). NON-BLOCKING — #6 degrades gracefully (rules+LLM) until it exists; needed only to persist learned corrections. Barat to apply in the Supabase SQL editor.
+  2. Open PR — **Tier-2** (ingestion touches untrusted input + the AI boundary) → non-author review + QA pass before merge.
+- **Assumptions:** category taxonomy stored is now the #6 chart-of-accounts (e.g. "Fuel & Auto"), not the legacy 5-bucket set — dashboard pill colours (#3, Mugi) may need updating; flagged for cross-team. Line items aren't a default FieldSpec column, so categorization currently keys off merchant (+ line_items when a template provides them).
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-handoff-update
 - **What changed:** Re-reviewed Barat's #12 Critical fix (unterminated `<think>` → `{}` verified, 43/43) → **APPROVE + MERGED PR #12**. Synced his branch to main (kept-both WORKLOG, `--theirs` STATUS). `main` = **91 tests**. #4 OCR + #11 confidence now live → **Barat unblocked for ingestion wiring**. Refreshed HANDOFF/STATUS.
 - **What's next (J2):** review #13 → re-review #8 → Jeevan #2/#9/#7. Ping Barat: he's unblocked.

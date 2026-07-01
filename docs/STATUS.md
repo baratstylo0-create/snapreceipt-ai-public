@@ -14,7 +14,7 @@ Land remaining P4 PRs (#13, #8) via Tier-2 + QA. **Barat is unblocked** → inge
 | Person | Claude | Current task | State |
 |---|---|---|---|
 | Jeevan | J1/J2 | Review #13 + re-review #8; own features #2/#9/#7 after | #10, #11, #12 merged |
-| Barat | B1 | **UNBLOCKED** — ingestion wiring (categorize + anomaly + currency into `lib/ocr.js`/`lib/bot.js`) + apply category migration | #12 merged |
+| Barat | B1 | Ingestion wiring DONE (#5/#6/#10 in `lib/ocr.js` `assembleExpense`, 101/101, live-verified) → `feature/barat-p4-ingestion`, PR pending Tier-2 review. Then: apply category_corrections in Supabase (non-blocking). PR #13 also awaiting J2 review | #12 merged |
 | Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
 
 ## Feature status (personal M1)
