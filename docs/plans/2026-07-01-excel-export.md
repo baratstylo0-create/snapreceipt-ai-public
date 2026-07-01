@@ -130,9 +130,22 @@ const FIELD_SPEC = {
   ],
 };
 
-// ExcelJS row.values is 1-indexed (index 0 is always null); drop it for readable assertions.
-function headerRow(workbook) { return workbook.worksheets[0].getRow(1).values.slice(1); }
-function dataRow(workbook, n) { return workbook.worksheets[0].getRow(n + 1).values.slice(1); }
+// ExcelJS's Row.values getter omits Null-typed cells (they become sparse-array
+// holes that read as `undefined`, not `null`). Read each defined column via
+// getCell instead, which returns `null` for a blank cell — so "blank cell"
+// assertions (=== null) hold for trailing empty columns too.
+function headerRow(workbook) {
+  const ws = workbook.worksheets[0];
+  const out = [];
+  for (let i = 1; i <= ws.columnCount; i++) out.push(ws.getRow(1).getCell(i).value);
+  return out;
+}
+function dataRow(workbook, n) {
+  const ws = workbook.worksheets[0];
+  const out = [];
+  for (let i = 1; i <= ws.columnCount; i++) out.push(ws.getRow(n + 1).getCell(i).value);
+  return out;
+}
 
 test('header row matches FieldSpec labels, in FieldSpec order', () => {
   const wb = buildWorkbook([], FIELD_SPEC);
