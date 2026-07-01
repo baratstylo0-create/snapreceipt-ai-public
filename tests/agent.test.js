@@ -69,3 +69,21 @@ test('listExpenses defaults limit and rejects a non-ISO from', () => {
   assert.equal(tool.validate({}).limit, 200); // LIST_LIMIT_DEFAULT
   assert.throws(() => tool.validate({ from: 'yesterday' }), /date/);
 });
+
+test('topMerchants aggregates spend desc, excludes rejected, uses toAmount, clamps limit', async () => {
+  const tool = TOOLS.find(t => t.name === 'topMerchants');
+  const rows = [
+    { merchant: 'Shell', expense_date: '2026-06-01', amount: 50, status: 'saved' },
+    { merchant: 'Shell', expense_date: '2026-06-02', amount: '30', status: 'saved' }, // numeric string
+    { merchant: 'Tesco', expense_date: '2026-06-02', amount: 20, status: 'saved' },
+    { merchant: 'Bad', expense_date: '2026-06-02', amount: true, status: 'saved' },   // garbage -> ignored
+    { merchant: 'Ghost', expense_date: '2026-06-02', amount: 999, status: 'rejected' },
+  ];
+  const clean = tool.validate({ limit: 100 });
+  assert.equal(clean.limit, 20); // clamped to TOP_LIMIT_MAX
+  const out = await tool.run(clean, { sbSelect: async () => rows });
+  assert.deepEqual(out[0], { merchant: 'Shell', total: 80, count: 2 });
+  assert.equal(out[1].merchant, 'Tesco');
+  assert.equal(out.find(m => m.merchant === 'Bad'), undefined); // garbage amount contributed nothing
+  assert.equal(out.find(m => m.merchant === 'Ghost'), undefined); // rejected excluded
+});
