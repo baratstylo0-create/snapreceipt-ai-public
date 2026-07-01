@@ -52,3 +52,20 @@ test('buildToolSpecs emits one JSON-schema entry per registered tool', () => {
   assert.equal(specs.length, TOOLS.length);
   assert.ok(specs.every(s => s.type === 'function' && s.function && s.function.name));
 });
+
+test('listExpenses filters, projects (no ai_raw), excludes rejected, clamps limit', async () => {
+  const tool = TOOLS.find(t => t.name === 'listExpenses');
+  const clean = tool.validate({ category: 'Fuel & Auto', from: '2026-06-01', to: '2026-06-30', limit: 999999 });
+  assert.equal(clean.limit, 500); // clamped to LIST_LIMIT_MAX
+  const withRaw = [{ merchant: 'Shell', expense_date: '2026-06-03', amount: 50, currency: 'USD', category: 'Fuel & Auto', status: 'saved', remark: 'x', ai_raw: { secret: 1 } }];
+  const out = await tool.run(clean, { sbSelect: async () => withRaw });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].merchant, 'Shell');
+  assert.equal('ai_raw' in out[0], false); // projection drops ai_raw
+});
+
+test('listExpenses defaults limit and rejects a non-ISO from', () => {
+  const tool = TOOLS.find(t => t.name === 'listExpenses');
+  assert.equal(tool.validate({}).limit, 200); // LIST_LIMIT_DEFAULT
+  assert.throws(() => tool.validate({ from: 'yesterday' }), /date/);
+});
