@@ -167,3 +167,35 @@ test('runAgent bad-JSON tool arguments -> error result, not a crash', async () =
   assert.match(toolMsg.content, /error/i);
   assert.equal(out.answer, 'ok');
 });
+
+test('runAgent does not crash on a malformed (null) tool_call entry', async () => {
+  const chat = fakeChat([
+    { role: 'assistant', content: null, tool_calls: [null] },
+    { role: 'assistant', content: 'Recovered.' },
+  ]);
+  const out = await runAgent([{ role: 'user', content: 'x' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Recovered.'); // degraded gracefully, no throw
+});
+
+test('runAgent executes multiple tool_calls in one turn, all fed back', async () => {
+  const chat = fakeChat([
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'a', type: 'function', function: { name: 'getReport', arguments: '{"period":"month"}' } },
+      { id: 'b', type: 'function', function: { name: 'topMerchants', arguments: '{"limit":3}' } },
+    ] },
+    { role: 'assistant', content: 'Done.' },
+  ]);
+  const out = await runAgent([{ role: 'user', content: 'both' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Done.');
+  assert.equal(out.toolCalls.length, 2);
+  const toolMsgs = chat.calls[1].messages.filter(m => m.role === 'tool');
+  assert.equal(toolMsgs.length, 2);
+  assert.deepEqual(toolMsgs.map(m => m.tool_call_id).sort(), ['a', 'b']);
+});
+
+test('runAgent handles chat returning undefined -> empty answer, terminates', async () => {
+  const chat = fakeChat([undefined]);
+  const out = await runAgent([{ role: 'user', content: 'x' }], { ...deps(), chat });
+  assert.equal(out.answer, '');
+  assert.equal(out.iterations, 1);
+});
