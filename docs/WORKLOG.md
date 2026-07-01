@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p4-currency
+- **Files:** created `lib/currency.js` (#10) + `tests/currency.test.js`.
+- **What changed:** Currency conversion feature (TDD). `convertCurrency(amount, from, to?, date?)` → converts a foreign amount to the account's local currency using live FX rates (Frankfurter/ECB by default, `FX_API_URL`), caches rates (`FX_CACHE_HOURS`), uses the receipt's-date historical rate when given. **Fails safe** — invalid currency or provider-down returns `{ok:false}` and keeps the original amount (never guesses a rate, never throws). Not an LLM task (ADR-005). **Tests 13/13** (5 new); live sanity: EUR→USD 100→113.94, historical GBP→MYR ok, bad currency fails safe.
+- **What's next:** open PR (Tier-2 — money math → non-author review before merge). **Integration handoff to Barat:** wire `convertCurrency` into `lib/ocr.js` at ingestion to populate `amount`/`currency` + `amount_original`/`currency_original`/`fx_rate` (snippet in the PR + module header).
+- **Assumptions:** Frankfurter (free, ECB, daily) is the v1 rate source (Owner-approved); zero-decimal currencies (JPY) kept at 2dp for v1 (known limitation).
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p2-modularize-server
 - **Files:** created `lib/{money,categorize,http,config,groq,supabase,telegram,ocr,bot}.js`, `routes/{webhook,expenses,receipt,misc}.js`, `tests/{money,categorize,http,smoke}.test.js`; slimmed `server.js` 311→31 lines (wiring only); added `test` script + ran `npm install`.
 - **What changed:** Executed ADR-001 modularization (plan `docs/plans/2026-07-01-modularize-server.md`). Behaviour-preserving — all logic moved out of single-file server.js into focused modules behind the frozen interfaces (ARCHITECTURE §3). No new runtime deps. **Tests: 8/8 pass** (6 unit + 2 smoke). `node server.js` boots, `/health` OK. Note: cluster-2 subagent stalled after `telegram.js`; controller finished `ocr.js`/`bot.js` + cluster 3 inline.
