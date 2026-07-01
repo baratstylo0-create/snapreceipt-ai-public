@@ -46,6 +46,12 @@
   - **Final routing:** `VISION_MODEL` = `VISION_MODEL_HEAVY` = `qwen/qwen3.6-27b` (only production vision model; escalate = same model + higher max_tokens, not a swap). Scout kept out of prod path; promote only if it graduates. Updated `.env.example`, `ARCHITECTURE.md §3.5`, `DECISIONS ADR-007` together.
   - qwen `<think>` note: OCR needs generous max_tokens or thinking disabled.
   - **FOLLOW-UP (post-merge infra PR):** `lib/config.js` (from modularization) still defaults `visionEscalate` to the dead maverick id. Env overrides it (no runtime break) but Barat removes the dead default once the modularization PR is merged and lib/* editing is unblocked.
+- **SCHEMA APPLIED + VERIFIED (2026-07-01):**
+  - Owner signed into Supabase; Barat ran the full `schema.sql` in the SQL Editor (project `xurnpvesgcybrnilxszf`, "RECEIPT ANALYZER" org) → **"Success. No rows returned"** (no destructive-query prompt; idempotent DDL).
+  - REST verification with service key: `expenses` exposes all 6 new columns (confidence, anomaly, currency_original, amount_original, fx_rate, template_id) → HTTP 200; `field_templates` table → HTTP 200.
+  - **Insert→read→delete round-trip** (account_id `__wireup_test__`): POST 201 with new cols populated → GET 200 correct values → DELETE 200 → table confirmed clean. Supabase pipeline proven end-to-end.
+  - P3 data-foundation gate: schema migrated ✅, RLS enabled (service-role bypass by design, anon denied) ✅, no secrets in repo ✅.
+  - Remaining owner-only item: invite Jeevan as Supabase project member (access-control change Barat can't perform).
 - **What's next:**
   1. **Barat needs credentials from Jeevan**: `BOT_TOKEN`, `GROQ_KEY`, `SB_URL`, `SB_KEY` to fill `.env`.
   2. **Owner action**: Jeevan to confirm ADR-007 (qwen vision model substitution).
