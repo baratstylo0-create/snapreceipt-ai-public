@@ -25,5 +25,6 @@ SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashbo
 - gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
 
 ## Status (2026-07-01)
+**P4 features underway.** PR #9 (templates #12 FieldSpec, Barat) **MERGED** to `main`. Open: **PR #8** reports (QA fixes pushed, re-review) + **PR #6** categorization (J2 — LLM-supervised learning categorizer, 50/50 tests, `category_corrections` migration in `db/` handed to Barat; code degrades gracefully until applied). Next for Jeevan after #6/#8 land: **#5 anomaly** (duplicates + personal-expense admin accept/reject queue — reuses #6's `flagged` field). Barat: apply the migration + wire `categorizeLineItems` into `lib/ocr.js`. `npm test` on categorize branch = 50/50.
 Modularization MERGED to `main` (PR #1 + #2). `main` = modularized: server.js 31 lines + lib/* + routes/* + tests; `npm test` 8/8. `npm install` needed after clone (node_modules git-ignored). Direct push to main blocked (pre-push hook) — branch + PR only.
 Next: Barat fills lib/ infra (groq/supabase/templates) off main + runs schema + confirms vision routing (ADR-007); then Jeevan's features. Mugi deferred. See `docs/HANDOFF.md` for exact next actions.

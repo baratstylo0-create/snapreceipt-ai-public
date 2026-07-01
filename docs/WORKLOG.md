@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-01 · Claude-J2 (for Jeevan) · feature/jeevan-p4-categorize (PR #6)
+- **Files:** created `lib/categoryMemory.js`, `db/2026-07-01-category_corrections.sql`, `tests/categorize.engine.test.js`, `tests/categoryMemory.test.js`, `docs/specs/2026-07-01-categorize-design.md`; extended `lib/categorize.js`; hooked the learning loop into `routes/expenses.js` (PATCH).
+- **What changed:** #6 line-item categorization — **LLM-supervised, learning categorizer** (design approved by Owner; SparkReceipt-benchmarked). Cascade per item: **MEMORY** (learned corrections) → **RULES** (keyword engine, expanded to an ~18-category chart of accounts) → base; then an **LLM WATCHDOG** (one batched Groq `classify` call/receipt) confirms / overrides (only when confident ≥0.75) / flags. LLM is caged: output **clamped to the allow-list** (can't invent a category), receipt text passed as **untrusted DATA** (anti-injection, SOP §7.2). Human corrections are ground truth — the LLM never overrides them, only flags. Learning loop live via `PATCH /api/expenses/:id` → `recordCorrection` (best-effort). New `category_corrections` table (Barat applies) — code **degrades gracefully** if absent. Legacy `normaliseExpenseCategory` (5-bucket; used by ocr.js + dashboard colours) left **UNCHANGED**. **Tests: 50/50** (22 new).
+- **What's next:**
+  1. Tier-2 + QA review of PR #6.
+  2. **Barat:** apply `db/2026-07-01-category_corrections.sql` in Supabase + fold into `schema.sql`; wire `categorizeLineItems(receipt, fieldSpec)` into `lib/ocr.js` where it currently calls `normaliseExpenseCategory` (his file — cross-team handoff).
+  3. **Mugi (later):** expand dashboard category pills/colours from the legacy 5 to the new chart.
+  4. **Jeevan:** #5 anomaly next (duplicates + personal-expense **admin accept/reject queue**) — reuses the `flagged` field this PR introduces.
+- **Assumptions:** single-account v1 (memory scoped via `cfg.ACCOUNT_ID`); per-account custom taxonomy accepted via `opts.categories` now, FieldSpec-sourced once Barat adds a category list to `templates.js` (shared-contract change → WORKLOG first).
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates (PR #9 review response)
 - **Files:** `lib/templates.js`, `tests/templates.test.js`.
 - **What changed:** Addressed Jeevan's Tier-2 review of PR #9 (APPROVE + 1 important + 4 minor):
