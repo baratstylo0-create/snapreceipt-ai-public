@@ -14,7 +14,7 @@ P3 data & infra foundation: schema migrated, secrets wired + verified live, mode
 | Person | Claude | Current task | Branch | State |
 |---|---|---|---|---|
 | Jeevan | J1 | P3 infra PR #5 merged; features next | `main` | active |
-| Barat | B1 | #12 `lib/templates.js` FieldSpec engine (shared contract) — built, 17/17 tests, live round-trip verified. Next = `lib/ocr.js` (#4/#1/#11) | `feature/barat-p3-templates` | PR pending review |
+| Barat | B1 | #4 OCR + #11 confidence — `lib/ocr.js` (FieldSpec-driven `extractReceipt`) + `lib/confidence.js`, 41/41 tests, live qwen extraction verified. #12 templates merged (PR #9). #1 PDF rasterisation deferred | `feature/barat-p4-ocr` | PR pending review + QA |
 | Mugi | M1 | Not started — deferred (no repo access yet) | — | parked |
 
 ## Blockers
