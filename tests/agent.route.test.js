@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const express = require('express');
 const mountAgent = require('../routes/agent');
+const { cfg } = require('../lib/config');
 
 function appWith(runAgentFake) {
   const app = express();
@@ -56,4 +57,22 @@ test('runAgent failure -> 502 JSON, no stack trace', async () => {
   const r = await post(app, { messages: [{ role: 'user', content: 'hi' }] });
   assert.equal(r.status, 502);
   assert.ok(!JSON.stringify(r.json).includes('internal/path.js'));
+});
+
+test('checkDash enforced: 401 without token, 200 with correct token when DASHBOARD_TOKEN set', async () => {
+  const prev = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'secret';
+  try {
+    const app = appWith(async () => ({ answer: 'ok', toolCalls: [] }));
+    const noKey = await post(app, { messages: [{ role: 'user', content: 'hi' }] });
+    assert.equal(noKey.status, 401);
+    const withKey = await post(app, { messages: [{ role: 'user', content: 'hi' }] }, { Authorization: 'Bearer secret' });
+    assert.equal(withKey.status, 200);
+  } finally { cfg.DASHBOARD_TOKEN = prev; }
+});
+
+test('rejects a message whose content is not a string -> 400', async () => {
+  const app = appWith(async () => ({ answer: 'x', toolCalls: [] }));
+  const r = await post(app, { messages: [{ role: 'user', content: 42 }] });
+  assert.equal(r.status, 400);
 });

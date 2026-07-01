@@ -1,9 +1,9 @@
 'use strict';
 const express = require('express');
-const { cfg } = require('../lib/config');
 const { checkDash } = require('./expenses');
 const { runAgent: realRunAgent } = require('../lib/agent');
 const { groqChatTools } = require('../lib/groq');
+const { sbSelect } = require('../lib/supabase');
 
 const MAX_MESSAGES = 20, MAX_CHARS = 12000;
 const AGENT_MODEL = process.env.AGENT_MODEL || 'qwen/qwen3.6-27b';
@@ -27,10 +27,10 @@ module.exports = function mountAgent(app, deps = {}) {
       const chars = messages.reduce((n, m) => n + m.content.length, 0);
       if (chars > MAX_CHARS) return res.status(413).json({ error: 'conversation too long (max ' + MAX_CHARS + ' chars)' });
 
-      const { sbSelect } = require('../lib/supabase');
       const out = await runAgent(messages, { chat, sbSelect });
-      const updated = messages.concat([{ role: 'assistant', content: out.answer }]);
-      res.json({ answer: out.answer, messages: updated, toolCalls: out.toolCalls || [] });
+      const answer = (out && out.answer) || '';
+      const updated = messages.concat([{ role: 'assistant', content: answer }]);
+      res.json({ answer, messages: updated, toolCalls: (out && out.toolCalls) || [] });
     } catch (e) {
       console.error('[api/agent]', e.message);
       res.status(502).json({ error: 'agent failed' });
