@@ -21,12 +21,10 @@ SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashbo
 - `expense_date` is TEXT on purpose (messy OCR dates). Don't make it a strict date column.
 - Groq is inference-only (Barat reconfirm at wire-up). No images/PII in logs; mask card last-4; retention policy (ADR-002).
 - Currency conversion = FX API, NOT the LLM (ADR-005).
-- Account model = ONE codebase + capability flags (ADR-010), personal default (all business caps OFF). NOT a personal/business fork. Source of truth: `lib/account.js getCapabilities()` (env v1 → DB later). Business-only behaviour must be gated on a capability (e.g. #5 personal detector gated on `businessProfile`).
-- Video ideas to consider later (not committed): bank reconciliation (receipt↔statement match), tax-recovery metric, observability (Sentry/PostHog), email import.
 - Modularize BEFORE feature work (ADR-001). No feature code until PROJECT_BRIEF signed GO.
 - gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
 
 ## Status (2026-07-01)
-**P4 features.** PR #9 templates (#12) **MERGED**. Open PRs: **#8** reports (QA re-review), **#6** categorization (LLM-supervised learning; `category_corrections` migration handed to Barat), **#5** anomaly (4 detectors: duplicate/outlier/data-quality/personal-LLM + admin review queue `routes/review.js`, status `saved→needs_review→approved|rejected`, audit in `expenses.anomaly` jsonb — no schema change). Barat wires `categorizeLineItems` + `detectAnomalies` into `lib/ocr.js` at ingestion; J1 excludes `status=rejected` from report totals after #8. `npm test`: 50 on categorize branch, 49 on anomaly branch.
+**P4 features underway.** PR #9 (templates #12 FieldSpec, Barat) **MERGED** to `main`. Open: **PR #8** reports (QA fixes pushed, re-review) + **PR #6** categorization (J2 — LLM-supervised learning categorizer, 50/50 tests, `category_corrections` migration in `db/` handed to Barat; code degrades gracefully until applied). Next for Jeevan after #6/#8 land: **#5 anomaly** (duplicates + personal-expense admin accept/reject queue — reuses #6's `flagged` field). Barat: apply the migration + wire `categorizeLineItems` into `lib/ocr.js`. `npm test` on categorize branch = 50/50.
 Modularization MERGED to `main` (PR #1 + #2). `main` = modularized: server.js 31 lines + lib/* + routes/* + tests; `npm test` 8/8. `npm install` needed after clone (node_modules git-ignored). Direct push to main blocked (pre-push hook) — branch + PR only.
 Next: Barat fills lib/ infra (groq/supabase/templates) off main + runs schema + confirms vision routing (ADR-007); then Jeevan's features. Mugi deferred. See `docs/HANDOFF.md` for exact next actions.

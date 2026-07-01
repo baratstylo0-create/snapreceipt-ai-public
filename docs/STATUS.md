@@ -2,7 +2,7 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P4 — Features.** ✅ P3 infra complete. ✅ **PR #9 (templates #12) MERGED** — shared FieldSpec contract live. Feature work open off `main`. In flight: **PR #8** reports (QA re-review), **PR #6** categorization, **PR #5** anomaly.
+**P4 — Features.** ✅ P3 infra complete. ✅ **PR #9 (templates FieldSpec, #12) MERGED to `main`** — shared contract live. Feature work now open off `main`. In flight: PR #8 (reports #8, QA re-review) + PR #6 (categorization #6, review).
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
@@ -13,9 +13,9 @@ P3 data & infra foundation: schema migrated, secrets wired + verified live, mode
 ## Who's on what
 | Person | Claude | Current task | Branch | State |
 |---|---|---|---|---|
-| Jeevan | J1 | #8 reports — QA fixes pushed | `feature/jeevan-p4-reports` | PR #8, QA re-review |
-| Jeevan | J2 | #6 categorization built (PR #10) → #5 anomaly built | `feature/jeevan-p5-anomaly` | PR #6 + PR #5 open |
-| Barat | B1 | #12 templates MERGED (PR #9). Next = apply category_corrections migration + wire `categorizeLineItems` & `detectAnomalies` into `lib/ocr.js` | — | active |
+| Jeevan | J1 | #8 reports — QA fixes pushed (truncation surfaced, strict dates, +tests) | `feature/jeevan-p4-reports` | PR #8 open, QA re-review |
+| Jeevan | J2 | #6 categorization — LLM-supervised learning categorizer built, 50/50 tests, migration handed to Barat | `feature/jeevan-p4-categorize` | PR #6 open, review |
+| Barat | B1 | #12 templates MERGED (PR #9). Next = apply `db/2026-07-01-category_corrections.sql` + wire `categorizeLineItems` into `lib/ocr.js` (#4/#1/#11) | — | active |
 | Mugi | M1 | Not started — deferred (no repo access yet) | — | parked |
 
 ## Blockers
