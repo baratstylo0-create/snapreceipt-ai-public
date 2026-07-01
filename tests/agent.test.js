@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { TOOLS, buildToolSpecs } = require('../lib/agent');
+const { TOOLS, buildToolSpecs, runAgent } = require('../lib/agent');
 
 const ROWS = [
   { merchant: 'Shell', expense_date: '2026-06-03', amount: 50, currency: 'USD', category: 'Fuel & Auto', status: 'saved' },
@@ -86,4 +86,84 @@ test('topMerchants aggregates spend desc, excludes rejected, uses toAmount, clam
   assert.equal(out[1].merchant, 'Tesco');
   assert.equal(out.find(m => m.merchant === 'Bad'), undefined); // garbage amount contributed nothing
   assert.equal(out.find(m => m.merchant === 'Ghost'), undefined); // rejected excluded
+});
+
+// A scripted fake chat: yields queued responses in order. Each is a full assistant message.
+function fakeChat(script) {
+  let i = 0;
+  const calls = [];
+  const fn = async (messages, opts) => { calls.push({ messages, opts }); return script[i++]; };
+  fn.calls = calls;
+  return fn;
+}
+const deps = extra => ({ sbSelect: async () => [
+  { merchant: 'Shell', expense_date: '2026-06-03', amount: 50, currency: 'USD', category: 'Fuel & Auto', status: 'saved' },
+], ...extra });
+
+test('runAgent returns a direct answer when the model makes no tool call', async () => {
+  const chat = fakeChat([{ role: 'assistant', content: 'Hello!' }]);
+  const out = await runAgent([{ role: 'user', content: 'hi' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Hello!');
+  assert.equal(out.iterations, 1);
+  // system prompt is prepended by runAgent, not required from the caller
+  assert.equal(chat.calls[0].messages[0].role, 'system');
+});
+
+test('runAgent runs a requested tool then answers from the result', async () => {
+  const chat = fakeChat([
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'topMerchants', arguments: '{"limit":5}' } }] },
+    { role: 'assistant', content: 'Your top merchant is Shell at $50.' },
+  ]);
+  const out = await runAgent([{ role: 'user', content: 'top merchant?' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Your top merchant is Shell at $50.');
+  assert.equal(out.toolCalls.length, 1);
+  assert.equal(out.toolCalls[0].name, 'topMerchants');
+  // second chat call must include a role:tool message carrying the result
+  const secondMsgs = chat.calls[1].messages;
+  assert.ok(secondMsgs.some(m => m.role === 'tool' && m.tool_call_id === 'c1'));
+});
+
+test('runAgent feeds a structured error back for an unknown tool (no throw)', async () => {
+  const chat = fakeChat([
+    { role: 'assistant', content: null, tool_calls: [{ id: 'x', type: 'function', function: { name: 'deleteEverything', arguments: '{}' } }] },
+    { role: 'assistant', content: 'Sorry, I cannot do that.' },
+  ]);
+  const out = await runAgent([{ role: 'user', content: 'nuke it' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Sorry, I cannot do that.');
+  const toolMsg = chat.calls[1].messages.find(m => m.role === 'tool');
+  assert.match(toolMsg.content, /error/i);
+});
+
+test('runAgent feeds a structured error back for invalid args', async () => {
+  const chat = fakeChat([
+    { role: 'assistant', content: null, tool_calls: [{ id: 'y', type: 'function', function: { name: 'getReport', arguments: '{"period":"decade"}' } }] },
+    { role: 'assistant', content: 'Let me try monthly instead.' },
+  ]);
+  const out = await runAgent([{ role: 'user', content: 'report' }], { ...deps(), chat });
+  const toolMsg = chat.calls[1].messages.find(m => m.role === 'tool');
+  assert.match(toolMsg.content, /error/i);
+  assert.equal(out.answer, 'Let me try monthly instead.');
+});
+
+test('runAgent enforces the iteration cap and forces a final text answer', async () => {
+  // Always request a tool; runAgent must stop at MAX_ITERATIONS and force tool_choice:none.
+  const loopMsg = { role: 'assistant', content: null, tool_calls: [{ id: 'z', type: 'function', function: { name: 'getReport', arguments: '{"period":"month"}' } }] };
+  const script = Array(6).fill(loopMsg).concat([{ role: 'assistant', content: 'Final summary.' }]);
+  const chat = fakeChat(script);
+  const out = await runAgent([{ role: 'user', content: 'loop' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Final summary.');
+  assert.equal(out.iterations, 7);
+  // the final (7th) call must have forced no more tools
+  assert.equal(chat.calls[6].opts.tool_choice, 'none');
+});
+
+test('runAgent bad-JSON tool arguments -> error result, not a crash', async () => {
+  const chat = fakeChat([
+    { role: 'assistant', content: null, tool_calls: [{ id: 'b', type: 'function', function: { name: 'getReport', arguments: '{not json' } }] },
+    { role: 'assistant', content: 'ok' },
+  ]);
+  const out = await runAgent([{ role: 'user', content: 'x' }], { ...deps(), chat });
+  const toolMsg = chat.calls[1].messages.find(m => m.role === 'tool');
+  assert.match(toolMsg.content, /error/i);
+  assert.equal(out.answer, 'ok');
 });
