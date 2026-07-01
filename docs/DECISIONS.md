@@ -1,6 +1,12 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-009 · QA & Debug agents are standard practice (SOP §4.8)
+**Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
+**Context:** The independent Tier-2 review of #10 currency found real (minor) edge-case gaps — evidence that a dedicated adversarial pass catches what the author's own tests miss. Owner asked to make this standard for all Claudes.
+**Decision:** Added SOP §4.8 + playbooks `docs/roles/QA.md` and `docs/roles/DEBUG.md`. QA agent (adversarial, on Tier-2 + AI eval gate) must output **committed tests + eval cases**, not throwaway reports. Debug agent follows systematic-debugging, driven by a failing repro. The loop: QA breaks it → writes failing test → Debug fixes → test stays green. Right-sized to Tier-2/AI; skip for trivial changes. On-demand roles, not standing processes.
+**Consequences:** Durable hardening of money/auth/untrusted-input/AI surfaces; QA feeds the P8 eval gate. No new tooling — uses ephemeral subagents + node:test.
+
 ## ADR-001 · Modularize the single-file server.js before any feature work
 **Date:** 2026-07-01 · **Status:** Accepted
 **Context:** `server.js` is one 311-line file. Three Claude Codes (Jeevan, Barat, Mugi) working in parallel on one file = constant merge conflicts (violates SOP §4.6).
