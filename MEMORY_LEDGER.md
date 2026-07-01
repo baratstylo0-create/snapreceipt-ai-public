@@ -24,5 +24,6 @@ SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashbo
 - Modularize BEFORE feature work (ADR-001). No feature code until PROJECT_BRIEF signed GO.
 - gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
 
-## Status
-P0 → exiting, awaiting Jeevan GO. See `docs/STATUS.md` + `docs/HANDOFF.md` for exact next actions.
+## Status (2026-07-01)
+Modularization MERGED to `main` (PR #1 + #2). `main` = modularized: server.js 31 lines + lib/* + routes/* + tests; `npm test` 8/8. `npm install` needed after clone (node_modules git-ignored). Direct push to main blocked (pre-push hook) — branch + PR only.
+Next: Barat fills lib/ infra (groq/supabase/templates) off main + runs schema + confirms vision routing (ADR-007); then Jeevan's features. Mugi deferred. See `docs/HANDOFF.md` for exact next actions.

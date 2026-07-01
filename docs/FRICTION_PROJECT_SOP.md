@@ -147,6 +147,28 @@ This section exists to guarantee that **no Claude drifts the project**.
   and keep the change minimal.
 - Rebase your feature branch onto the latest base **before** opening/refreshing a PR.
 
+### 4.7 Review tiers (what may be fast-tracked vs. what MUST be reviewed before merge)
+Not every PR carries the same risk. Triage by what the change touches. **"We'll cross-check
+it later" is allowed for Tier 1 only — never for Tier 2.** When unsure which tier applies,
+treat it as Tier 2.
+
+**Tier 1 — Fast-track** (Owner/Deputy may merge with passing automated tests as the gate;
+cross-review may happen after merge):
+- Refactors with no behaviour change, documentation, config, formatting — *provided tests pass*.
+
+**Tier 2 — Must have an approving review from someone other than the author BEFORE merge:**
+- **Money / financial math** — currency conversion, totals, tax, rounding.
+- **Untrusted/hostile input** — file/mass uploads, OCR pipeline, webhook payloads, and the
+  AI prompt boundary (prompt-injection surface). Model output is untrusted too.
+- **Auth, permissions, tenant/account isolation** — `account_id` scoping, RLS policies.
+- **Database schema & migrations.**
+- **New third-party dependencies or external integrations.**
+
+Rationale: the cost of a skipped Tier-2 review is invisible at merge time and surfaces later as
+a production incident or data-isolation breach — by which point other code depends on the flaw.
+Earlier review is strictly cheaper. The Owner saying "just merge it" does **not** waive Tier-2
+review; it is the safeguard that protects the Owner from their own haste.
+
 ---
 
 ## 5. The phase model (ordered, gated — mirrors the 16-layer stack)

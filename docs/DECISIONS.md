@@ -25,6 +25,12 @@
 **Decision:** All OCR/vision-coupled work + infra → Barat; downstream analytics → Jeevan; frontend + business structure → Mugi. Two clean, non-OCR-colliding features (#7 mass upload via frozen groq.js, #10 currency standalone) moved from Barat to Jeevan to balance load.
 **Consequences:** Barat = 2 infra + 4 features; Jeevan = 7 features; Mugi = frontend + business. Minimal collisions.
 
+## ADR-008 · Two-tier PR review (fast-track vs. mandatory-review)
+**Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
+**Context:** The modularization was Owner-merged without a separate cross-review (safe — verbatim, test-covered). To prevent "cross-check later" becoming the default on risky changes, we codify when review is mandatory.
+**Decision:** Added SOP §4.7. Tier 1 (refactor/docs/config with passing tests) may be fast-tracked; Tier 2 (money math, untrusted input/OCR/AI-prompt boundary, auth/account-isolation, DB schema/migrations, new deps/integrations) requires an approving non-author review BEFORE merge — the Owner's "just merge it" does not waive it.
+**Consequences:** Trivial changes stay fast; the genuinely dangerous surfaces (currency #10, OCR #4/#7, auth, schema) always get a second set of eyes before hitting `main`.
+
 ## ADR-006 · CLASSIFY_MODEL = openai/gpt-oss-20b (llama-3.1-8b-instant deprecated)
 **Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
 **Context:** Groq emailed a deprecation notice: `llama-3.1-8b-instant` is deprecated as of 2026-06/07 and **decommissioned 2026-08-16** (free + developer-tier; enterprise committed-spend unaffected). Groq's recommended replacement is **GPT OSS 20B** (`openai/gpt-oss-20b`).
