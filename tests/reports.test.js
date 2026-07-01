@@ -174,3 +174,14 @@ test('data quality: non-numeric amount is excluded from count like other invalid
   assert.strictEqual(r.count, 1, 'the garbage-amount row must not inflate count');
   assert.strictEqual(r.total, 10);
 });
+
+test('toAmount and isISO are exported for reuse by lib/excel.js (#2)', () => {
+  const { toAmount, isISO } = require('../lib/reports');
+  assert.strictEqual(typeof toAmount, 'function');
+  assert.strictEqual(typeof isISO, 'function');
+  assert.strictEqual(toAmount('12.50'), 12.5);
+  assert.strictEqual(toAmount(true), null);
+  assert.strictEqual(toAmount(Infinity), null);
+  assert.strictEqual(isISO('2026-07-01'), true);
+  assert.strictEqual(isISO('2026-13-45'), false);
+});
