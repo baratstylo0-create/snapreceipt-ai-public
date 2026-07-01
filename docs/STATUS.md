@@ -13,8 +13,8 @@ P3 data & infra foundation: schema migrated, secrets wired + verified live, mode
 ## Who's on what
 | Person | Claude | Current task | Branch | State |
 |---|---|---|---|---|
-| Jeevan | J1 | Modularization merged (PRs #1–#4); SOP §4.7 + ADR-008 added | `main` | done — features next |
-| Barat | B1 | P3 infra — schema applied+verified, `.env` + Groq/Supabase verified live, ADR-007 finalized. Syncing branch onto merged main; next = `lib/config.js` maverick-default fix | `feature/barat-p3-infra-schema` | in progress |
+| Jeevan | J1 | P3 infra PR #5 merged; features next | `main` | active |
+| Barat | B1 | #12 `lib/templates.js` FieldSpec engine (shared contract) — built, 17/17 tests, live round-trip verified. Next = `lib/ocr.js` (#4/#1/#11) | `feature/barat-p3-templates` | PR pending review |
 | Mugi | M1 | Not started — deferred (no repo access yet) | — | parked |
 
 ## Blockers

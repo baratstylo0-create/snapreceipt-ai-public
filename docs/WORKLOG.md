@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates
+- **Files:** created `lib/templates.js` (#12 FieldSpec engine) + `tests/templates.test.js`. Doc cleanups: `docs/DECISIONS.md` (ADR-007 follow-up → resolved), `docs/WORKLOG.md` (scrubbed key-prefix mention), `docs/STATUS.md`.
+- **What changed:**
+  - **`lib/templates.js` — the #12 FieldSpec engine (SHARED CONTRACT, ARCHITECTURE §3.1).** Exports:
+    - `parseTemplate(csvText) -> columns` — maps CSV headers → canonical keys (merchant/expense_date/amount/currency/category/subtotal/tax/remark/quantity) with types + required flags; unknown headers kept verbatim as `type:"text"` with a safe snake_case key; dedupes by key (first wins). Handles quoted fields, escaped quotes, UTF-8 BOM, blank/trailing cols. Input guards (SOP §7.2): rejects non-string/empty, caps at 100 cols / 128-char labels.
+    - `getFieldSpec(account_id) -> FieldSpec` — reads the account's stored template (latest by `updated_at`), falls back to `DEFAULT_COLUMNS` if none.
+    - `saveTemplate(csv|columns, {account_id,name}) -> FieldSpec` — parse + upsert into `field_templates` via the account-scoped `sbSelect/sbInsert/sbUpdate` helpers.
+    - **Frozen signature** — Jeevan's Excel (#2) + OCR (#4) + dashboard depend on it; any change goes through WORKLOG first.
+  - **Tests: 17/17 pass** (9 new for parseTemplate + contract; DB paths kept out of CI to stay hermetic).
+  - **Live round-trip verified** against real Supabase `field_templates`: getFieldSpec (empty→DEFAULT) → saveTemplate(CSV) → getFieldSpec (reflects stored) → hard-delete cleanup → confirmed 0 rows. ✅
+  - **Two PR#5 review cleanups** (as requested): trimmed the now-resolved ADR-007 `lib/config.js` maverick follow-up; removed the `sb_secret_` key-prefix mention from the WORKLOG.
+- **What's next:**
+  1. Open PR (Tier-2 — shared contract per SOP §4.7 → Jeevan reviews before merge). `gh` not installed here; PR opened via GitHub UI.
+  2. After merge → `lib/ocr.js` (#4/#1/#11): drive extraction from the FieldSpec; give the qwen vision call a generous `max_tokens` (qwen `<think>` gotcha, ADR-007).
+- **Assumptions:** single-account v1 — `saveTemplate`/`getFieldSpec` scope via `cfg.ACCOUNT_ID`; multi-account persistence needs `supabase.js` to accept an explicit `account_id` (deferred, forward-compatible).
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p2-modularize-server
 - **Files:** created `lib/{money,categorize,http,config,groq,supabase,telegram,ocr,bot}.js`, `routes/{webhook,expenses,receipt,misc}.js`, `tests/{money,categorize,http,smoke}.test.js`; slimmed `server.js` 311→31 lines (wiring only); added `test` script + ran `npm install`.
 - **What changed:** Executed ADR-001 modularization (plan `docs/plans/2026-07-01-modularize-server.md`). Behaviour-preserving — all logic moved out of single-file server.js into focused modules behind the frozen interfaces (ARCHITECTURE §3). No new runtime deps. **Tests: 8/8 pass** (6 unit + 2 smoke). `node server.js` boots, `/health` OK. Note: cluster-2 subagent stalled after `telegram.js`; controller finished `ocr.js`/`bot.js` + cluster 3 inline.
@@ -46,7 +62,7 @@
   - **`.env` created locally** (git-ignored, never committed) with blanks ready to fill.
   - Setup: ran `setup-git-hooks.ps1` (hooks active, main/develop push blocked).
 - **WIRE-UP VERIFICATION (2026-07-01, live, with real keys):**
-  - `.env` filled: BOT_TOKEN, GROQ_KEY, SB_URL (https://xurnpvesgcybrnilxszf.supabase.co), SB_KEY (sb_secret_…). Owner provided.
+  - `.env` filled: BOT_TOKEN, GROQ_KEY, SB_URL, SB_KEY (service-role secret). Owner provided.
   - **Supabase REST**: service key authenticates ✅ (GET /rest/v1/expenses → 404 PGRST205 "table not found" = auth OK, schema not yet applied).
   - **Groq /models live list confirms ADR-007**: `qwen/qwen3.6-27b` ✅ present; `llama-3.3-70b-versatile` ✅; `openai/gpt-oss-20b` ✅; **`llama-4-maverick` CONFIRMED ABSENT**; `llama-4-scout` present but Preview-only.
   - **Groq chat round-trips** (HTTP 200): llama-3.3-70b-versatile ✅, openai/gpt-oss-20b ✅.

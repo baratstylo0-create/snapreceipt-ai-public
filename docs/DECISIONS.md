@@ -63,9 +63,7 @@ heavy vision model later lands.
 set `VISION_MODEL_HEAVY=meta-llama/llama-4-scout-17b-16e-instruct` now (it has a larger ctx window for
 hard pages); otherwise promote scout only when Groq graduates it to Production. Either way, log in WORKLOG.
 **Consequences:** All routing is env-driven (ADR-006 rule), so swaps are one-line config changes.
-⚠️ Follow-up: `lib/config.js` (created by the modularization) still defaults `visionEscalate` to the dead
-maverick id — env overrides it so nothing breaks at runtime, but Barat fixes that default in the
-post-merge infra PR so the dead id is gone from the codebase entirely.
+✅ Follow-up (done, PR #5): `lib/config.js` `MODEL_ROUTES` vision fallbacks no longer reference dead/preview ids — both `visionDefault` and `visionEscalate` default to `qwen/qwen3.6-27b`.
 
 ## ADR-005 · Currency conversion is NOT an LLM task
 **Date:** 2026-07-01 · **Status:** Accepted
