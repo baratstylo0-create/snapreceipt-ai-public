@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-01 · Claude-J2 (for Jeevan) · feature/barat-p4-templates-route (PR #13 QA fix)
+- **Files:** `server.js`, `routes/templates.js`, `tests/templates_route.test.js`.
+- **What changed:** Dispatched a fresh non-author QA subagent for PR #13 (Tier-2, untrusted CSV over HTTP). Verdict: **CHANGES REQUESTED (1 Critical)**. `express.json()`/`express.text()` throw synchronously on malformed JSON or an unsupported charset, before the route's own try/catch runs → Express's default handler leaked a full stack trace + absolute server file paths to the client (SOP §7.2). Fixed with a route-local 4-arg error-handling middleware appended to the `POST /api/templates` chain (self-contained — works under the route's own standalone test harness and under the real `server.js`), plus a matching app-level `app.use((err,...))` global handler in `server.js` as defense-in-depth for future routes. QA's 5 adversarial tests kept as permanent regression tests (2 Critical-documenting, now green; 3 characterization tests for XSS-label/NUL/invalid-UTF-8 passthrough, documenting known non-blocking behavior). **Tests: 38/38 pass** (33 + 5 QA). Non-blocking Important (stored-XSS supply risk — `label` must be escaped by downstream Excel/dashboard renderers) + Minor (NUL/invalid-UTF-8 not rejected at boundary) tracked as **GitHub issue #17**. **APPROVE + MERGED PR #13.**
+- **What's next:** re-review PR #8 (reports) → merge → `status=neq.rejected` fix → Barat's ingestion-wiring PR (remind: `detectAnomalies` opts server-side only, ADR-010) → Jeevan #2/#9/#7.
+- **Assumptions:** `routes/templates.js` and `server.js` are not on Barat's protected-file list (only his `lib/{ocr,groq,supabase,templates,confidence}.js` are off-limits), so fixing the route-level/wiring bug inline (rather than handing back to Barat) was in scope for this review.
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-templates-route
 - **Files:** created `routes/templates.js` + `tests/templates_route.test.js`; wired `mountTemplates(app)` into `server.js`; added `routes/templates` to the `smoke.test.js` import list.
 - **What changed:** The **HTTP door for #12** — customers/dashboard can now import a CSV template and read the current one (the `lib/templates.js` engine had no endpoint yet, so `getFieldSpec` always returned DEFAULT).

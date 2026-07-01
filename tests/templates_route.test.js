@@ -92,3 +92,110 @@ test('POST /api/templates returns 400 (not 500) on an all-blank-header CSV', asy
     assert.match(j.error, /parseTemplate/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// QA adversarial pass (Tier-2 review, SOP §4.7/§4.8, docs/roles/QA.md).
+// Findings below are written as tests, per the QA contract ("committed tests,
+// not a prose report"). Do NOT weaken these to make them pass — a failing
+// test here documents a real bug for the Debug loop to fix.
+// ---------------------------------------------------------------------------
+
+test('QA: malformed JSON body must not leak a stack trace / internal file paths to the client', async () => {
+  // CRITICAL: express.json() throws synchronously on invalid JSON. That throw
+  // happens in body-parser middleware BEFORE the route's own try/catch runs,
+  // so it falls through to Express's default error handler, which (outside
+  // NODE_ENV=production) writes the full stack trace -- including absolute
+  // server file paths -- straight into the HTTP response body. SOP §7.2:
+  // "Errors never leak internals (stack traces, queries, keys) to the client."
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not valid json',
+    });
+    assert.strictEqual(r.status, 400);
+    const text = await r.text();
+    // Must not be an Express HTML error page.
+    assert.ok(!/<!DOCTYPE html>/i.test(text), 'route must not fall through to the default Express HTML error page; got: ' + text.slice(0, 200));
+    // Must not contain a filesystem path or stack frame.
+    assert.ok(!/node_modules[\\/]/.test(text), 'response leaked an internal file path:\n' + text.slice(0, 300));
+    assert.ok(!/\bat \S+ \(/.test(text), 'response leaked a stack trace frame:\n' + text.slice(0, 300));
+    // Should be the route's own clean JSON error contract.
+    let j;
+    assert.doesNotThrow(() => { j = JSON.parse(text); }, 'expected a JSON error body, got: ' + text.slice(0, 200));
+    assert.strictEqual(typeof j.error, 'string');
+  });
+});
+
+test('QA: an unsupported charset on the JSON content-type must not leak a stack trace to the client', async () => {
+  // Same root cause as the malformed-JSON case: body-parser's charset check
+  // throws synchronously (UnsupportedMediaTypeError) outside the route's
+  // try/catch, and the response is again an Express HTML error page with a
+  // full stack trace / file paths.
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=bogus-charset-xyz' },
+      body: JSON.stringify({ csv: 'Vendor,Date,Amount' }),
+    });
+    const text = await r.text();
+    assert.ok(!/<!DOCTYPE html>/i.test(text), 'route must not fall through to the default Express HTML error page; got: ' + text.slice(0, 200));
+    assert.ok(!/node_modules[\\/]/.test(text), 'response leaked an internal file path:\n' + text.slice(0, 300));
+  });
+});
+
+test('QA: a column label containing HTML/script content is stored and echoed back verbatim (stored-XSS supply risk)', async () => {
+  // IMPORTANT: routes/templates.js and lib/templates.js perform no sanitization
+  // of header/label content beyond a length cap. lib/templates.js documents
+  // that `label` is "the exact header the customer wrote... what Excel emits"
+  // and is read by the dashboard. If any downstream consumer (Excel export,
+  // dashboard UI) renders `column.label` as HTML without escaping, an
+  // attacker-controlled CSV header becomes a stored-XSS payload. This test
+  // documents that the HTTP layer does not neutralize this input; downstream
+  // renderers MUST treat `label` as untrusted and escape on output (SOP §7.2).
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv' },
+      body: '<script>alert(1)</script>,Date,Amount',
+    });
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    // Documents current (risky) behavior: raw script tag passes through unescaped.
+    assert.strictEqual(j.columns[0].label, '<script>alert(1)</script>');
+  });
+});
+
+test('QA: a header containing an embedded NUL byte is accepted and persisted without stripping', async () => {
+  // Control characters (NUL, etc.) in a customer-supplied header are not
+  // stripped or rejected before being persisted via saveTemplate(). This is
+  // low-severity on its own but is unvalidated control-character data flowing
+  // into storage and back out over the API (SOP §7.2 "validate at the boundary").
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv' },
+      body: 'Vendor\x00Evil,Date,Amount',
+    });
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.ok(j.columns[0].label.includes('\x00'), 'expected the NUL byte to survive uncleaned in the stored label');
+  });
+});
+
+test('QA: invalid (non-UTF-8) byte sequences in the body are lossily decoded and persisted, not rejected', async () => {
+  // Sending raw invalid UTF-8 bytes gets silently decoded to U+FFFD
+  // replacement characters and stored -- no validation/rejection of malformed
+  // text encoding happens at the boundary.
+  await withServer(emptyDb, async (base) => {
+    const buf = Buffer.from([0xFF, 0xFE, 0x41, 0x2C, 0x42, 0x2C, 0x43]); // invalid lead bytes + "A,B,C"
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+      body: buf,
+    });
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.ok(j.columns[0].label.includes('�'), 'expected lossy-decoded replacement character in the stored label');
+  });
+});

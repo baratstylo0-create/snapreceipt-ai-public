@@ -50,5 +50,16 @@ module.exports = function mountTemplates(app) {
         console.error('[api/templates post]', e.message);
         res.status(502).json({ error: 'save failed' });
       }
+    },
+    // express.json()/express.text() throw synchronously on malformed bodies
+    // (bad JSON, unsupported charset) before the handler above ever runs.
+    // Without a route-local catch, that error falls through to Express's
+    // default handler, which leaks a stack trace + server file paths to the
+    // client (SOP §7.2). Keep this self-contained here so the route is safe
+    // regardless of what app mounts it (matches its own test harness).
+    (err, req, res, next) => {
+      if (res.headersSent) return next(err);
+      console.error('[api/templates post] body-parser error:', err && err.message);
+      res.status(400).json({ error: 'malformed request body' });
     });
 };
