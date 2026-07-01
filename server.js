@@ -11,6 +11,7 @@ const mountWebhook = require('./routes/webhook');
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountMisc = require('./routes/misc');
+const mountReview = require('./routes/review'); // #5 admin review queue
 
 assertConfig();
 
@@ -20,6 +21,7 @@ mountWebhook(app);
 mountExpenses(app);
 mountReceipt(app);
 mountMisc(app);
+mountReview(app);
 
 if (process.argv.includes('--register-only')) {
   registerWebhook().then(() => process.exit(0));
