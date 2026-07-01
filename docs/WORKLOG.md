@@ -5,7 +5,8 @@
 ---
 
 ## 2026-07-01 · Claude-J2 (for Jeevan) · feature/jeevan-p5-anomaly (PR #5)
-- **Files:** created `lib/anomaly.js`, `routes/review.js`, `tests/anomaly.test.js`, `tests/review.route.test.js`, `docs/specs/2026-07-01-anomaly-design.md`; +1 mount line in `server.js`.
+- **Files:** created `lib/anomaly.js`, `lib/account.js`, `routes/review.js`, `tests/anomaly.test.js`, `tests/review.route.test.js`, `docs/specs/2026-07-01-anomaly-design.md`; +1 mount line in `server.js`; **ADR-010** in `docs/DECISIONS.md`; capability flags in `.env.example`.
+- **ADR-010 (account model):** after reviewing a receipt-SaaS video (BookZero.ai) with Owner — decided **one codebase + capability flags** (personal default = all off), NOT a personal/business fork. New `lib/account.js` `getCapabilities()` (env-driven v1, DB later). First consumer: #5's personal-vs-business detector is now **gated on `businessProfile`** (off for personal accounts; the other 3 detectors run for everyone). Video also surfaced future features to consider: **bank reconciliation** (receipt↔statement matching — pairs with #5), tax-recovery metric, observability (Sentry/PostHog), email import.
 - **What changed:** #5 anomaly detection + admin review queue (design approved by Owner). `detectAnomalies(expense, opts)` runs **4 detectors** → `{flagged, reasons[], status_suggestion}`:
   1. **duplicate** (deterministic) — same merchant+amount+date within ±3d of a `history` row.
   2. **outlier** (deterministic, robust) — amount > 5× the **median** for that merchant (≥4 peers).

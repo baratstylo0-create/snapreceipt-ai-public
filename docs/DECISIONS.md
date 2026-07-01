@@ -1,6 +1,26 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-010 · One codebase + capability flags (personal-first), not a personal/business fork
+**Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
+**Context:** M1 was labelled "personal version," but the highest-value features (tax recovery, bank
+reconciliation, admin approve/reject, personal-vs-business flagging) are business features, and a
+single *person* can be both — e.g. a solopreneur who tracks personal spend AND wants to claim tax on
+a side business. Duplicating the code into a separate "business app" would force that user to
+re-onboard and lose history, and would create two 80%-identical codebases that drift.
+**Decision:** **One codebase.** Model the account as a set of **capability flags** (default = personal,
+all off), not a hard `personal|business` binary. Capabilities: `businessProfile` (business-context
+categorization), `claimsTax` (reclaimable VAT/GST surfaced), `bankReconciliation` (receipt↔statement
+matching), `multiUser` (roles → admin review queue). Personal = all off (simple). Solopreneur = flip
+`businessProfile`+`claimsTax`. Full company = also `multiUser`. The only genuinely *new structure* for
+business is orgs/users/roles — an additive layer on top of the shared core, NOT a reason to fork
+OCR/categorize/reports. Single source of truth = `lib/account.js` (`getCapabilities()`), env-driven
+for single-account v1, swappable to a per-account Supabase settings row later without changing callers.
+**Consequences:** Personal ships first (business layers simply off); business is an upgrade-in-place,
+never a rewrite. Feature code stays shared; capability checks gate business-only behaviour. First
+consumer: #5's personal-vs-business detector is gated on `businessProfile` (off for personal accounts).
+`docs/ARCHITECTURE.md` module map to note `lib/account.js` when next edited.
+
 ## ADR-009 · QA & Debug agents are standard practice (SOP §4.8)
 **Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
 **Context:** The independent Tier-2 review of #10 currency found real (minor) edge-case gaps — evidence that a dedicated adversarial pass catches what the author's own tests miss. Owner asked to make this standard for all Claudes.

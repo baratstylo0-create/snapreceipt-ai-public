@@ -66,36 +66,45 @@ test('data_quality: a clean expense (no history) is NOT flagged', async () => {
   assert.strictEqual(r.status_suggestion, 'saved');
 });
 
-test('personal (LLM): confident-personal is flagged', async () => {
+// NB: the personal-vs-business detector is a BUSINESS capability (ADR-010), so these run with
+// businessProfile: true (a business account). A personal account skips it — see the test below.
+test('personal (LLM): confident-personal is flagged (business account)', async () => {
   const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.9, reason: 'toys, clearly personal' });
-  const r = await detectAnomalies({ merchant: 'Toy Store', amount: 40, expense_date: '2026-06-01' }, { groqChat });
+  const r = await detectAnomalies({ merchant: 'Toy Store', amount: 40, expense_date: '2026-06-01' }, { businessProfile: true, groqChat });
   assert.strictEqual(has(r, 'personal'), true);
 });
 
 test('personal (LLM): business-context says business -> not flagged', async () => {
   const groqChat = async () => JSON.stringify({ personal: false, confidence: 0.9, reason: 'groceries are inventory for a restaurant' });
-  const r = await detectAnomalies({ merchant: 'Grocery', amount: 40, expense_date: '2026-06-01' }, { businessType: 'restaurant', groqChat });
+  const r = await detectAnomalies({ merchant: 'Grocery', amount: 40, expense_date: '2026-06-01' }, { businessProfile: true, businessType: 'restaurant', groqChat });
   assert.strictEqual(has(r, 'personal'), false);
 });
 
 test('personal (LLM): low confidence -> not flagged', async () => {
   const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.5, reason: 'maybe' });
-  const r = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { groqChat });
+  const r = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { businessProfile: true, groqChat });
   assert.strictEqual(has(r, 'personal'), false);
 });
 
 test('personal (LLM): failure/garbage is graceful (no personal flag)', async () => {
-  const thrown = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { groqChat: async () => { throw new Error('down'); } });
-  const garbage = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { groqChat: async () => 'no json here' });
+  const thrown = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { businessProfile: true, groqChat: async () => { throw new Error('down'); } });
+  const garbage = await detectAnomalies({ merchant: 'Shop', amount: 40, expense_date: '2026-06-01' }, { businessProfile: true, groqChat: async () => 'no json here' });
   assert.strictEqual(has(thrown, 'personal'), false);
   assert.strictEqual(has(garbage, 'personal'), false);
+});
+
+test('personal detector is OFF for a personal account (ADR-010), even with a confident LLM', async () => {
+  const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.99, reason: 'clearly personal' });
+  // businessProfile defaults to false (personal) -> detector never runs
+  const r = await detectAnomalies({ merchant: 'Toy Store', amount: 40, expense_date: '2026-06-01' }, { groqChat });
+  assert.strictEqual(has(r, 'personal'), false);
 });
 
 test('aggregation: multiple detectors -> flagged with multiple reasons', async () => {
   const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
   const groqChat = async () => JSON.stringify({ personal: true, confidence: 0.95, reason: 'personal' });
-  // duplicate (same merchant/amount/date) + personal (LLM)
-  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }, { history, groqChat });
+  // duplicate (same merchant/amount/date) + personal (LLM); business account so personal detector runs
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }, { history, businessProfile: true, groqChat });
   assert.strictEqual(has(r, 'duplicate'), true);
   assert.strictEqual(has(r, 'personal'), true);
   assert.ok(r.reasons.length >= 2);

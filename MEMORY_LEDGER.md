@@ -21,6 +21,8 @@ SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashbo
 - `expense_date` is TEXT on purpose (messy OCR dates). Don't make it a strict date column.
 - Groq is inference-only (Barat reconfirm at wire-up). No images/PII in logs; mask card last-4; retention policy (ADR-002).
 - Currency conversion = FX API, NOT the LLM (ADR-005).
+- Account model = ONE codebase + capability flags (ADR-010), personal default (all business caps OFF). NOT a personal/business fork. Source of truth: `lib/account.js getCapabilities()` (env v1 → DB later). Business-only behaviour must be gated on a capability (e.g. #5 personal detector gated on `businessProfile`).
+- Video ideas to consider later (not committed): bank reconciliation (receipt↔statement match), tax-recovery metric, observability (Sentry/PostHog), email import.
 - Modularize BEFORE feature work (ADR-001). No feature code until PROJECT_BRIEF signed GO.
 - gh authed as Jeevan1811. No GitHub remote yet. No commit yet.
 

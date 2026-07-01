@@ -25,6 +25,8 @@ Detection never auto-acts — a human always decides.
 4. **personal** (LLM watchdog, `TEXT_MODEL`) — conservative, business-context aware; flags only
    when clearly personal AND confidence ≥ 0.8. Caged like #6: JSON out, receipt text as untrusted
    DATA, never obeys embedded instructions. Graceful: LLM failure/garbage → no personal flag.
+   **Capability-gated (ADR-010):** runs only when the account has `businessProfile` on. For a
+   personal account every expense is personal, so this detector stays OFF; the other three run for all.
 
 ## Status machine
 `saved` (clean, default) → `needs_review` (flagged) → `approved` | `rejected`.
