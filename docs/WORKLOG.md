@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates (PR #9 review response)
+- **Files:** `lib/templates.js`, `tests/templates.test.js`.
+- **What changed:** Addressed Jeevan's Tier-2 review of PR #9 (APPROVE + 1 important + 4 minor):
+  1. **Important** (account_id not actually enforced by `saveTemplate`): confirmed `sbInsert`/`sbUpdate` (lib/supabase.js) always scope writes to `cfg.ACCOUNT_ID`, so a non-default `account_id` passed to `saveTemplate` would write under the default account. Harmless in single-account v1. Checked blast radius before deciding — `sbInsert`/`sbUpdate`/`sbSelect` are already used by `lib/bot.js`, `lib/ocr.js`, `routes/expenses.js`, so changing their scoping post-approval was the riskier path. Went with the reviewer's lighter option: documented the limitation with a comment on `saveTemplate`, to be fixed in `lib/supabase.js` if/when multi-tenant lands (flagged as a shared-contract change requiring WORKLOG announcement first).
+  2. **Minor — shape-guard:** added `isValidColumn()` in `getFieldSpec`; a stored row's `columns` are now filtered to well-formed entries before use, falling back to `DEFAULT_COLUMNS` if none survive (defense-in-depth, SOP §7.2).
+  3. **Minor — splitCsvLine limit:** documented explicitly in a comment (quoted header with an embedded newline won't parse; acceptable since header rows are pre-split on `\r?\n`).
+  4. **Minor — mocked fallback test:** added 2 new hermetic tests (`getFieldSpec` empty-row and malformed-row → `DEFAULT_COLUMNS`) plus 1 for the shape-guard partial-filter case, using the same `global.fetch` stub pattern as `tests/currency.test.js` — no network call, CI stays hermetic.
+  5. **Product Q answered** (not a bug): `parseTemplate` intentionally doesn't require `amount`/`expense_date` to be present in the CSV — the customer's own sheet defines the schema; `required: true` on those canonical keys only takes effect when the header is present. This is by design (ADR-003).
+  - **Tests: 28/28 pass** (25 + 3 new).
+- **What's next:** push; Jeevan merges PR #9 → unblocks `lib/ocr.js` (#4/#1/#11) for Barat and Excel (#2) for Jeevan.
+- **Assumptions:** none new beyond the account_id limitation above (already noted in code).
+
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates
+- **Files:** created `lib/templates.js` (#12 FieldSpec engine) + `tests/templates.test.js`. Doc cleanups: `docs/DECISIONS.md` (ADR-007 follow-up → resolved), `docs/WORKLOG.md` (scrubbed key-prefix mention), `docs/STATUS.md`.
+- **What changed:**
+  - **`lib/templates.js` — the #12 FieldSpec engine (SHARED CONTRACT, ARCHITECTURE §3.1).** Exports:
+    - `parseTemplate(csvText) -> columns` — maps CSV headers → canonical keys (merchant/expense_date/amount/currency/category/subtotal/tax/remark/quantity) with types + required flags; unknown headers kept verbatim as `type:"text"` with a safe snake_case key; dedupes by key (first wins). Handles quoted fields, escaped quotes, UTF-8 BOM, blank/trailing cols. Input guards (SOP §7.2): rejects non-string/empty, caps at 100 cols / 128-char labels.
+    - `getFieldSpec(account_id) -> FieldSpec` — reads the account's stored template (latest by `updated_at`), falls back to `DEFAULT_COLUMNS` if none.
+    - `saveTemplate(csv|columns, {account_id,name}) -> FieldSpec` — parse + upsert into `field_templates` via the account-scoped `sbSelect/sbInsert/sbUpdate` helpers.
+    - **Frozen signature** — Jeevan's Excel (#2) + OCR (#4) + dashboard depend on it; any change goes through WORKLOG first.
+  - **Tests: 17/17 pass** (9 new for parseTemplate + contract; DB paths kept out of CI to stay hermetic).
+  - **Live round-trip verified** against real Supabase `field_templates`: getFieldSpec (empty→DEFAULT) → saveTemplate(CSV) → getFieldSpec (reflects stored) → hard-delete cleanup → confirmed 0 rows. ✅
+  - **Two PR#5 review cleanups** (as requested): trimmed the now-resolved ADR-007 `lib/config.js` maverick follow-up; removed the `sb_secret_` key-prefix mention from the WORKLOG.
+- **What's next:**
+  1. Open PR (Tier-2 — shared contract per SOP §4.7 → Jeevan reviews before merge). `gh` not installed here; PR opened via GitHub UI.
+  2. After merge → `lib/ocr.js` (#4/#1/#11): drive extraction from the FieldSpec; give the qwen vision call a generous `max_tokens` (qwen `<think>` gotcha, ADR-007).
+- **Assumptions:** single-account v1 — `saveTemplate`/`getFieldSpec` scope via `cfg.ACCOUNT_ID`; multi-account persistence needs `supabase.js` to accept an explicit `account_id` (deferred, forward-compatible).
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p4-currency
 - **Files:** created `lib/currency.js` (#10) + `tests/currency.test.js`.
 - **What changed:** Currency conversion feature (TDD). `convertCurrency(amount, from, to?, date?)` → converts a foreign amount to the account's local currency using live FX rates (Frankfurter/ECB by default, `FX_API_URL`), caches rates (`FX_CACHE_HOURS`), uses the receipt's-date historical rate when given. **Fails safe** — invalid currency or provider-down returns `{ok:false}` and keeps the original amount (never guesses a rate, never throws). Not an LLM task (ADR-005). Tier-2 review (independent) = APPROVE; 2 minor findings fixed (FX_CACHE_HOURS=0 honored; fail-safe amount rounded) + edge tests → **16/16**.
@@ -58,7 +86,7 @@
   - **`.env` created locally** (git-ignored, never committed) with blanks ready to fill.
   - Setup: ran `setup-git-hooks.ps1` (hooks active, main/develop push blocked).
 - **WIRE-UP VERIFICATION (2026-07-01, live, with real keys):**
-  - `.env` filled: BOT_TOKEN, GROQ_KEY, SB_URL (https://xurnpvesgcybrnilxszf.supabase.co), SB_KEY (sb_secret_…). Owner provided.
+  - `.env` filled: BOT_TOKEN, GROQ_KEY, SB_URL, SB_KEY (service-role secret). Owner provided.
   - **Supabase REST**: service key authenticates ✅ (GET /rest/v1/expenses → 404 PGRST205 "table not found" = auth OK, schema not yet applied).
   - **Groq /models live list confirms ADR-007**: `qwen/qwen3.6-27b` ✅ present; `llama-3.3-70b-versatile` ✅; `openai/gpt-oss-20b` ✅; **`llama-4-maverick` CONFIRMED ABSENT**; `llama-4-scout` present but Preview-only.
   - **Groq chat round-trips** (HTTP 200): llama-3.3-70b-versatile ✅, openai/gpt-oss-20b ✅.
