@@ -169,6 +169,24 @@ a production incident or data-isolation breach — by which point other code dep
 Earlier review is strictly cheaper. The Owner saying "just merge it" does **not** waive Tier-2
 review; it is the safeguard that protects the Owner from their own haste.
 
+### 4.8 QA & Debug agents (adversarial testing + the fix loop)
+Automated review catches bugs the author *thought* about; a dedicated adversarial pass catches the
+ones they didn't. For **Tier-2 changes (§4.7)** and the **AI eval gate (P8)**, run a QA pass and pair
+it with a debug loop. Playbooks: `docs/roles/QA.md`, `docs/roles/DEBUG.md`.
+
+- **QA agent** — dispatched fresh (isolated context) to *break* a feature/PR: edge cases, boundary
+  values, hostile/garbage input, provider/timeout failures, concurrency, and adversarial AI inputs
+  (prompt-injection on OCR/agent paths). **Its output is committed tests + eval cases — never a
+  throwaway report.** Every QA run permanently hardens the suite.
+- **Debug agent** — dispatched on a failing test or reported bug. Follows the systematic method:
+  reproduce (as a failing test) → isolate → root-cause → minimal fix → verify green. Driven by a
+  reproduction, ideally the failing test QA wrote.
+- **The loop:** QA finds a break → writes a failing test → Debug fixes it → the test stays green
+  forever. This is the preferred way to harden Tier-2 code and AI pipelines.
+- **Right-size it:** full QA on money / auth / untrusted-input / AI; light-or-none on docs/config.
+  Stacking QA on trivial changes is process-for-its-own-sake and is itself a gate failure.
+- These are **on-demand roles, not standing processes** — ephemeral subagents, dispatched per need.
+
 ---
 
 ## 5. The phase model (ordered, gated — mirrors the 16-layer stack)
