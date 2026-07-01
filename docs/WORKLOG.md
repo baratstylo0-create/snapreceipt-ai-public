@@ -64,13 +64,16 @@
   - REST verification with service key: `expenses` exposes all 6 new columns (confidence, anomaly, currency_original, amount_original, fx_rate, template_id) → HTTP 200; `field_templates` table → HTTP 200.
   - **Insert→read→delete round-trip** (account_id `__wireup_test__`): POST 201 with new cols populated → GET 200 correct values → DELETE 200 → table confirmed clean. Supabase pipeline proven end-to-end.
   - P3 data-foundation gate: schema migrated ✅, RLS enabled (service-role bypass by design, anon denied) ✅, no secrets in repo ✅.
-  - Remaining owner-only item: invite Jeevan as Supabase project member (access-control change Barat can't perform).
+  - Owner decision: inviting Jeevan as a Supabase project member is NOT needed (owner runs Supabase solo; optional later for backup access).
+- **BRANCH SYNC + lib/config.js FIX (2026-07-01):**
+  - Discovered this branch had forked from the kickoff commit `6230988` — stale, before the modularization (PRs #1–#4) landed on `main`. Merged `origin/main` in (no rebase → no force-push, per SOP §4.4).
+  - Resolved 3 doc conflicts (read both sides, per SOP §4.4): `STATUS.md` (reconciled to current reality), `DECISIONS.md` (removed main's ADR-007 *stub*; kept my finalized ADR-007), `WORKLOG.md` (kept both ledgers). Merge commit made; **all 8 tests pass** post-merge.
+  - **Fixed `lib/config.js`** (queued ADR-007 follow-up, now unblocked): `MODEL_ROUTES.visionDefault` and `visionEscalate` fallbacks were `llama-4-scout` (Preview-only) and `llama-4-maverick` (dead) → both now default to `qwen/qwen3.6-27b`. `.env` still overrides; this removes the dead id from the codebase.
 - **What's next:**
-  1. **Barat needs credentials from Jeevan**: `BOT_TOKEN`, `GROQ_KEY`, `SB_URL`, `SB_KEY` to fill `.env`.
-  2. **Owner action**: Jeevan to confirm ADR-007 (qwen vision model substitution).
-  3. Once `.env` is filled → apply schema.sql in Supabase SQL Editor → verify with `/health`.
-  4. Wait for modularization PR (`feature/jeevan-p2-modularize-server`) to merge before starting `lib/groq.js`, `lib/supabase.js`, etc.
-- **Assumptions:** Groq is inference-only (no training on API data) — reconfirmed needed once GROQ_KEY is in hand and terms confirmed; will note in DECISIONS ADR-002 update.
+  1. Push the synced branch; refresh/open the PR (Tier-2 per SOP §4.7 — schema/migration → needs non-author review before merge).
+  2. Owner (Jeevan) reviews + merges; Barat does not self-merge.
+  3. Then begin OCR-coupled feature work off the modularized base (ARCHITECTURE §3 frozen interfaces).
+- **Assumptions:** Groq inference-only posture (ADR-002) still to be reconfirmed against current Groq terms.
 
 <!-- New entries ABOVE this line, newest first. Template:
 ## YYYY-MM-DD · Claude-?? (for Name) · feature/<branch>
