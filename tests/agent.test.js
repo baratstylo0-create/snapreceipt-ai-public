@@ -18,6 +18,27 @@ test('getReport validates period and runs buildReport over account-scoped rows',
   assert.equal(out.total, 70);        // rejected row excluded from money
   assert.equal(out.count, 2);
   assert.ok(Array.isArray(out.buckets));
+  assert.equal(out.truncated, false);
+  assert.equal(out.fetched_count, 3);   // fakeSb returns 3 rows
+});
+
+test('getReport fetches with rejected excluded at the query level and the money-report row cap', async () => {
+  const tool = TOOLS.find(t => t.name === 'getReport');
+  let captured;
+  const spySb = async (table, opts) => { captured = { table, opts }; return []; };
+  await tool.run(tool.validate({ period: 'month' }), { sbSelect: spySb });
+  assert.equal(captured.table, 'expenses');
+  assert.match(captured.opts.extra, /status=neq\.rejected/);
+  assert.match(captured.opts.extra, /deleted_at=is\.null/);
+  assert.equal(captured.opts.limit, 10000);
+});
+
+test('getReport flags truncated when the row cap is hit', async () => {
+  const tool = TOOLS.find(t => t.name === 'getReport');
+  const many = Array.from({ length: 10000 }, (_, i) => ({ merchant: 'M', expense_date: '2026-06-01', amount: 1, status: 'saved' }));
+  const out = await tool.run(tool.validate({ period: 'month' }), { sbSelect: async () => many });
+  assert.equal(out.truncated, true);
+  assert.equal(out.fetched_count, 10000);
 });
 
 test('getReport rejects a bad period and a non-ISO date', () => {
