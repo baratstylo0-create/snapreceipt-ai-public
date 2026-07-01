@@ -7,9 +7,10 @@ test('all modules import without throwing', () => {
     require('../lib/config'); require('../lib/http'); require('../lib/groq');
     require('../lib/supabase'); require('../lib/telegram'); require('../lib/money');
     require('../lib/categorize'); require('../lib/ocr'); require('../lib/bot');
-    require('../lib/currency'); require('../lib/reports');
+    require('../lib/currency'); require('../lib/reports'); require('../lib/agent');
     require('../routes/webhook'); require('../routes/expenses');
     require('../routes/receipt'); require('../routes/reports'); require('../routes/templates'); require('../routes/excel'); require('../routes/misc');
+    require('../routes/agent');
   });
 });
 
