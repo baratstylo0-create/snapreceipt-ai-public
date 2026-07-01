@@ -14,7 +14,7 @@ P4 feature backlog: waiting on Barat's ingestion-wiring PR (not yet opened). Jee
 | Person | Claude | Current task | State |
 |---|---|---|---|
 | Jeevan | J2 | #13 + #8 + #2 merged; next #9 dashboard agent → #7 mass upload | #2 Excel merged |
-| Barat | B1 | **UNBLOCKED** — ingestion wiring (categorize + anomaly + currency into `lib/ocr.js`/`lib/bot.js`) + apply category migration — PR not yet opened | in progress |
+| Barat | B1 | Ingestion wiring DONE (#5/#6/#10 in `lib/ocr.js` `assembleExpense`, 101/101, live-verified) → **PR #22** (opened by J2); syncing branch to `main` for Tier-2 review. Then apply category_corrections in Supabase (non-blocking). PR #13 also awaiting review | #12 merged |
 | Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
 
 ## Feature status (personal M1)
