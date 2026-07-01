@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates (PR #9 review response)
+- **Files:** `lib/templates.js`, `tests/templates.test.js`.
+- **What changed:** Addressed Jeevan's Tier-2 review of PR #9 (APPROVE + 1 important + 4 minor):
+  1. **Important** (account_id not actually enforced by `saveTemplate`): confirmed `sbInsert`/`sbUpdate` (lib/supabase.js) always scope writes to `cfg.ACCOUNT_ID`, so a non-default `account_id` passed to `saveTemplate` would write under the default account. Harmless in single-account v1. Checked blast radius before deciding — `sbInsert`/`sbUpdate`/`sbSelect` are already used by `lib/bot.js`, `lib/ocr.js`, `routes/expenses.js`, so changing their scoping post-approval was the riskier path. Went with the reviewer's lighter option: documented the limitation with a comment on `saveTemplate`, to be fixed in `lib/supabase.js` if/when multi-tenant lands (flagged as a shared-contract change requiring WORKLOG announcement first).
+  2. **Minor — shape-guard:** added `isValidColumn()` in `getFieldSpec`; a stored row's `columns` are now filtered to well-formed entries before use, falling back to `DEFAULT_COLUMNS` if none survive (defense-in-depth, SOP §7.2).
+  3. **Minor — splitCsvLine limit:** documented explicitly in a comment (quoted header with an embedded newline won't parse; acceptable since header rows are pre-split on `\r?\n`).
+  4. **Minor — mocked fallback test:** added 2 new hermetic tests (`getFieldSpec` empty-row and malformed-row → `DEFAULT_COLUMNS`) plus 1 for the shape-guard partial-filter case, using the same `global.fetch` stub pattern as `tests/currency.test.js` — no network call, CI stays hermetic.
+  5. **Product Q answered** (not a bug): `parseTemplate` intentionally doesn't require `amount`/`expense_date` to be present in the CSV — the customer's own sheet defines the schema; `required: true` on those canonical keys only takes effect when the header is present. This is by design (ADR-003).
+  - **Tests: 28/28 pass** (25 + 3 new).
+- **What's next:** push; Jeevan merges PR #9 → unblocks `lib/ocr.js` (#4/#1/#11) for Barat and Excel (#2) for Jeevan.
+- **Assumptions:** none new beyond the account_id limitation above (already noted in code).
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates
 - **Files:** created `lib/templates.js` (#12 FieldSpec engine) + `tests/templates.test.js`. Doc cleanups: `docs/DECISIONS.md` (ADR-007 follow-up → resolved), `docs/WORKLOG.md` (scrubbed key-prefix mention), `docs/STATUS.md`.
 - **What changed:**

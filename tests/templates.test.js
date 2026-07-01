@@ -3,9 +3,45 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { parseTemplate, getFieldSpec, saveTemplate, DEFAULT_COLUMNS } = require('../lib/templates');
 
-// Note: getFieldSpec/saveTemplate hit Supabase and are exercised by a live
-// round-trip at wire-up (see WORKLOG), not here — CI stays hermetic (no network).
-// These tests cover parseTemplate (pure) + the module's exported contract.
+// getFieldSpec's happy path (a real stored template) is exercised by a live
+// round-trip at wire-up (see WORKLOG) rather than here. The two branch cases
+// below (no template / malformed template -> DEFAULT_COLUMNS) ARE hermetic:
+// stub global.fetch so no network call happens, same pattern as currency.test.js.
+function stubFetchRows(rows) {
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ text: async () => JSON.stringify(rows) });
+  return () => { global.fetch = realFetch; };
+}
+
+test('getFieldSpec falls back to DEFAULT_COLUMNS when the account has no stored template', async () => {
+  const restore = stubFetchRows([]); // Supabase REST returns [] when no row matches
+  try {
+    const spec = await getFieldSpec('no-such-account');
+    assert.strictEqual(spec.account_id, 'no-such-account');
+    assert.strictEqual(spec.updated_at, null);
+    assert.deepStrictEqual(spec.columns, DEFAULT_COLUMNS);
+  } finally { restore(); }
+});
+
+test('getFieldSpec falls back to DEFAULT_COLUMNS when the stored columns are malformed', async () => {
+  const restore = stubFetchRows([{ columns: [{ key: 'merchant' /* missing label/type/required */ }], updated_at: '2026-01-01T00:00:00Z' }]);
+  try {
+    const spec = await getFieldSpec('acct');
+    assert.deepStrictEqual(spec.columns, DEFAULT_COLUMNS);
+    assert.strictEqual(spec.updated_at, null);
+  } finally { restore(); }
+});
+
+test('getFieldSpec keeps only the valid columns from a partially malformed stored row', async () => {
+  const good = { key: 'merchant', label: 'Vendor', type: 'text', required: true };
+  const bad = { key: 'oops', label: 'Bad', type: 'not-a-real-type', required: true };
+  const restore = stubFetchRows([{ columns: [good, bad], updated_at: '2026-01-01T00:00:00Z' }]);
+  try {
+    const spec = await getFieldSpec('acct');
+    assert.deepStrictEqual(spec.columns, [good]);
+    assert.strictEqual(spec.updated_at, '2026-01-01T00:00:00Z');
+  } finally { restore(); }
+});
 
 test('maps common headers to canonical keys, types, and required flags', () => {
   const cols = parseTemplate('Vendor,Date,Grand Total,Currency,Category');
