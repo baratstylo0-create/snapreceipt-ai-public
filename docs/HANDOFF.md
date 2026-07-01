@@ -2,6 +2,40 @@
 > For Jeevan's other/backup Claude Code (Claude-J2) when this session hits its limit.
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
+---
+## ⚡ SESSION END — Claude-J1 (limit reached). READ THIS FIRST.
+
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #11 merge (`9facd5e`) + this docs PR. gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **76 passing**.
+
+### What J1 did this session (review train)
+1. **Merged PR #10 — #6 categorization.** Independent Tier-2/QA = APPROVE (allow-list clamp proven against 14 adversarial payloads; no hallucinated category escapes). Minor hardening → **GitHub issue #14** (upsert race, match_value length cap, doc note, security regression tests). Non-blocking.
+2. **Merged PR #11 — #5 anomaly + ADR-010.** QA found a **Critical** integrity bug in `routes/review.js` (no status-machine check → rejected expense re-approvable, never-flagged 'saved' reviewable, nonexistent id returned fake-200). **J1 fixed it** (404 if not found; 409 if status!=='needs_review'; anomaly `!Array.isArray` guard) + 4 regression tests + security comment in `lib/anomaly.js` (detectAnomalies `opts` must be server-side only, never client body). Merged.
+3. **Opened + reviewed Barat's 2 PRs** (he has no gh):
+   - **PR #12 — OCR (#4/#1/#11): CHANGES REQUESTED (1 Critical).** `parseModelJson` strips only PAIRED `<think>...</think>`; an UNTERMINATED think block falls through to brace-scanning the raw reasoning → a `{...}`-shaped substring gets saved as the real extraction (fabricated financial data, no error). **Barat fixes on his branch** (bail to `{}` if `<think>` opened but never closed + failing test). Rest of #12 is solid. Posted on PR.
+   - **PR #13 — /api/templates endpoint (#12): NOT YET REVIEWED** — next in queue.
+4. **PR #8 reports:** prior-session QA fixes are pushed; **still needs a QA re-review** before merge (J1 did not re-review this session).
+5. Built a visual **build status board** for the Owner; ran the real dashboard once (empty — no `.env`) to show app-wise state. Added a `receipt-saas` entry to `Gold_Bot/.claude/launch.json` (harmless: `node <abs>/server.js`, port 3001; stop with preview tools).
+6. **ADR-011 logged:** once the backend features land, build a **rough reference frontend prototype** (functional, surfaces every feature's buttons/functions/displays) as a concrete design brief for **Mugi's** production UI/UX. Not before the backend is done.
+
+### Open PRs at handoff
+| PR | Feature | State |
+|---|---|---|
+| #8 | reports (#8) | QA fixes pushed — needs QA re-review, then merge |
+| #12 | Barat OCR (#4/#1/#11) | CHANGES REQUESTED (Critical) — Barat fixing on branch |
+| #13 | Barat /api/templates (#12) | Not reviewed yet — next in queue |
+
+### EXACT NEXT ACTIONS for J2 (in order)
+1. **Review PR #13** (Tier-2, untrusted CSV) → merge if clean. Then **re-review PR #8** (reports) → merge; after it merges add `status=neq.rejected` to report/Excel totals (from #5).
+2. **When Barat pushes his #12 fix:** re-review PR #12 → merge. #10+#11 already merged, so #12 is the LAST blocker → then **ping Barat to start the ingestion wiring** (categorizeLineItems + detectAnomalies + convertCurrency into `lib/ocr.js`/`lib/bot.js`; apply `db/2026-07-01-category_corrections.sql`).
+3. **Jeevan's remaining features** (each = branch + PR + QA on money/AI surfaces): **#2 Excel** (reads FieldSpec, unblocked), **#9 dashboard agent**, **#7 mass upload**.
+4. **Then ADR-011 reference frontend** for Mugi.
+5. **Merge conflicts:** every feature PR touches WORKLOG/STATUS/HANDOFF/MEMORY. WORKLOG = keep-both (append-only, never drop an entry). State docs (STATUS/HANDOFF/MEMORY) = take `--theirs` (main) then refresh once.
+
+### Merge-decision authority (Owner delegated to J1/J2)
+Merge when the independent QA/Tier-2 review is clean OR after fixing its findings; HOLD on Critical/Important, or when the fix is the author's (Barat's file). Auto-mode may prompt before merging a teammate's PR — verify the precondition landed (git log), then proceed.
+
+---
+
 ## Where things physically are
 - **Active repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas` ← launch Claude Code HERE, not in `Gold_Bot`.
 - ⚠️ `C:\Users\Asus\Downloads\Gold_Bot` is an **unrelated forex trading bot**. The Friction SOP folder was mistakenly dropped inside it. Ignore it for this project.

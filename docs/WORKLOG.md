@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-session-handoff
+- **Files:** `docs/HANDOFF.md` (J1 session-end block), `docs/STATUS.md` (refreshed), `MEMORY_LEDGER.md`, `docs/DECISIONS.md` (ADR-011).
+- **What changed (this session's review train):** Merged **PR #10 (#6 categorization)** — QA APPROVE, clamp proven vs 14 payloads; hardening → issue #14. Merged **PR #11 (#5 anomaly + ADR-010)** — QA found a **Critical** review-queue status-machine bug; **fixed** (404/409 guards + array guard + 4 regression tests + security comment) then merged. Opened + reviewed Barat's PRs: **#12 OCR = CHANGES REQUESTED** (Critical unterminated-`<think>` parse → fabricated data; Barat fixes on branch), **#13 templates-route = unreviewed (next)**. **#8 reports** still needs QA re-review. Built a visual build-status board; ran the real (empty) dashboard for the Owner. **ADR-011:** rough reference frontend for Mugi after backend lands.
+- **What's next (J2):** review #13 → re-review #8 → (Barat's #12 fix) → merge → unblock Barat ingestion wiring → Jeevan #2/#9/#7. See `docs/HANDOFF.md` J1 session-end block.
+- **Assumptions:** merge authority delegated to J1/J2 by Owner. State-doc conflicts: WORKLOG keep-both; STATUS/HANDOFF/MEMORY take `--theirs` then refresh.
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p5-anomaly (PR #11 QA fix)
 - **Files:** `routes/review.js`, `lib/anomaly.js`, `tests/review.route.test.js`.
 - **What changed:** Fixed the **Critical** integrity bug found by the independent Tier-2/QA review of PR #11: `POST /api/review/:id` had NO status-machine enforcement — a rejected expense could be flipped to approved, a never-flagged `saved` one "reviewed", and a nonexistent id returned a fake 200. Now: 404 if not found, **409 if status !== 'needs_review'**, and the `anomaly` array-guard (`!Array.isArray`) so the audit record can't silently vanish. Added a SECURITY comment in `lib/anomaly.js` (Important #3): `opts` must be built server-side; never spread client body into it (would let a personal account force the LLM personal detector on, ADR-010). +4 integrity regression tests. **54/54 pass.**
