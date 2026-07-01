@@ -10,6 +10,7 @@ const { registerWebhook } = require('./lib/telegram');
 const mountWebhook = require('./routes/webhook');
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
+const mountReports = require('./routes/reports');
 const mountTemplates = require('./routes/templates');
 const mountMisc = require('./routes/misc');
 const mountReview = require('./routes/review'); // #5 admin review queue
@@ -21,6 +22,7 @@ app.set('trust proxy', true);
 mountWebhook(app);
 mountExpenses(app);
 mountReceipt(app);
+mountReports(app);
 mountTemplates(app);
 mountMisc(app);
 mountReview(app);
