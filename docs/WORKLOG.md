@@ -6,9 +6,15 @@
 
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p4-currency
 - **Files:** created `lib/currency.js` (#10) + `tests/currency.test.js`.
-- **What changed:** Currency conversion feature (TDD). `convertCurrency(amount, from, to?, date?)` → converts a foreign amount to the account's local currency using live FX rates (Frankfurter/ECB by default, `FX_API_URL`), caches rates (`FX_CACHE_HOURS`), uses the receipt's-date historical rate when given. **Fails safe** — invalid currency or provider-down returns `{ok:false}` and keeps the original amount (never guesses a rate, never throws). Not an LLM task (ADR-005). **Tests 13/13** (5 new); live sanity: EUR→USD 100→113.94, historical GBP→MYR ok, bad currency fails safe.
-- **What's next:** open PR (Tier-2 — money math → non-author review before merge). **Integration handoff to Barat:** wire `convertCurrency` into `lib/ocr.js` at ingestion to populate `amount`/`currency` + `amount_original`/`currency_original`/`fx_rate` (snippet in the PR + module header).
+- **What changed:** Currency conversion feature (TDD). `convertCurrency(amount, from, to?, date?)` → converts a foreign amount to the account's local currency using live FX rates (Frankfurter/ECB by default, `FX_API_URL`), caches rates (`FX_CACHE_HOURS`), uses the receipt's-date historical rate when given. **Fails safe** — invalid currency or provider-down returns `{ok:false}` and keeps the original amount (never guesses a rate, never throws). Not an LLM task (ADR-005). Tier-2 review (independent) = APPROVE; 2 minor findings fixed (FX_CACHE_HOURS=0 honored; fail-safe amount rounded) + edge tests → **16/16**.
+- **What's next:** merge; Barat wires `convertCurrency` into `lib/ocr.js` at ingestion (snippet in PR).
 - **Assumptions:** Frankfurter (free, ECB, daily) is the v1 rate source (Owner-approved); zero-decimal currencies (JPY) kept at 2dp for v1 (known limitation).
+
+## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-sop-qa-debug
+- **Files:** `docs/FRICTION_PROJECT_SOP.md` (§4.8), `docs/roles/QA.md`, `docs/roles/DEBUG.md`, `docs/DECISIONS.md` (ADR-009).
+- **What changed:** Codified QA + Debug agents as standard practice (SOP §4.8 + two playbooks). QA = adversarial tester whose output is committed tests + eval cases; Debug = systematic fixer driven by a failing repro; the QA→Debug loop hardens Tier-2 + AI surfaces. Right-sized (skip trivial).
+- **What's next:** first live QA target = the #10 currency PR (already partially done by the Tier-2 review). Tier-1 (docs/process) → Owner may fast-track merge.
+- **Assumptions:** none new.
 
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p2-modularize-server
 - **Files:** created `lib/{money,categorize,http,config,groq,supabase,telegram,ocr,bot}.js`, `routes/{webhook,expenses,receipt,misc}.js`, `tests/{money,categorize,http,smoke}.test.js`; slimmed `server.js` 311→31 lines (wiring only); added `test` script + ran `npm install`.
