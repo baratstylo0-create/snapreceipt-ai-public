@@ -18,7 +18,9 @@ module.exports = function mountReports(app) {
       const from = iso(req.query.from);
       const to = iso(req.query.to);
       const rows = await supabase.sbSelect('expenses', {
-        extra: 'deleted_at=is.null', order: 'expense_date.desc', limit: REPORT_ROW_LIMIT,
+        // status=neq.rejected: a rejected expense (#5 admin review queue) must never
+        // count toward money totals, even though it isn't soft-deleted.
+        extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.desc', limit: REPORT_ROW_LIMIT,
       });
       const report = buildReport(rows, period, { from, to });
       const truncated = rows.length >= REPORT_ROW_LIMIT;

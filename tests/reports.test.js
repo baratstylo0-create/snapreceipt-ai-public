@@ -135,3 +135,42 @@ test('week 53 appears as a real bucket, and byCategory is per-bucket', () => {
   // the June expense is in a different week bucket, not W53
   assert.ok(!('Food' in byKey['2026-W53'].byCategory && byKey['2026-W53'].byCategory.Food === 7));
 });
+
+// --- QA re-review round 2 (SOP §4.8) — adversarial pass on the pushed fixes ---
+// These are REAL, verified bugs in `Number(e.amount) || 0` coercion (lib/reports.js:56), not hypotheticals.
+
+test('BUG: boolean amount is silently coerced into real money (Number(true) === 1)', () => {
+  // A malformed/garbage `amount: true` field should be rejected like other non-numeric
+  // junk (objects, NaN-strings), not fabricate a $1 expense. Number(true) = 1 (truthy),
+  // so `Number(e.amount) || 0` lets it through as legitimate money.
+  const r = buildReport([E('2026-06-01', true)], 'month');
+  assert.strictEqual(r.total, 0, 'boolean amount must not be counted as money');
+  assert.strictEqual(r.count, 0, 'row with non-numeric amount must not inflate count');
+});
+
+test('BUG: array amount is silently coerced into real money (Number([5]) === 5)', () => {
+  // Number([5]) unwraps the single-element array to 5 — a malformed amount field
+  // (e.g. bad JSON/driver bug) silently becomes a real $5 line in the report.
+  const r = buildReport([E('2026-06-01', [5])], 'month');
+  assert.strictEqual(r.total, 0, 'array amount must not be counted as money');
+  assert.strictEqual(r.count, 0, 'row with non-numeric amount must not inflate count');
+});
+
+test('BUG: Infinity amount poisons the entire report total, not just its own row', () => {
+  // A single corrupt row with amount: Infinity (or -Infinity) turns every total/bucket
+  // that sums it into Infinity/NaN territory once further arithmetic touches it —
+  // a single bad record must not be able to destroy the whole money report.
+  const r = buildReport([E('2026-06-01', Infinity), E('2026-06-02', 50)], 'month');
+  assert.ok(Number.isFinite(r.total), 'grand total must stay finite');
+  assert.ok(Number.isFinite(r.buckets[0].total), 'bucket total must stay finite');
+});
+
+test('data quality: non-numeric amount is excluded from count like other invalid rows', () => {
+  // Mirrors the existing "rows with missing/invalid dates are skipped" contract:
+  // a row that fails basic amount validation should be treated as an excluded/invalid
+  // record (dropped, counted in neither total nor count), not silently counted as $0
+  // while still incrementing count (which would corrupt averages downstream).
+  const r = buildReport([E('2026-06-01', 10), E('2026-06-02', 'not-a-number')], 'month');
+  assert.strictEqual(r.count, 1, 'the garbage-amount row must not inflate count');
+  assert.strictEqual(r.total, 10);
+});

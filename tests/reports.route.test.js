@@ -17,6 +17,19 @@ async function callReports(query = '') {
   } finally { server.close(); }
 }
 
+test('route: excludes rejected expenses from the query (status=neq.rejected)', async () => {
+  // #5's admin review queue can set status='rejected' on a bad/duplicate expense.
+  // It isn't soft-deleted, so it must be excluded at the query level or it silently
+  // inflates money totals.
+  const orig = supabase.sbSelect;
+  let capturedOpts;
+  supabase.sbSelect = async (table, opts) => { capturedOpts = opts; return []; };
+  try {
+    await callReports('?period=month');
+    assert.match(capturedOpts.extra, /status=neq\.rejected/);
+  } finally { supabase.sbSelect = orig; }
+});
+
 test('route: normal result → truncated:false + fetched_count', async () => {
   const orig = supabase.sbSelect;
   supabase.sbSelect = async () => ([
