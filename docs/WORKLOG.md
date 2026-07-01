@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ocr (PR #12 review response)
+- **Files:** `lib/ocr.js`, `lib/confidence.js`, `tests/ocr.test.js`, `tests/confidence.test.js`.
+- **What changed:** Fixed Jeevan's Tier-2 CRITICAL + 2 QA nice-to-adds on PR #12:
+  1. **CRITICAL — `parseModelJson` unterminated `<think>`:** the paired-tag strip left an *opened-but-never-closed* `<think>` (qwen truncated mid-reasoning) in place, then brace-scanning grabbed a `{...}`-shaped EXAMPLE from the reasoning text and accepted it as the real extraction. Fix: after stripping paired blocks, if any `<think>` remains, **return `{}`** (unusable) instead of scanning the reasoning (SOP §7.3). Added the exact failing test (`'<think>...a receipt might look like {"merchant":"X","amount":1}...'` → `{}`), plus cut-off-with-no-braces, last-block-truncated, and a sanity closed-think case.
+  2. **QA — garbage confidence stays low:** hardened `isPresent` so a malformed object/array value for a text/date/category field scores `low` (never `high` by accident); added a garbage/malformed test.
+  3. **QA — getFieldSpec-throws graceful:** already graceful at the call site — `expenseFromPhoto` wraps `getFieldSpec` in its try/catch, so a DB error becomes the safe "couldn't read it" reply. `getFieldSpec` lives in the merged `lib/templates.js` (not this branch's file), so no change made here.
+  - **Tests: 43/43 pass** (41 + 2 new). Ready for Jeevan's re-review + merge.
+- **What's next:** on merge (+ #5 anomaly), Barat is unblocked for the ingestion wiring in `lib/ocr.js` + `lib/bot.js`.
+- **Assumptions:** unchanged.
+
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ocr
+- **Files:** rewrote `lib/ocr.js`; created `lib/confidence.js` (#11), `tests/ocr.test.js`, `tests/confidence.test.js`.
+- **What changed:**
+  - **`lib/ocr.js` — FieldSpec-driven OCR (#4).** New frozen export `extractReceipt(image, fieldSpec, opts) -> { fields, rawParsed, raw }` (ARCHITECTURE §2/§3.1/§4): builds the extraction prompt dynamically from `getFieldSpec(account).columns` so it extracts **only the customer's fields** (no hardcoded schema); coerces each value by declared type (date→ISO, currency/number→Number, category→canonical set, text→capped string).
+    - **Security (SOP §7.3):** system prompt separated from the untrusted image; model told to treat image text as data and never obey embedded instructions; **output treated as untrusted** — `<think>` stripped, defensive JSON parse (garbage/array/truncated → `{}`), and **only FieldSpec keys are read** (extra keys the model volunteers are dropped — tested with an `evil_injected` key).
+    - **qwen `<think>` (ADR-007):** `OCR_MAX_TOKENS` defaults to 2500 (env-overridable) so reasoning tokens don't truncate the JSON.
+    - `expenseFromPhoto` (Telegram entry, unchanged signature so `lib/bot.js` is untouched) refactored to `getFieldSpec → extractReceipt → scoreConfidence → map to expense row`; now stores `confidence` (jsonb) + `anomaly` (when a required field is low) + full extracted object in `ai_raw`, and warns the sender on low confidence.
+  - **`lib/confidence.js` — #11.** `scoreConfidence(fieldSpec, rawParsed) -> { perField, low, flagged, reason }`. Never silently guesses: missing/empty (and money `0`) → `low`; a low **required** field sets `flagged` so it's surfaced for review, not hidden.
+  - **Tests: 41/41 pass** (13 new; hermetic — `global.fetch` stub for the Groq call, same pattern as currency/templates).
+  - **Live end-to-end verified** against real qwen vision with a synthetic receipt + a custom FieldSpec: extracted merchant/date(DD/MM/YYYY→ISO)/total/tax/category all correct, confidence all-high, ~1.5s.
+- **What's next:**
+  1. This is **Tier-2** (untrusted input / OCR / AI-prompt boundary) → needs a **non-author review + a QA pass** (SOP §4.7/§4.8) before merge. Open PR.
+  2. **#1 PDF is NOT done** — `extractReceipt` accepts an image (URL/data-URI) so a rasterised PDF *page* flows through, but PDF→image **rasterisation is not implemented** (open question §10: no build step / native-only deps). A PDF sent to the bot today will not read correctly. Deferred to a follow-up branch with the rasterisation decision.
+- **Assumptions:** custom (non-canonical) FieldSpec keys are extracted and stored in `ai_raw` for Excel (#2)/dashboard to render; only canonical keys populate dedicated `expenses` columns in v1.
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · chore/jeevan-session-handoff
 - **Files:** `docs/HANDOFF.md` (J1 session-end block), `docs/STATUS.md` (refreshed), `MEMORY_LEDGER.md`, `docs/DECISIONS.md` (ADR-011).
 - **What changed (this session's review train):** Merged **PR #10 (#6 categorization)** — QA APPROVE, clamp proven vs 14 payloads; hardening → issue #14. Merged **PR #11 (#5 anomaly + ADR-010)** — QA found a **Critical** review-queue status-machine bug; **fixed** (404/409 guards + array guard + 4 regression tests + security comment) then merged. Opened + reviewed Barat's PRs: **#12 OCR = CHANGES REQUESTED** (Critical unterminated-`<think>` parse → fabricated data; Barat fixes on branch), **#13 templates-route = unreviewed (next)**. **#8 reports** still needs QA re-review. Built a visual build-status board; ran the real (empty) dashboard for the Owner. **ADR-011:** rough reference frontend for Mugi after backend lands.
