@@ -12,6 +12,7 @@ const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountReports = require('./routes/reports');
 const mountTemplates = require('./routes/templates');
+const mountExcel = require('./routes/excel');
 const mountMisc = require('./routes/misc');
 const mountReview = require('./routes/review'); // #5 admin review queue
 
@@ -24,6 +25,7 @@ mountExpenses(app);
 mountReceipt(app);
 mountReports(app);
 mountTemplates(app);
+mountExcel(app);
 mountMisc(app);
 mountReview(app);
 
