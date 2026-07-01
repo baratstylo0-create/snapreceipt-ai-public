@@ -2,19 +2,19 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P3 — Data & Infra.** ✅ Brief GO. ✅ Repo published. ✅ **Modularization MERGED to `main`** (PR #1 + #2; server.js 311→31; lib/ + routes/ + tests; 8/8 green). Parallel work now open from the modularized base: Barat fills `lib/` infra, then Jeevan's features begin.
+**P3 — Data & Infra.** ✅ Brief GO. ✅ Repo published. ✅ **Modularization MERGED to `main`** (PRs #1–#4; server.js 311→31; lib/ + routes/ + tests; 8/8 green). ✅ **Supabase schema applied + verified** and **model routing finalized (ADR-007)**. Parallel work now open from the modularized base: Barat's `lib/` infra tidy-ups, then feature branches.
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
 
 ## Sprint goal (current)
-Kickoff: repo set up, Brief signed off, modularization PR opened. No feature code until the Brief is GO and the modularization PR is merged.
+P3 data & infra foundation: schema migrated, secrets wired + verified live, model routing locked. Next: sync Barat's infra PR onto merged `main`, land the `lib/config.js` vision-default fix, then begin OCR-coupled features off the modularized base.
 
 ## Who's on what
 | Person | Claude | Current task | Branch | State |
 |---|---|---|---|---|
-| Jeevan | J1 | Modularization done; PR open | `feature/jeevan-p2-modularize-server` | awaiting Owner merge |
-| Barat | B1 | Infra: Supabase+Groq verified, schema + .env (PR open). HOLD on lib/* until modularization merges | `feature/barat-p3-infra-schema` | in progress (parallel-safe parts) |
+| Jeevan | J1 | Modularization merged (PRs #1–#4); SOP §4.7 + ADR-008 added | `main` | done — features next |
+| Barat | B1 | P3 infra — schema applied+verified, `.env` + Groq/Supabase verified live, ADR-007 finalized. Syncing branch onto merged main; next = `lib/config.js` maverick-default fix | `feature/barat-p3-infra-schema` | in progress |
 | Mugi | M1 | Not started — deferred (no repo access yet) | — | parked |
 
 ## Blockers
@@ -23,16 +23,22 @@ Kickoff: repo set up, Brief signed off, modularization PR opened. No feature cod
 | Brief GO sign-off | Jeevan | ✅ DONE |
 | GitHub remote + Barat collaborator | Jeevan | ✅ DONE (`baratstylo0-create`) |
 | AI monthly cost cap | Jeevan | ✅ DONE (provisional $50/mo dev) |
-| Merge modularization PR (unblocks Barat's lib/* + all features) | Jeevan | OPEN |
-| Confirm vision model routing (scout alive? maverick gone — ADR-007) | Barat | OPEN |
-| Run schema.sql in Barat's Supabase SQL Editor | Barat | OPEN (it's Barat's project; Jeevan lacks access) |
+| Merge modularization PR (unblocks lib/* + features) | Jeevan | ✅ DONE (merged to main) |
+| Credentials → fill `.env` | Jeevan→Barat | ✅ DONE — filled, all keys verified live |
+| Vision model routing (scout alive? maverick gone — ADR-007) | Barat | ✅ DONE — qwen/qwen3.6-27b both slots, Owner-confirmed |
+| Apply schema.sql in Supabase | Barat | ✅ DONE — applied + REST-verified (6 new cols, field_templates, insert→read→delete round-trip) |
+| Sync stale `feature/barat-p3-infra-schema` onto merged main | Barat | IN PROGRESS — merge done, resolving doc conflicts |
+| `lib/config.js` still defaults `visionEscalate` to dead maverick id | Barat | OPEN — fix in this infra PR (env overrides it, no runtime break) |
+| Invite Jeevan as Supabase project member | Owner | NOT NEEDED — owner runs Supabase solo; optional later for backup access |
 | Mugi GitHub username (only when he starts) | Jeevan | deferred |
 
-## Definition of Done for this kickoff sprint
-- [ ] Jeevan signs GO on PROJECT_BRIEF.md
-- [ ] GitHub private repo created; Barat + Mugi added; everyone ran `setup-git-hooks.ps1`
-- [ ] Modularization PR (server.js → lib/+routes/) merged by Owner
-- [ ] Each person's Claude has read the SOP + Brief + Architecture + their role file
+## Definition of Done — P3 infra
+- [x] Modularization merged; `lib/` + `routes/` + tests on `main`
+- [x] Schema migrated (field_templates + 6 expense columns) and verified
+- [x] Secrets wired in `.env` (git-ignored) and verified live
+- [x] Model routing finalized + documented (ADR-007)
+- [ ] Barat's infra PR synced onto main, reviewed (Tier-2: schema/migration per SOP §4.7), merged by Owner
+- [ ] `lib/config.js` vision-default cleaned of dead maverick id
 
 ## Not doing this sprint
 Any of the 12 feature implementations, business-account layer, billing, hosting choice.
