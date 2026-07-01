@@ -1,6 +1,12 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-012 · Excel export (#2) adds `exceljs` — first exception to the "two deps only" rule
+**Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
+**Context:** CLAUDE.md/ARCHITECTURE §1 keep runtime deps to `express`+`dotenv` only. #2's acceptance criterion is a real `.xlsx` file whose columns match the customer's FieldSpec — a genuine binary OOXML workbook (correct cell types, real Excel metadata) can't be produced with string concatenation, and hand-rolling an XLSX/zip writer is a worse trade (more custom code, more subtle-spec-bug surface, no real security benefit) for a money-facing export.
+**Decision:** Add `exceljs` (pure JS, no native bindings, MIT license) as the first approved exception to the minimal-deps rule. New third-party dependency → **Tier-2** per SOP §4.7: independent QA review required before merge, same bar as the money-math/untrusted-input work already landed this session.
+**Consequences:** One more dependency to keep patched; in exchange, customers get a real Excel file (correct numeric cells for sums, proper headers) instead of a CSV wearing an `.xlsx` extension. Precedent set: future deps need the same justify-then-ADR-then-Tier-2-review treatment, not a blanket ban.
+
 ## ADR-011 · Build a reference frontend prototype before Mugi's production UI/UX
 **Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
 **Context:** All progress so far is backend/infra; the live dashboard (`public/index.html`) is unchanged from day one and surfaces none of the new features (categorization, anomaly review queue, reports, currency, template import). Handing Mugi a spec alone risks a UI that misses functions/flows.

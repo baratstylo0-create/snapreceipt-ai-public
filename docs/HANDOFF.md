@@ -3,36 +3,29 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1 (limit reached). READ THIS FIRST.
+## ⚡ SESSION IN PROGRESS — Claude-J2. READ THIS FIRST.
 
-**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #11 merge (`9facd5e`) + this docs PR. gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **76 passing**.
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #19 merge (`f4d5827`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **150 passing**. No open PRs.
 
-### What J1 did this session (review train)
-1. **Merged PR #10 — #6 categorization.** Independent Tier-2/QA = APPROVE (allow-list clamp proven against 14 adversarial payloads; no hallucinated category escapes). Minor hardening → **GitHub issue #14** (upsert race, match_value length cap, doc note, security regression tests). Non-blocking.
-2. **Merged PR #11 — #5 anomaly + ADR-010.** QA found a **Critical** integrity bug in `routes/review.js` (no status-machine check → rejected expense re-approvable, never-flagged 'saved' reviewable, nonexistent id returned fake-200). **J1 fixed it** (404 if not found; 409 if status!=='needs_review'; anomaly `!Array.isArray` guard) + 4 regression tests + security comment in `lib/anomaly.js` (detectAnomalies `opts` must be server-side only, never client body). Merged.
-3. **Opened + reviewed Barat's 2 PRs** (he has no gh):
-   - **PR #12 — OCR (#4/#1/#11): CHANGES REQUESTED (1 Critical).** `parseModelJson` strips only PAIRED `<think>...</think>`; an UNTERMINATED think block falls through to brace-scanning the raw reasoning → a `{...}`-shaped substring gets saved as the real extraction (fabricated financial data, no error). **Barat fixes on his branch** (bail to `{}` if `<think>` opened but never closed + failing test). Rest of #12 is solid. Posted on PR.
-   - **PR #13 — /api/templates endpoint (#12): NOT YET REVIEWED** — next in queue.
-4. **PR #8 reports:** prior-session QA fixes are pushed; **still needs a QA re-review** before merge (J1 did not re-review this session).
-5. Built a visual **build status board** for the Owner; ran the real dashboard once (empty — no `.env`) to show app-wise state. Added a `receipt-saas` entry to `Gold_Bot/.claude/launch.json` (harmless: `node <abs>/server.js`, port 3001; stop with preview tools).
-6. **ADR-011 logged:** once the backend features land, build a **rough reference frontend prototype** (functional, surfaces every feature's buttons/functions/displays) as a concrete design brief for **Mugi's** production UI/UX. Not before the backend is done.
+### What J2 did this session
+1. **Merged PR #13 — Barat's `/api/templates` (#12 HTTP door).** Fresh non-author QA subagent → **CHANGES REQUESTED (1 Critical)**: malformed JSON / unsupported charset made `express.json()`/`express.text()` throw synchronously, bypassing the route's try/catch and leaking a full stack trace + server file paths (SOP §7.2). Fixed inline (route-local error middleware + a global app-level fallback in `server.js`). QA's 5 adversarial tests kept. Non-blocking findings → **issue #17**.
+2. **Merged PR #8 — reports (#8).** Fresh QA re-review found **2 Important verified bugs**: `Number(e.amount) || 0` turned non-numeric garbage into fake money and let `Infinity` poison the whole report. Fixed with a strict `toAmount()` helper. Added the queued `status=neq.rejected` filter to `routes/reports.js`.
+3. **Merged PR #18** — docs refresh (self-merge was auto-blocked; merged after the Owner explicitly directed it).
+4. **Built + merged PR #19 — #2 Excel export.** Full brainstorm → spec (`docs/specs/2026-07-01-excel-design.md`) → plan (`docs/plans/2026-07-01-excel-export.md`) → **subagent-driven TDD** (fresh implementer per task + two-stage spec/quality review). `lib/excel.js` (pure FieldSpec-driven `buildWorkbook`) + `routes/excel.js` (`GET /api/excel?from=&to=`, real `.xlsx` download). Reuses #8's `toAmount()`/`isISO()`; excludes rejected/soft-deleted rows; `X-Truncated` header on row-cap hit. New dep **exceljs** = ADR-012 (first exception to the two-deps rule). Two code-quality Important findings fixed pre-PR (dup-FieldSpec-key data loss → positional rows; missing CORS on 502 path). Final independent Tier-2 QA = **APPROVE clean** (formula/CSV-injection ruled out — ExcelJS writes plain string cells, not formulas). Non-blocking exceljs `uuid` audit finding → **issue #20**. `main` = 150 tests.
+5. **Barat's ingestion-wiring PR is STILL NOT open** — check `gh pr list` first thing. It's Tier-2 (touches `lib/ocr.js`/`lib/bot.js` + `db/2026-07-01-category_corrections.sql`). Remind Barat: `detectAnomalies` opts must be built server-side only, never from client body (ADR-010).
 
 ### Open PRs at handoff
-| PR | Feature | State |
-|---|---|---|
-| #8 | reports (#8) | QA fixes pushed — needs QA re-review, then merge |
-| #12 | Barat OCR (#4/#1/#11) | ✅ MERGED — Critical fixed by Barat (commit 22bf56e), J1 re-reviewed + merged. main = 91 tests. |
-| #13 | Barat /api/templates (#12) | Not reviewed yet — next in queue |
+None open as of this refresh.
 
-### EXACT NEXT ACTIONS for J2 (in order)
-1. **Review PR #13** (Tier-2, untrusted CSV) → merge if clean. Then **re-review PR #8** (reports) → merge; after it merges add `status=neq.rejected` to report/Excel totals (from #5).
-2. **✅ DONE — PR #12 merged.** #10+#11+#12 all on `main`, so **Barat is UNBLOCKED**: he starts the ingestion wiring now (categorizeLineItems + detectAnomalies + convertCurrency into `lib/ocr.js`/`lib/bot.js`; apply `db/2026-07-01-category_corrections.sql`). That wiring is Tier-2 → review before merge.
-3. **Jeevan's remaining features** (each = branch + PR + QA on money/AI surfaces): **#2 Excel** (reads FieldSpec, unblocked), **#9 dashboard agent**, **#7 mass upload**.
-4. **Then ADR-011 reference frontend** for Mugi.
-5. **Merge conflicts:** every feature PR touches WORKLOG/STATUS/HANDOFF/MEMORY. WORKLOG = keep-both (append-only, never drop an entry). State docs (STATUS/HANDOFF/MEMORY) = take `--theirs` (main) then refresh once.
+### EXACT NEXT ACTIONS for next Claude (in order)
+1. **Check `gh pr list`** — if Barat's ingestion-wiring PR has landed, review it first (Tier-2).
+2. **Jeevan's remaining features:** #9 dashboard agent → #7 mass upload. Each = brainstorm → spec → plan → subagent-driven TDD → branch + PR + independent Tier-2 QA (money/AI surfaces).
+3. **Then ADR-011 reference frontend** for Mugi.
+4. **Merge conflicts:** every feature PR touches WORKLOG/STATUS/HANDOFF/MEMORY. WORKLOG = keep-both (append-only). State docs (STATUS/HANDOFF/MEMORY) = take `--theirs` (main) then refresh once.
+5. **Gotchas learned this session:** (a) feature branches that forked before a batch of P4 PRs landed will show a stale standalone test count — `git merge origin/main` into the branch BEFORE `npm test`/`gh pr merge`, or the merge reports "not mergeable." Right after `git push`, `gh pr view --json mergeable` can return `UNKNOWN` for a few seconds — wait/retry. (b) The auto-mode classifier BLOCKS self-authored PR merges (even Tier-1 docs) as "merge without review" — the Owner must explicitly direct the merge, OR do the full read-diff + run-tests review first. (c) ExcelJS 4.4.0 gotcha: `row.values` drops trailing null cells (they read as `undefined`, not `null`); read via `getCell(i).value` over `columnCount` when asserting on blank cells in tests.
 
 ### Merge-decision authority (Owner delegated to J1/J2)
-Merge when the independent QA/Tier-2 review is clean OR after fixing its findings; HOLD on Critical/Important, or when the fix is the author's (Barat's file). Auto-mode may prompt before merging a teammate's PR — verify the precondition landed (git log), then proceed.
+Merge when the independent QA/Tier-2 review is clean OR after fixing its findings; HOLD on Critical/Important, or when the fix is the author's (Barat's file: `lib/ocr.js`, `lib/groq.js`, `lib/supabase.js`, `lib/templates.js`, `lib/confidence.js`). Auto-mode may prompt before merging a teammate's PR — verify the precondition landed (git log), then proceed.
 
 ---
 
