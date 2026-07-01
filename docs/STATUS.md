@@ -2,43 +2,34 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P3 — Data & Infra.** ✅ Brief GO. ✅ Repo published. ✅ **Modularization MERGED to `main`** (PRs #1–#4; server.js 311→31; lib/ + routes/ + tests; 8/8 green). ✅ **Supabase schema applied + verified** and **model routing finalized (ADR-007)**. Parallel work now open from the modularized base: Barat's `lib/` infra tidy-ups, then feature branches.
+**P4 — Features.** Merged to `main`: #12 template engine, **#6 categorization**, **#5 anomaly + ADR-010**, #10 currency, **#4 OCR + #11 confidence (PR #12)**. `npm test` on main = **91 passing**. Open PRs: #13 templates-route (unreviewed), #8 reports (needs QA re-review).
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
 
 ## Sprint goal (current)
-P3 data & infra foundation: schema migrated, secrets wired + verified live, model routing locked. Next: sync Barat's infra PR onto merged `main`, land the `lib/config.js` vision-default fix, then begin OCR-coupled features off the modularized base.
+Land remaining P4 PRs (#13, #8) via Tier-2 + QA. **Barat is unblocked** → ingestion wiring. Then Jeevan's #2 Excel / #9 agent / #7 mass upload. Then the ADR-011 reference frontend for Mugi.
 
 ## Who's on what
-| Person | Claude | Current task | Branch | State |
-|---|---|---|---|---|
-| Jeevan | J1 | Modularization merged (PRs #1–#4); SOP §4.7 + ADR-008 added | `main` | done — features next |
-| Barat | B1 | P3 infra — schema applied+verified, `.env` + Groq/Supabase verified live, ADR-007 finalized. Syncing branch onto merged main; next = `lib/config.js` maverick-default fix | `feature/barat-p3-infra-schema` | in progress |
-| Mugi | M1 | Not started — deferred (no repo access yet) | — | parked |
+| Person | Claude | Current task | State |
+|---|---|---|---|
+| Jeevan | J1/J2 | Review #13 + re-review #8; own features #2/#9/#7 after | #10, #11, #12 merged |
+| Barat | B1 | **UNBLOCKED** — ingestion wiring (categorize + anomaly + currency into `lib/ocr.js`/`lib/bot.js`) + apply category migration | #12 merged |
+| Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
+
+## Feature status (personal M1)
+- ✅ Merged: #4 OCR · #5 anomaly · #6 categorization · #10 currency · #11 low-confidence · #12 template engine
+- 🔄 In review: #8 reports (PR #8, needs QA re-review) · #12 endpoint (PR #13, unreviewed)
+- ⏳ To do: #1 PDF (rasterisation deferred) · #2 Excel · #3 dashboard (Mugi) · #7 mass upload · #9 agent
 
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| Brief GO sign-off | Jeevan | ✅ DONE |
-| GitHub remote + Barat collaborator | Jeevan | ✅ DONE (`baratstylo0-create`) |
-| AI monthly cost cap | Jeevan | ✅ DONE (provisional $50/mo dev) |
-| Merge modularization PR (unblocks lib/* + features) | Jeevan | ✅ DONE (merged to main) |
-| Credentials → fill `.env` | Jeevan→Barat | ✅ DONE — filled, all keys verified live |
-| Vision model routing (scout alive? maverick gone — ADR-007) | Barat | ✅ DONE — qwen/qwen3.6-27b both slots, Owner-confirmed |
-| Apply schema.sql in Supabase | Barat | ✅ DONE — applied + REST-verified (6 new cols, field_templates, insert→read→delete round-trip) |
-| Sync stale `feature/barat-p3-infra-schema` onto merged main | Barat | IN PROGRESS — merge done, resolving doc conflicts |
-| `lib/config.js` still defaults `visionEscalate` to dead maverick id | Barat | OPEN — fix in this infra PR (env overrides it, no runtime break) |
-| Invite Jeevan as Supabase project member | Owner | NOT NEEDED — owner runs Supabase solo; optional later for backup access |
-| Mugi GitHub username (only when he starts) | Jeevan | deferred |
+| PR #12 OCR Critical | Barat | ✅ DONE — fixed + merged |
+| PR #13 + PR #8 review → merge | J1/J2 | OPEN — in queue |
+| Barat ingestion wiring | Barat | UNBLOCKED — in progress |
+| #6 categorizer hardening (GitHub issue #14) | Jeevan | tracked, non-blocking |
+| Mugi GitHub username | Jeevan | deferred until he starts |
 
-## Definition of Done — P3 infra
-- [x] Modularization merged; `lib/` + `routes/` + tests on `main`
-- [x] Schema migrated (field_templates + 6 expense columns) and verified
-- [x] Secrets wired in `.env` (git-ignored) and verified live
-- [x] Model routing finalized + documented (ADR-007)
-- [ ] Barat's infra PR synced onto main, reviewed (Tier-2: schema/migration per SOP §4.7), merged by Owner
-- [ ] `lib/config.js` vision-default cleaned of dead maverick id
-
-## Not doing this sprint
-Any of the 12 feature implementations, business-account layer, billing, hosting choice.
+## Not doing yet
+Business-account layer (business Excel template parked; personal M1 first per SOP), billing, hosting. Reference frontend (ADR-011) = after core backend features merge.

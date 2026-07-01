@@ -2,6 +2,7 @@
 const express = require('express');
 const { cfg } = require('../lib/config');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
+const { recordCorrection } = require('../lib/categorize'); // #6 learning loop
 
 // Optional API gate (enabled only when DASHBOARD_TOKEN is set). Moved from server.js:220-225.
 function checkDash(req, res, next) {
@@ -28,6 +29,11 @@ module.exports = function mountExpenses(app) {
       for (const k of allow) if (req.body && k in req.body) body[k] = req.body[k];
       if (!Object.keys(body).length) return res.status(400).json({ error: 'no fields to update' });
       const rows = await sbUpdate('expenses', { id: req.params.id }, body);
+      // #6 learning: a manual category edit is ground truth — remember it for future receipts
+      // (best-effort, non-blocking; never fails the request).
+      if ('category' in body && rows[0]) {
+        recordCorrection(rows[0].merchant, rows[0].remark, body.category).catch(() => {});
+      }
       res.json(rows[0] || { ok: true });
     } catch (e) { console.error('[patch expense]', e.message); res.status(502).json({ error: 'update failed' }); }
   });
