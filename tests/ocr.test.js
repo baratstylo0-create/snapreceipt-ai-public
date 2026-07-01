@@ -39,6 +39,21 @@ test('parseModelJson returns {} for garbage / arrays / truncated JSON', () => {
   assert.deepStrictEqual(parseModelJson(null), {});
 });
 
+// PR #12 review (Critical): an UNTERMINATED <think> (qwen cut off mid-reasoning)
+// must NOT let a {...}-shaped example inside the reasoning be accepted as the answer.
+test('parseModelJson rejects an unterminated <think> instead of brace-scanning the reasoning', () => {
+  assert.deepStrictEqual(
+    parseModelJson('<think>...a receipt might look like {"merchant":"X","amount":1}... '),
+    {},
+  );
+  // unterminated think with no braces at all -> still {}
+  assert.deepStrictEqual(parseModelJson('<think>let me read the total'), {});
+  // multiple blocks where the LAST think is cut off -> {} (no completed answer)
+  assert.deepStrictEqual(parseModelJson('<think>a</think>{"real":1} then <think>b {"fake":2}'), {});
+  // sanity: a properly CLOSED think followed by real JSON still parses
+  assert.deepStrictEqual(parseModelJson('<think>done</think>{"merchant":"Acme"}'), { merchant: 'Acme' });
+});
+
 test('coerce enforces the declared type', () => {
   assert.strictEqual(coerce('2026-01-02', 'date'), '2026-01-02');
   assert.strictEqual(coerce('12.50', 'currency'), 12.5);

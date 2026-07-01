@@ -54,3 +54,19 @@ test('empty/garbage inputs do not throw', () => {
   const c = scoreConfidence({ columns: [] }, {});
   assert.deepStrictEqual(c, { perField: {}, low: [], flagged: false, reason: '' });
 });
+
+// PR #12 review (QA nice-to-add): garbage/unreadable values must stay 'low',
+// never score 'high' by accident — including malformed object/array values.
+test('garbage and malformed values stay low (never high by accident)', () => {
+  const c = scoreConfidence(SPEC, {
+    merchant: {},            // object for a text field -> malformed -> low
+    amount: 'N/A',           // non-numeric money -> low
+    expense_date: [1, 2],    // array -> malformed -> low
+    remark: '   ',           // whitespace only -> low
+  });
+  assert.strictEqual(c.perField.merchant, 'low');
+  assert.strictEqual(c.perField.amount, 'low');
+  assert.strictEqual(c.perField.expense_date, 'low');
+  assert.strictEqual(c.perField.remark, 'low');
+  assert.strictEqual(c.flagged, true); // required merchant/amount/date are low
+});

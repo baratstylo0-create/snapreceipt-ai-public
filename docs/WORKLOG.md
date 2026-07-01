@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ocr (PR #12 review response)
+- **Files:** `lib/ocr.js`, `lib/confidence.js`, `tests/ocr.test.js`, `tests/confidence.test.js`.
+- **What changed:** Fixed Jeevan's Tier-2 CRITICAL + 2 QA nice-to-adds on PR #12:
+  1. **CRITICAL — `parseModelJson` unterminated `<think>`:** the paired-tag strip left an *opened-but-never-closed* `<think>` (qwen truncated mid-reasoning) in place, then brace-scanning grabbed a `{...}`-shaped EXAMPLE from the reasoning text and accepted it as the real extraction. Fix: after stripping paired blocks, if any `<think>` remains, **return `{}`** (unusable) instead of scanning the reasoning (SOP §7.3). Added the exact failing test (`'<think>...a receipt might look like {"merchant":"X","amount":1}...'` → `{}`), plus cut-off-with-no-braces, last-block-truncated, and a sanity closed-think case.
+  2. **QA — garbage confidence stays low:** hardened `isPresent` so a malformed object/array value for a text/date/category field scores `low` (never `high` by accident); added a garbage/malformed test.
+  3. **QA — getFieldSpec-throws graceful:** already graceful at the call site — `expenseFromPhoto` wraps `getFieldSpec` in its try/catch, so a DB error becomes the safe "couldn't read it" reply. `getFieldSpec` lives in the merged `lib/templates.js` (not this branch's file), so no change made here.
+  - **Tests: 43/43 pass** (41 + 2 new). Ready for Jeevan's re-review + merge.
+- **What's next:** on merge (+ #5 anomaly), Barat is unblocked for the ingestion wiring in `lib/ocr.js` + `lib/bot.js`.
+- **Assumptions:** unchanged.
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-ocr
 - **Files:** rewrote `lib/ocr.js`; created `lib/confidence.js` (#11), `tests/ocr.test.js`, `tests/confidence.test.js`.
 - **What changed:**
