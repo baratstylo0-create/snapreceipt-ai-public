@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p4-templates-route
+- **Files:** created `routes/templates.js` + `tests/templates_route.test.js`; wired `mountTemplates(app)` into `server.js`; added `routes/templates` to the `smoke.test.js` import list.
+- **What changed:** The **HTTP door for #12** — customers/dashboard can now import a CSV template and read the current one (the `lib/templates.js` engine had no endpoint yet, so `getFieldSpec` always returned DEFAULT).
+  - `GET /api/templates` → current FieldSpec (or DEFAULT). `POST /api/templates` → accepts a `text/csv`(or `text/plain`) body OR JSON `{csv, name?}` (also `?name=`), parses + stores via `saveTemplate`, returns the FieldSpec.
+  - Reuses the existing `checkDash` dashboard-token gate (from `routes/expenses.js`). Untrusted-input handling (SOP §7.2): 256 kb body cap; invalid/empty CSV → **400** (parseTemplate errors mapped to client errors), real DB failures → 502.
+  - **Tests: 33/33 pass** (5 new hermetic route tests — mount on ephemeral port + real fetch like the smoke test, Supabase calls stubbed by URL so the local request still passes through).
+  - **Live HTTP round-trip verified** against real Supabase: POST CSV → 200 stored → GET reflects it → test row deleted → 0 rows. ✅
+- **What's next:** open PR (Tier-2 — untrusted CSV over HTTP → non-author review). Independent of the OCR PR (different files); both touch `docs/WORKLOG.md`/`STATUS.md` so expect a keep-both merge there.
+- **Assumptions:** single-account v1 (writes scope to `cfg.ACCOUNT_ID` via the supabase helpers, per the #12 limitation already logged). `server.js` touched for one mount line (shared wiring file — minimal, announced here per SOP §4.6).
+
 ## 2026-07-01 · Claude-B1 (for Barat) · feature/barat-p3-templates (PR #9 review response)
 - **Files:** `lib/templates.js`, `tests/templates.test.js`.
 - **What changed:** Addressed Jeevan's Tier-2 review of PR #9 (APPROVE + 1 important + 4 minor):
