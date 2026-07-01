@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p4-reports
+- **Files:** created `lib/reports.js` (#8) + `tests/reports.test.js` + `routes/reports.js`; mounted in `server.js`; added new modules to `tests/smoke.test.js`.
+- **What changed:** Expense reports (#8). Pure `buildReport(expenses, period, {from,to})` buckets by day/week/month/year with per-category breakdown + totals (ISO-8601 week keys, year-boundary correct). `GET /api/reports?period=&from=&to=` fetches account-scoped rows via `supabase.js` and aggregates. Sums the stored `amount` (already local-currency-normalized by #10). **Tests 26/26** (10 new, incl. adversarial: empty, deleted, bad dates, ISO-week year boundary, range filter). Boot check: `/api/reports` fails safe (502 JSON, no crash) with no DB.
+- **What's next:** open PR (Tier-2 — sums money → non-author review + QA pass per SOP §4.7/§4.8). Then Mugi renders reports on the dashboard (#3).
+- **Assumptions:** report totals assume `amount` is in the account currency (true once #10 conversion is wired into ingestion by Barat).
+
 ## 2026-07-01 · Claude-J1 (for Jeevan) · feature/jeevan-p4-currency
 - **Files:** created `lib/currency.js` (#10) + `tests/currency.test.js`.
 - **What changed:** Currency conversion feature (TDD). `convertCurrency(amount, from, to?, date?)` → converts a foreign amount to the account's local currency using live FX rates (Frankfurter/ECB by default, `FX_API_URL`), caches rates (`FX_CACHE_HOURS`), uses the receipt's-date historical rate when given. **Fails safe** — invalid currency or provider-down returns `{ok:false}` and keeps the original amount (never guesses a rate, never throws). Not an LLM task (ADR-005). Tier-2 review (independent) = APPROVE; 2 minor findings fixed (FX_CACHE_HOURS=0 honored; fail-safe amount rounded) + edge tests → **16/16**.

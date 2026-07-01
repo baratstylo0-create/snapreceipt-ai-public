@@ -10,6 +10,7 @@ const { registerWebhook } = require('./lib/telegram');
 const mountWebhook = require('./routes/webhook');
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
+const mountReports = require('./routes/reports');
 const mountMisc = require('./routes/misc');
 
 assertConfig();
@@ -19,6 +20,7 @@ app.set('trust proxy', true);
 mountWebhook(app);
 mountExpenses(app);
 mountReceipt(app);
+mountReports(app);
 mountMisc(app);
 
 if (process.argv.includes('--register-only')) {
