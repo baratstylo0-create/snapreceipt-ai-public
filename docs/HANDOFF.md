@@ -3,38 +3,32 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST.  (updated 2026-07-02, latest)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST.  (updated 2026-07-02, latest — #1 PDF dispatched)
 
-**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #32 merge (`0e48033`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **273 passing** (274 on the open `chore/jeevan-j1-session-end` branch with 1 cherry-picked QA test).
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #36 merge. gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **275 passing**. **No open PRs.**
 
-### What landed recently (state as of this refresh)
-1. **#7 MASS UPLOAD — COMPLETE ON BOTH SURFACES.**
-   - **PR #28 MERGED** (`a3b800b`) — Jeevan's `lib/massupload.js` `runBatch` (best-effort, never-throws batch orchestrator) + `routes/upload.js` `POST /api/upload` (checkDash, base64→Buffer, ≤10 → 413, 503 dark-path). Independent Tier-2 QA APPROVE.
-   - **PR #29 MERGED** (`d52bc96`) — Barat's `extractReceipts()` in `lib/ocr.js` (the #7 OCR dep). QA APPROVE-with-minor; the one Minor is pre-existing → **issue #30** (low priority, Barat's `lib/ocr.js`).
-   - **PR #32 MERGED** (`0e48033`) — Barat's **Telegram multi-photo adapter** (`lib/bot.js` buffers a media group by `media_group_id`, debounces ~2s, clamps to `MASS_MAX_IMAGES`=10 → ONE `runBatch` → one counts-only summary). Independent Tier-2 QA = **APPROVE (clean)**: buffering/debounce correct, never-throws holds, `failed[].reason` non-leak confirmed (planted-secret regression test), single-photo path unchanged. `meta.fileId:null` (Option A; per-image links = **issue #31**, deferred).
-2. **PR #27 (housekeeping) MERGED** — ADR-013 (jszip), + groq QA tests.
-3. **#9 (PR #25) + `groqChatTools()` (PR #26)** — merged earlier (see WORKLOG).
+### State: #1 PDF ingestion is IN BUILD (Barat's lane)
+Brainstormed with Owner → spec + **ADR-014** (`@hyzyla/pdfium`, WASM PDFium) + full TDD plan, all merged to main (PR #35, #36). **J1 ran the Task-0 interop spike in-session** (throwaway, not committed) and it **PASSED**: dynamic `import()` from CJS works, `page.render()`→RGBA→`node:zlib` PNG (no `sharp`) produced a legible page, zero-dep confirmed. **Fallback not needed.** Full detail in ADR-014 (`docs/DECISIONS.md`) and `docs/plans/2026-07-02-pdf-ingestion.md`.
 
-### Open PRs
-- **`chore/jeevan-j1-session-end`** (this refresh) — cherry-picked the PR #32 QA's 1 hardening test (download-rejection safety) so it lands on main (SOP §4.4 — not pushed to Barat's branch), + this HANDOFF/STATUS refresh. Tier-1; self-merge auto-blocked → **Owner merges, or next Claude read-diff+test reviews first.**
+**Barat was dispatched** (full task list relayed in-session) to build `feature/barat-p4-pdf`: `lib/pdf.js` (rasterizer) + Telegram PDF path in `lib/bot.js`, TDD, Tier-2. His Task 0 is reduced (spike pre-done) to: install dep + generate fixtures + confirm the encrypted-PDF error string.
 
-### EXACT NEXT ACTIONS for next Claude (in order)
-1. **Merge the `chore/jeevan-j1-session-end` PR** (Owner, or self-review-first).
-2. **#1 PDF ingestion — THE ONLY REMAINING BACKEND ITEM.** Blocked on a **joint rasterization brainstorm with the Owner** (turning a PDF into page images with the project's no-build-step + minimal-deps constraint makes the dependency choice non-trivial — likely a new ADR). **Owner asked to do this as a FRESH SESSION** (budget: one session per feature — this session did #9 + #7 end-to-end and ran heavy). Barat is HOLDING — do not let him start #1 PDF solo; it needs the brainstorm first. Start: brainstorm → spec → plan → subagent-TDD, same as #2/#9/#7.
-3. **ADR-011 reference frontend** for Mugi (after #1 PDF, or in parallel — surfaces every /api/* feature for Mugi to design production UI from).
-
-### Barat status (his #7 work is DONE)
-`extractReceipts` (#29) + Telegram multi-photo (#32) both merged. Nothing urgent open in his lane. Remaining: **#1 PDF (WAIT for the joint brainstorm)**, business Excel (PARKED). Issue #30 (low-priority hardening in his `lib/ocr.js`) is his call, non-blocking.
+### EXACT NEXT ACTIONS for next Claude
+1. **`gh pr list`** — check if Barat's `feature/barat-p4-pdf` PR is open.
+   - **If open:** read the plan (`docs/plans/2026-07-02-pdf-ingestion.md`) Tasks 0–5 as the acceptance checklist, do the **independent Tier-2 QA** (untrusted PDF parser + new dep — fixture coverage: native/scanned/multi-page/encrypted/corrupt/oversized/non-PDF, no leaked internals, `MASS_MAX_IMAGES` cap respected), then merge if clean (Owner delegated authority) or hand findings back.
+   - **If not open yet:** nothing to do on #1 — check WORKLOG.md top for anything else pending; otherwise this is a natural idle window (non-blocking issues below, or wait).
+2. **After Barat's `lib/pdf.js` merges:** J1's own **Task 7** — `routes/upload.js` PDF glue (fork branch AFTER his merge, `npm install` first since a dep landed). Plan has full task+code.
+3. **ADR-011 reference frontend** for Mugi — after #1 fully lands.
 
 ### Decisions locked (2026-07-02)
-- **Business Excel phase: PARKED** (personal M1 first per SOP). jszip validated for it (exceljs drops charts).
-- **jszip → explicit dep: APPROVED in principle (ADR-013)**; package.json promotion deferred to business-Excel Phase-1.
-- **Workflow: one fresh session per feature** going forward (marathon multi-feature sessions burn the quota window fast; the HANDOFF contract is designed for exactly this).
+- ADR-014: `@hyzyla/pdfium` (WASM, MIT/BSD, zero-dep) for PDF rasterization; MuPDF rejected (AGPL); PNG encoded via `node:zlib` (NOT `sharp` — vendor's example uses sharp, we rejected it to keep exactly 1 added dep).
+- Business Excel stays PARKED; jszip ADR-013 stands.
+- One fresh session per feature; HANDOFF contract designed for exactly this.
 
 ### GOTCHAs (carry forward)
-- (a) **Before diagnosing "post-merge test failures" as a code bug, run `npm install`** — a dependency added to `main` after your branch forked leaves your local `node_modules` missing it (whole-test-file load failures + an "all modules import" failure = a missing dep, not logic). PR #22 was nearly mis-triaged this way (missing `exceljs`).
-- (b) The auto-mode classifier **blocks self-authored PR merges** (even Tier-1 docs) — the Owner merges, OR you do the full read-diff + run-tests review yourself first. It also blocks `git reset --hard` that would discard a local-only commit a handoff relied on.
-- (c) A subagent dispatched to QA a teammate's PR **checks out that branch in the shared working tree** — don't do local git ops while it runs; wait for it to finish.
+- (a) **`npm install` before diagnosing "post-merge test failures"** — a dep added to `main` after your branch forked leaves `node_modules` stale.
+- (b) Auto-mode classifier **blocks self-authored PR merges** (even Tier-1 docs, even with prior "merge the branches" authorization — it does NOT extend to PRs created after that authorization). Owner must explicitly name/authorize each PR, or you do full read-diff+test review first.
+- (c) A subagent QA-ing a teammate's PR **checks out that branch in the shared working tree** — don't do local git ops while it runs.
+- (d) `@hyzyla/pdfium`'s `page.render()` returns raw RGBA, not PNG — don't add `sharp`; use the `node:zlib` encoder in the plan (Task 2, code is spike-verified).
 
 ### Merge-decision authority (Owner delegated to J1/J2)
 Merge when the independent QA/Tier-2 review is clean OR after fixing its findings; HOLD on Critical/Important, or when the fix is the author's (Barat's files: `lib/ocr.js`, `lib/groq.js`, `lib/supabase.js`, `lib/templates.js`, `lib/confidence.js`). Auto-mode may prompt before merging a teammate's PR — verify the precondition landed (git log), then proceed.
