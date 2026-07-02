@@ -53,7 +53,7 @@ test('DASHBOARD_TOKEN configured, correct bearer token -> 200 + private, no-stor
   } finally { cfg.DASHBOARD_TOKEN = saved; }
 });
 
-test('DASHBOARD_TOKEN configured, ?key= query token also works (existing checkDash contract)', async () => {
+test('?key= query token is REJECTED — header-only auth (Task J F2 fix)', async () => {
   const saved = cfg.DASHBOARD_TOKEN;
   cfg.DASHBOARD_TOKEN = 'tok-abc';
   try {
@@ -61,8 +61,10 @@ test('DASHBOARD_TOKEN configured, ?key= query token also works (existing checkDa
       tgFileUrl: async () => ({ url: 'http://x', path: 'a.png' }),
       hreq: async () => Buffer.from('fake-png-bytes'),
     });
+    // The ?key= path was dropped (tokens in URLs leak to history/proxy logs); a correct
+    // token in the query no longer authorizes — only the Authorization: Bearer header does.
     const { status } = await get(app, '/receipt/fid1?key=tok-abc');
-    assert.strictEqual(status, 200);
+    assert.strictEqual(status, 401);
   } finally { cfg.DASHBOARD_TOKEN = saved; }
 });
 

@@ -41,15 +41,16 @@ test('AUTH: GET /api/review with NO key -> 401 when DASHBOARD_TOKEN set', async 
   } finally { cfg.DASHBOARD_TOKEN = orig; supabase.sbSelect = os; }
 });
 
-test('AUTH: GET with WRONG key -> 401; with CORRECT key -> 200', async () => {
+test('AUTH: wrong header -> 401; ?key= (even correct) -> 401; correct Bearer header -> 200', async () => {
   const orig = cfg.DASHBOARD_TOKEN; cfg.DASHBOARD_TOKEN = 'secret-tok';
   const os = supabase.sbSelect;
   supabase.sbSelect = async () => ([{ id: 'e1', status: 'needs_review' }]);
   try {
-    const bad = await call('GET', '/api/review?key=nope');
+    const bad = await call('GET', '/api/review', { headers: { Authorization: 'Bearer nope' } });
     assert.strictEqual(bad.status, 401);
-    const good = await call('GET', '/api/review?key=secret-tok');
-    assert.strictEqual(good.status, 200);
+    // ?key= was dropped (Task J F2) — a correct token in the query no longer authorizes.
+    const query = await call('GET', '/api/review?key=secret-tok');
+    assert.strictEqual(query.status, 401);
     const goodHdr = await call('GET', '/api/review', { headers: { Authorization: 'Bearer secret-tok' } });
     assert.strictEqual(goodHdr.status, 200);
   } finally { cfg.DASHBOARD_TOKEN = orig; supabase.sbSelect = os; }

@@ -150,18 +150,11 @@ test('agent: malformed tool arguments become a structured error (no unhandled th
 //    crypto.timingSafeEqual. This test DOCUMENTS the current behaviour so the gap is
 //    tracked; it asserts the (safe) functional outcome, not a timing property.
 // ---------------------------------------------------------------------------
-test('FINDING(Low): token compare is a plain === (functionally correct, not constant-time)', async () => {
+test('FIXED (Task J F1): token compare is now constant-time (crypto.timingSafeEqual)', async () => {
   const src = require('fs').readFileSync(require.resolve('../routes/expenses'), 'utf8');
-  // Prove the current implementation still uses the non-constant-time comparison, so
-  // if someone hardens it to timingSafeEqual this test flags that the FINDING is resolved.
-  assert.ok(
-    /a === 'Bearer ' \+ cfg\.DASHBOARD_TOKEN/.test(src),
-    'checkDash still uses a plain === token compare — FINDING: migrate to crypto.timingSafeEqual'
-  );
-  assert.ok(
-    !/timingSafeEqual/.test(src),
-    'no constant-time compare yet — documented FINDING (Low)'
-  );
+  // The plain `===` compare was replaced with a constant-time comparison — regression lock.
+  assert.ok(/timingSafeEqual/.test(src), 'checkDash must use crypto.timingSafeEqual for the token compare');
+  assert.ok(!/a === 'Bearer ' \+ cfg\.DASHBOARD_TOKEN/.test(src), 'the old plain === token compare must be gone');
 });
 
 // ---------------------------------------------------------------------------
@@ -171,12 +164,10 @@ test('FINDING(Low): token compare is a plain === (functionally correct, not cons
 //    mitigated by Referrer-Policy: no-referrer). The dashboard client uses the
 //    Authorization header; the query path is a convenience that widens exposure.
 // ---------------------------------------------------------------------------
-test('FINDING(Low): ?key= query-string token is accepted (widens token exposure surface)', async () => {
+test('FIXED (Task J F2): ?key= query-string token path removed — header-only auth', async () => {
   const src = require('fs').readFileSync(require.resolve('../routes/expenses'), 'utf8');
-  assert.ok(
-    /req\.query\.key === cfg\.DASHBOARD_TOKEN/.test(src),
-    'checkDash accepts the token via ?key= — FINDING: prefer header-only auth for a credentialed app'
-  );
+  // The query-string token path was dropped; only the Authorization: Bearer header authorizes.
+  assert.ok(!/req\.query\.key/.test(src), 'checkDash must no longer accept a ?key= query-string token');
 });
 
 // ---------------------------------------------------------------------------

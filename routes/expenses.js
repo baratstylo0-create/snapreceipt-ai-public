@@ -1,4 +1,5 @@
 'use strict';
+const crypto = require('node:crypto');
 const express = require('express');
 const { cfg } = require('../lib/config');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
@@ -11,6 +12,17 @@ const { createRateLimiter } = require('../lib/ratelimit');
 // regardless of which endpoint it targets. DASH_AUTH_RATE_MAX follows Barat's WEBHOOK_RATE_MAX
 // naming convention; reuses the shared lib/ratelimit.js limiter.
 const dashAuthLimiter = createRateLimiter({ max: Number(process.env.DASH_AUTH_RATE_MAX) || 60 });
+
+// Constant-time token comparison (Task J security-QA F1): a plain `===` short-circuits on
+// the first mismatched byte, which is theoretically timing-observable. timingSafeEqual needs
+// equal-length buffers, so we length-check first (token length is not secret) and only compare
+// in constant time when lengths match. Belt-and-braces with the per-IP rate limiter above.
+function safeTokenEqual(presented, secret) {
+  const a = Buffer.from(String(presented));
+  const b = Buffer.from(String(secret));
+  if (a.length === 0 || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 // API gate. Moved from server.js:220-225; hardened P6 (§4.3 — was fail-OPEN: any request
 // was let through when DASHBOARD_TOKEN was unset, on every route that reuses this gate,
@@ -34,8 +46,12 @@ function checkDash(req, res, next) {
       console.warn('[checkDash] WARNING: DASHBOARD_TOKEN is not set — request allowed unauthenticated (dev-only fallback):', req.method, req.originalUrl);
       return next();
     }
+    // Header-only auth (Task J security-QA F2): the `?key=` query path was dropped — tokens in
+    // URLs leak to browser history / proxy logs. The dashboard client always sends the bearer
+    // header (Excel/receipt downloads use an authed blob fetch, not a query-param'd link).
     const a = req.get('Authorization') || '';
-    if (a === 'Bearer ' + cfg.DASHBOARD_TOKEN || req.query.key === cfg.DASHBOARD_TOKEN) return next();
+    const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
+    if (safeTokenEqual(presented, cfg.DASHBOARD_TOKEN)) return next();
     return res.status(401).json({ error: 'unauthorized' });
   });
 }
