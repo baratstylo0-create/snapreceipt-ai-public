@@ -3,18 +3,53 @@ const express = require('express');
 const { cfg } = require('../lib/config');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
 const { recordCorrection } = require('../lib/categorize'); // #6 learning loop
+const { createRateLimiter } = require('../lib/ratelimit');
 
-// Optional API gate (enabled only when DASHBOARD_TOKEN is set). Moved from server.js:220-225.
+// P6 abuse defense (§4.4): checkDash IS the auth gate for every dashboard/API route (they all
+// import it from here) — without a limit it's brute-forceable (guess DASHBOARD_TOKEN). Runs
+// before the token check on every gated route, so a flood of bad-token attempts gets 429'd
+// regardless of which endpoint it targets. DASH_AUTH_RATE_MAX follows Barat's WEBHOOK_RATE_MAX
+// naming convention; reuses the shared lib/ratelimit.js limiter.
+const dashAuthLimiter = createRateLimiter({ max: Number(process.env.DASH_AUTH_RATE_MAX) || 60 });
+
+// API gate. Moved from server.js:220-225; hardened P6 (§4.3 — was fail-OPEN: any request
+// was let through when DASHBOARD_TOKEN was unset, on every route that reuses this gate,
+// including the receipt-image proxy). Now fail-CLOSED in production:
+//   - cfg.AUTH_REQUIRED (NODE_ENV=production, or AUTH_REQUIRED=true for staging/other envs)
+//     + no DASHBOARD_TOKEN configured -> refuse everything with a clear "server misconfigured"
+//     500, never a silent pass-through. This is deliberately NOT a 401 (401 implies "you can
+//     fix this by authenticating"; here nobody can, until the operator sets a token).
+//   - otherwise (local/dev, no AUTH_REQUIRED) + no token -> keep today's permissive behavior
+//     so `npm start` with an empty .env still works out of the box, but log a loud warning on
+//     every request that slips through unauthenticated so it's never silently forgotten.
+// Production MUST set DASHBOARD_TOKEN — see README.md and .env.example.
 function checkDash(req, res, next) {
-  if (!cfg.DASHBOARD_TOKEN) return next();
-  const a = req.get('Authorization') || '';
-  if (a === 'Bearer ' + cfg.DASHBOARD_TOKEN || req.query.key === cfg.DASHBOARD_TOKEN) return next();
-  return res.status(401).json({ error: 'unauthorized' });
+  // Rate-limit the gate itself first (per-IP), before spending any work on the token
+  // comparison — brute-forcing DASHBOARD_TOKEN is the threat this defends against.
+  return dashAuthLimiter(req, res, () => {
+    if (!cfg.DASHBOARD_TOKEN) {
+      if (cfg.AUTH_REQUIRED) {
+        return res.status(500).json({ error: 'server misconfigured: DASHBOARD_TOKEN is required in production' });
+      }
+      console.warn('[checkDash] WARNING: DASHBOARD_TOKEN is not set — request allowed unauthenticated (dev-only fallback):', req.method, req.originalUrl);
+      return next();
+    }
+    const a = req.get('Authorization') || '';
+    if (a === 'Bearer ' + cfg.DASHBOARD_TOKEN || req.query.key === cfg.DASHBOARD_TOKEN) return next();
+    return res.status(401).json({ error: 'unauthorized' });
+  });
 }
+
+// P6 hardening (§4.5): Access-Control-Allow-Origin was hardcoded to '*' on every token-gated
+// route. With a bearer token, '*' lets ANY origin call the API cross-site. Reflect
+// cfg.DASHBOARD_ORIGIN when the operator has set one (production); fall back to '*' only
+// when unset, so local dev (no known origin yet) keeps working out of the box. Shared here
+// since every other route file already imports checkDash from this module.
+function dashOrigin() { return cfg.DASHBOARD_ORIGIN || '*'; }
 
 module.exports = function mountExpenses(app) {
   app.get('/api/expenses', checkDash, async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000 });
       res.json(rows);
@@ -22,7 +57,7 @@ module.exports = function mountExpenses(app) {
   });
 
   app.patch('/api/expenses/:id', checkDash, express.json({ limit: '1mb' }), async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const allow = ['merchant', 'expense_date', 'amount', 'currency', 'category', 'status', 'remark', 'subtotal', 'tax'];
       const body = {};
@@ -39,7 +74,7 @@ module.exports = function mountExpenses(app) {
   });
 
   app.delete('/api/expenses/:id', checkDash, async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       await sbSoftDelete('expenses', { id: req.params.id });
       res.json({ ok: true });
@@ -50,3 +85,4 @@ module.exports = function mountExpenses(app) {
 };
 
 module.exports.checkDash = checkDash;
+module.exports.dashOrigin = dashOrigin;

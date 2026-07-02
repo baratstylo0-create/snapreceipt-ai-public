@@ -1,7 +1,7 @@
 'use strict';
 const supabase = require('../lib/supabase');     // namespace import so tests can stub sbSelect
 const { buildReport } = require('../lib/reports');
-const { checkDash } = require('./expenses');      // reuse the same optional API gate
+const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
 
 // Max rows pulled into memory for aggregation. If an account exceeds this, the report
 // is TRUNCATED and we say so (never silently undercount a money report). For real scale,
@@ -11,7 +11,7 @@ const REPORT_ROW_LIMIT = 10000;
 // GET /api/reports?period=day|week|month|year&from=YYYY-MM-DD&to=YYYY-MM-DD
 module.exports = function mountReports(app) {
   app.get('/api/reports', checkDash, async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const period = String(req.query.period || 'month');
       const iso = v => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : undefined);

@@ -12,7 +12,7 @@ const assert = require('node:assert');
 
 const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
-const { filterSortPage, badgesFor, categoryColor, patchBody } = Activity;
+const { filterSortPage, badgesFor, categoryColor, patchBody, receiptPath } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
 function row(over) {
@@ -245,4 +245,29 @@ test('hostile merchant/description/anomaly-reason render INERT via Escape.safeTe
 test('control bytes are stripped by safeText before display', () => {
   const dirty = 'A BCD';
   assert.strictEqual(Escape.safeText(dirty), 'ABCD');
+});
+
+// --- receiptPath (P6 hardening §4.1 client fix) ----------------------------
+// The drawer no longer renders /receipt/:fileId as a plain <a href> (once checkDash
+// gates that route, a bare navigation can't carry the bearer token and would 401).
+// It now fetches the image via Api.fetchBlob(receiptPath(fileId)) and renders an <img>
+// from an object URL. That DOM/fetch wiring is browser-only (human-QA territory, see
+// Task K), but the URL builder itself is pure and is the part worth a unit test:
+// fileId is untrusted (OCR/Telegram-sourced), so it must always be percent-encoded,
+// never string-concatenated raw into the path.
+test('receiptPath: builds /receipt/<encoded fileId>', () => {
+  assert.strictEqual(receiptPath('abc123'), '/receipt/abc123');
+});
+
+test('receiptPath: percent-encodes a hostile/path-breaking fileId (no raw markup, no raw slashes)', () => {
+  const hostile = '../../etc/passwd?x=<script>alert(1)</script>';
+  const out = receiptPath(hostile);
+  assert.strictEqual(out.indexOf('/receipt/'), 0);
+  assert.ok(out.indexOf('<script>') === -1, 'must not carry raw markup');
+  assert.strictEqual(out, '/receipt/' + encodeURIComponent(hostile));
+});
+
+test('receiptPath: null/undefined fileId does not throw, yields a safe empty-ish path', () => {
+  assert.strictEqual(receiptPath(null), '/receipt/');
+  assert.strictEqual(receiptPath(undefined), '/receipt/');
 });

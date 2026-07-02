@@ -44,5 +44,27 @@
     });
   }
 
-  return { apiFetch: apiFetch, setToken: setToken, getToken: getToken };
+  // Fetch a same-origin path and resolve the raw Response body as a Blob, carrying the
+  // same bearer-token attachment as apiFetch. Needed for /receipt/:fileId (P6 hardening):
+  // once that route requires checkDash, a plain <a href> navigation can't carry an
+  // Authorization header, so the receipt image must be fetched (blob -> object URL) and
+  // rendered into a real <img>, never assigned via innerHTML/href with unescaped data.
+  // Kept separate from apiFetch (which always parses JSON/text) rather than overloading
+  // it, to avoid changing behavior for every existing JSON caller.
+  function fetchBlob(path, opts) {
+    opts = opts || {};
+    var headers = Object.assign({}, opts.headers || {});
+    if (_token) headers.Authorization = 'Bearer ' + _token;
+    var init = Object.assign({}, opts, { headers: headers });
+    return fetch(path, init).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (body) { throw { status: res.status, body: body }; }, function () {
+          throw { status: res.status, body: null };
+        });
+      }
+      return res.blob();
+    });
+  }
+
+  return { apiFetch: apiFetch, fetchBlob: fetchBlob, setToken: setToken, getToken: getToken };
 });

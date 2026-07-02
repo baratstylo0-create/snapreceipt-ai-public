@@ -150,6 +150,13 @@
     return body;
   }
 
+  // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
+  // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
+  // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
+  function receiptPath(fileId) {
+    return '/receipt/' + encodeURIComponent(str(fileId));
+  }
+
   // ---- DOM helpers (browser only) ----------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -395,16 +402,35 @@
       drawer.appendChild(liWrap);
     }
 
-    // Receipt thumbnail placeholder (image proxy auth is a later task — link only).
+    // Receipt image (P6 hardening): /receipt/:fileId now requires checkDash, so a plain
+    // <a href> navigation can't carry the bearer token and would 401. Instead fetch the
+    // bytes via Api.fetchBlob (attaches the same Authorization header as every other API
+    // call), turn them into a browser-generated blob: object URL, and set it on a real
+    // <img> via .src — never innerHTML, never an href built from unescaped data. Fetched
+    // eagerly on drawer-open (not per-row in the table) so opening a list of rows doesn't
+    // fan out N image requests before the user asks to see any of them.
     var receipt = el('div', 'act-receipt');
     if (rowObj.receipt_file_id) {
       receipt.appendChild(textCell('span', 'act-receipt-label muted', 'Receipt image'));
-      var link = el('a', 'act-receipt-link');
-      link.setAttribute('href', '/receipt/' + encodeURIComponent(str(rowObj.receipt_file_id)));
-      link.setAttribute('rel', 'noopener noreferrer');
-      link.setAttribute('target', '_blank');
-      Escape.setText(link, 'Open original receipt');
-      receipt.appendChild(link);
+      var imgWrap = el('div', 'act-receipt-image-wrap');
+      var status2 = el('p', 'act-receipt-msg muted');
+      Escape.setText(status2, 'Loading receipt image…');
+      imgWrap.appendChild(status2);
+      receipt.appendChild(imgWrap);
+
+      if (Api && typeof Api.fetchBlob === 'function') {
+        Api.fetchBlob(receiptPath(rowObj.receipt_file_id)).then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          clear(imgWrap);
+          var img = el('img', 'act-receipt-image');
+          img.src = url;          // browser-generated object URL, not derived from untrusted data
+          img.alt = 'Receipt image';
+          imgWrap.appendChild(img);
+        }).catch(function () {
+          clear(imgWrap);
+          imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt image.'));
+        });
+      }
     } else {
       receipt.appendChild(textCell('span', 'act-receipt-label muted', 'No receipt image on file'));
     }
@@ -563,6 +589,7 @@
     badgesFor: badgesFor,
     categoryColor: categoryColor,
     patchBody: patchBody,
+    receiptPath: receiptPath,
     // render (browser)
     mount: mount,
   };
