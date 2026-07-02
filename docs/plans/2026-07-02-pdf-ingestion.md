@@ -38,7 +38,17 @@
 
 ## Task 0: Spike — confirm PDFium interop + RGBA→PNG (Barat, throwaway)
 
-**Goal:** De-risk ADR-014 before writing real code: prove dynamic `import()` of the ESM lib works from CommonJS, that `render()` returns raw RGBA, and that a `zlib` PNG encoder yields a valid image. Generate the test fixtures.
+> **⚡ PRE-VALIDATED by J1 (in-session 2026-07-02) — the risky half is already proven.** J1 ran this exact
+> spike on generated native PDFs: dynamic `import()` from CJS ✓, `PDFiumLibrary.init()` + `page.render`
+> → RGBA ✓, the `node:zlib` encoder → **legible** PNG ✓ (625×416px @ 150 DPI), multi-page ✓,
+> non-PDF→throws ✓, `added 1 package` (zero-dep) ✓. See ADR-014 "Spike result". **The fallback (C) is not
+> needed.** Barat's Task 0 therefore reduces to: (a) `npm install @hyzyla/pdfium` + commit; (b) **generate
+> the fixtures that need external tools** (`encrypted.pdf` via `qpdf`, `scanned.pdf` from an image) plus the
+> trivial ones; (c) **confirm the exact `loadDocument` error string for a password-protected PDF** so
+> `ENCRYPTED` maps distinctly from `CORRUPT` (Task 3's catch regex). You may skip re-proving the interop —
+> go straight to Task 1 once fixtures exist. The spike script below is retained for reference.
+
+**Goal:** De-risk ADR-014 before writing real code: prove dynamic `import()` of the ESM lib works from CommonJS, that `render()` returns raw RGBA, and that a `zlib` PNG encoder yields a valid image. Generate the test fixtures. *(Interop + encoder already proven by J1 — see the note above; the remaining real work is fixtures + the encrypted-error-string check.)*
 
 **Files:**
 - Modify: `package.json` (add dep)
