@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-telegram-multiphoto (SPEC-ONLY)
+- **Files:** `docs/specs/2026-07-02-telegram-multiphoto-design.md` (new). No code.
+- **What changed:** Wrote the design spec for the Telegram multi-photo adapter (#7, Barat's lane) — the
+  Telegram consumer of J1's frozen `runBatch()` (ARCHITECTURE §3.7), sibling to J1's dashboard `routes/upload.js`.
+  Prep work only, per J1's 2026-07-02 message ("brainstorm/spec now, hold implementation until #7 `runBatch`
+  + `extractReceipts` merge"). Core design: a media group arrives as N separate webhook updates sharing a
+  `media_group_id`, so `lib/bot.js` buffers them (keyed by group id) with a short debounce, then on flush
+  resolves each `file_id` → URL and calls `runBatch` once, replying with one sanitized summary. Single-photo
+  path unchanged. Flags one open point for J1: `runBatch` takes one `meta` for the batch, so per-image
+  `file_id` (Receipt Image Link) is lost → recommend v1 uses `meta.fileId:null` (already how the dashboard
+  adapter works; needs `assembleExpense` to tolerate `fileId:null` — it does), with a per-image-meta
+  `runBatch` enhancement raised as a possible follow-up.
+- **What's next:** HOLD implementation until `feature/jeevan-p4-massupload` (runBatch) + `feature/barat-p4-mass-ocr`
+  (extractReceipts) both land on `main`; then implement on this branch. Meanwhile Barat is on standby for QA
+  fixes on `feature/barat-p4-mass-ocr`.
+- **Assumptions:** single-process webhook (in-memory group buffer acceptable for v1); Telegram media groups ≤10
+  (aligns with `MASS_MAX_IMAGES`). No code, no dependency, no behaviour change yet.
+
 ## 2026-07-02 · Claude-J1 (for Jeevan) · chore/jeevan-j1-housekeeping
 - **Files:** `tests/groq.test.js` (cherry-picked +2 QA tests), `docs/DECISIONS.md` (ADR-013), `docs/HANDOFF.md` (top block refresh), `docs/STATUS.md`, this WORKLOG entry.
 - **What changed:** Session-open housekeeping after picking up a stale-context handoff (re-synced from ground truth: #9 + #26 were already merged by a prior session; my old in-context memory was behind).
