@@ -50,24 +50,32 @@ const nReceipts = n => arrOf(
 // the single path (SOP §7.3) MUST survive.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('QA: parseModelJson array-rejection on the single path — behaviour IDENTICAL to main (refactor-safe)', () => {
-  // The shared stripThink() refactor must not change parseModelJson's array handling.
-  // NOTE (documented pre-existing quirk, present on origin/main too — NOT a regression):
-  // parseModelJson rejects a *parsed* array via `!Array.isArray(obj)`, but it first
-  // brace-scans indexOf('{')..lastIndexOf('}'). So:
-  //   - a MULTI-object array [{a},{b}] -> {}  (outer slice `{"a":1},{"b":2}` is invalid JSON)
-  //   - a scalar array [1,2,3]         -> {}  (no '{' at all)
-  //   - a SINGLE-object array [{...}]  -> the inner object leaks through (the quirk).
-  // Verified against origin/main:lib/ocr.js: byte-identical logic, so the refactor
-  // preserved this exactly. The single-object-array leak is a MINOR pre-existing
-  // finding, out of scope for this additive PR (extractReceipt behaviour unchanged).
+test('QA: parseModelJson array-rejection on the single path — ALL top-level arrays rejected (issue #30 fixed)', () => {
+  // UPDATED 2026-07-02 (Barat, issue #30 hardening pass): this test originally locked
+  // in a documented pre-existing quirk — a SINGLE-object array like [{"merchant":"X"}]
+  // leaked its inner object, because the brace-scan (indexOf('{')..lastIndexOf('}'))
+  // found valid JSON inside the array wrapper before the Array.isArray guard ran.
+  // parseModelJson now checks which bracket comes first ('{' or '['); if a '[' opens
+  // before any '{', the whole thing is treated as a top-level array and rejected
+  // outright (SOP §7.3), regardless of length. All three array shapes now behave
+  // identically: reject.
   assert.deepStrictEqual(parseModelJson('[{"a":1},{"b":2}]'), {});      // multi-object array rejected
   assert.deepStrictEqual(parseModelJson('here: [1,2,3]'), {});          // scalar array rejected
-  assert.deepStrictEqual(parseModelJson('[{"merchant":"X","amount":1}]'),
-    { merchant: 'X', amount: 1 });                                      // single-object array quirk (main-identical)
-  assert.deepStrictEqual(parseModelJson('<think>done</think>[{"a":1}]'), { a: 1 }); // same after think-strip
+  assert.deepStrictEqual(parseModelJson('[{"merchant":"X","amount":1}]'), {}); // FIXED: no longer leaks (issue #30)
+  assert.deepStrictEqual(parseModelJson('<think>done</think>[{"a":1}]'), {});  // same after think-strip
   // A properly-shaped bare object is still the normal happy path.
   assert.deepStrictEqual(parseModelJson('{"merchant":"X"}'), { merchant: 'X' });
+});
+
+test('QA: issue #30 regression — a single-object array never leaks its inner object', () => {
+  // Dedicated regression lock so a future refactor can't silently reintroduce the leak.
+  assert.deepStrictEqual(parseModelJson('[{"merchant":"Acme","amount":42}]'), {});
+  // A '{' appearing textually before the array (e.g. in stray prose) must not confuse
+  // the "which bracket comes first" check — only counts if it forms real JSON either way.
+  assert.deepStrictEqual(parseModelJson('[{"amount": 1, "note": "use {curly} in memo"}]'), {});
+  // Object-first text is unaffected — this must keep working normally.
+  assert.deepStrictEqual(parseModelJson('{"merchant":"Acme","line_items":[{"x":1}]}'),
+    { merchant: 'Acme', line_items: [{ x: 1 }] });
 });
 
 test('QA: parseModelJson unterminated-<think> rejection survives the shared stripThink()', () => {

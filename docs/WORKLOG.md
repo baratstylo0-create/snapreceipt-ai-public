@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-02 · Claude-B1/B2 (for Barat) · fix/barat-issue30-parsemodeljson-array-leak
+- **Files:** `lib/ocr.js` (`parseModelJson`), `tests/ocr.qa.test.js` (updated the characterization test + 1 new dedicated regression test).
+- **What changed:** Fixed **issue #30** (low-priority, non-blocking hardening — Barat's own backlog item, not requested by anyone this session). `parseModelJson` (the single-receipt untrusted-output parser, SOP §7.3) is meant to reject ANY top-level JSON array on the singular OCR path, but its brace-scan (`indexOf('{')..lastIndexOf('}')`) let a **single-object array** like `[{"merchant":"X","amount":1}]` leak its inner object — multi-object and scalar arrays were already correctly rejected. Fix: before brace-scanning, check whether `[` appears before any `{`; if so, treat the whole response as array-wrapped and reject (return `{}`) regardless of length. Verified the sibling `parseModelJsonArray` (mass-upload path, #7) and objects with a nested array field (e.g. `line_items`) are unaffected — confirmed with a live check, not just tests.
+- **Tests:** 274/274 pass (273 + 1 new regression lock). Updated the existing QA characterization test (previously documented the leak as an accepted "quirk") to assert the fixed behavior instead, with a clear comment on why it changed.
+- **What's next:** open PR (small, low-risk, well-tested — Tier-1 candidate per SOP §4.7 since it only touches the already-hardened untrusted-output parser with full regression coverage, but Barat defers Tier classification to the reviewer). Closes issue #30 on merge.
+- **Assumptions:** none new.
+
 ## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-telegram-multiphoto (IMPLEMENTED)
 - **Files:** `lib/bot.js` (media-group adapter), `tests/bot.batch.test.js` (new, 7 tests), `docs/ARCHITECTURE.md` (§3.7 note updated: adapter now built), this WORKLOG. Merged `main` in first (runBatch #28 + extractReceipts #29 both landed; WORKLOG keep-both conflict resolved).
 - **What changed:** Built the Telegram multi-photo adapter (#7, Barat's lane) per the approved spec — the second consumer of J1's `runBatch()` (ARCHITECTURE §3.7), after his dashboard `routes/upload.js`. A Telegram media group arrives as N separate webhook updates sharing a `media_group_id`; `handleUpdate` now buffers photos per group in an in-memory Map, (re)arms a debounce (`MASS_GROUP_DEBOUNCE_MS`, default 2000ms; clamped to `MASS_MAX_IMAGES`, default 10), and on flush resolves each `file_id` → URL via `tgFileUrl` and calls `runBatch` **once**, replying with a single summary.
