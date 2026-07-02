@@ -130,8 +130,13 @@ state persisted server-side — the dashboard client resends the running transcr
 `routes/upload.js` (`POST /api/upload`) is the dashboard adapter: `checkDash` auth, `{images:[base64]}`
 (≤ `MASS_MAX_IMAGES`, default 10, else 413), lenient base64/data-URI decode, sanitizes `failed[].reason`
 to fixed strings before responding, 503 dark-path until Barat's `ocr.extractReceipts` merges (resolved at
-mount time — lifts on next restart). Future consumer of the same `runBatch`: Telegram multi-photo
-(media group) adapter in `lib/bot.js` — Barat's lane, not built yet.
+mount time — lifts on next restart). Second consumer of the same `runBatch`: the **Telegram multi-photo
+adapter in `lib/bot.js`** (Barat's lane) — a media group arrives as N separate webhook updates sharing a
+`media_group_id`, so `handleUpdate` buffers them (keyed by group id) with a debounce (`MASS_GROUP_DEBOUNCE_MS`,
+default 2000ms; ≤ `MASS_MAX_IMAGES`), then on flush resolves each `file_id` → URL and calls `runBatch` once,
+replying with one summary that reports counts only (never `failed[].reason`, SOP §7.2). Single-photo path
+unchanged (`expenseFromPhoto`). Uses `meta.fileId:null` (option A) — per-image Receipt Image Links tracked
+as issue #31 (a backward-compatible per-image-meta `runBatch` enhancement, Jeevan's).
 
 ## 4. Data flow (end to end)
 `import CSV template → templates.js stores FieldSpec → receipt in (Telegram/upload, image/PDF/multi) → [massupload.runBatch over the batch → ocr.extractReceipts per image if multi] → ocr.extractReceipt(img, fieldSpec) via groq → confidence.scoreConfidence → categorize + anomaly + currency.convert → supabase insert → dashboard / reports / excel render per FieldSpec`
