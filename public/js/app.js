@@ -36,6 +36,7 @@
         if (name === 'Upload') return require('./components/upload');
         if (name === 'Templates') return require('./components/templates');
         if (name === 'Reports') return require('./components/reports');
+        if (name === 'Agent') return require('./components/agent');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -124,6 +125,7 @@
       upload: (deps && deps.Upload) || dep('Upload'),
       manage: (deps && deps.Templates) || dep('Templates'),
       reports: (deps && deps.Reports) || dep('Reports'),
+      agent: (deps && deps.Agent) || dep('Agent'),
     };
   }
 
@@ -206,7 +208,7 @@
     var deps = {
       Escape: dep('Escape'), Api: dep('Api'), AuthGate: dep('AuthGate'), Nav: dep('Nav'),
       Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
-      Templates: dep('Templates'), Reports: dep('Reports'),
+      Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
