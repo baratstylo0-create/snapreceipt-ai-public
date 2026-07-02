@@ -14,7 +14,7 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 | Person | Claude | Current task | State |
 |---|---|---|---|
 | Jeevan | J2 | **#7 mass upload built** (orchestration-only, DI, sanitized failure reasons per SOP §7.2) — final Tier-2 QA then PR/merge. Then QA Barat's mass-ocr branch | #7 built, QA pending |
-| Barat | — | Ingestion wiring + `groqChatTools()` merged. **Cross-lane dep for #7:** additive `extractReceipts(image, fieldSpec, opts) -> {receipts, truncated}` in `lib/ocr.js` on `feature/barat-p4-mass-ocr` (J1 to open PR + QA). Business Excel spike done → **phase PARKED** (personal M1 first). #1 PDF: parked pending joint brainstorm | groq-tools done; mass-ocr branch awaiting PR/QA |
+| Barat | B1/B2 | **#1 PDF ingestion built** — `lib/pdf.js` (`rasterizePdf`, ADR-014 `@hyzyla/pdfium`) + Telegram PDF path in `lib/bot.js`. 292/292 tests, live end-to-end verified (real PDF → real render → real Groq extraction). `feature/barat-p4-pdf` pushed, PR open — Tier-2, awaiting independent QA. Also fixed issue #30 (merged, PR #34). #1 PDF was the last item in Barat's lane | PR open, awaiting QA |
 | Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
 
 ## Feature status (personal M1)
