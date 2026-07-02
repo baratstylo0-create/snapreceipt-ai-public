@@ -4,7 +4,7 @@
 
 ---
 
-## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p6-telegram-hardening
+## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p6-telegram-hardening (MERGED PR #42)
 - **Files:** created `lib/ratelimit.js`, `tests/ratelimit.test.js`, `tests/webhook.route.test.js`, `docs/qa/2026-07-02-telegram-bot-manual-test-plan.md`; modified `routes/webhook.js`, `routes/templates.js`, `lib/templates.js`, `tests/templates.test.js`, `tests/templates_route.test.js`. **My lane only** (frontend/QA/security plan §0.1) — no `public/`, no `server.js`, no J1 route files.
 - **What changed (P6 hardening, Barat's §0.1 Piece 1):**
   - **Log/PII audit — PASS, no change needed:** every `console.*` in my files (`lib/{ocr,groq,supabase,templates,confidence}.js`, `routes/{webhook,templates}.js`) logs only a short `e.message`; no token/image/raw-model-output/full-row ever hits a log line (ADR-002/SOP §7.2). Documented as a finding.
@@ -16,6 +16,15 @@
 - **Piece 2 — Telegram bot human-QA checklist:** `docs/qa/2026-07-02-telegram-bot-manual-test-plan.md` — every bot feature (`/start`, single photo, media-group #7, PDF #1, "show expenses", low-confidence/anomaly warnings, fallback, rate-limit/secret) with happy/empty/error/boundary/**adversarial** rows (prompt-injection image, hostile filename/oversized/encrypted/corrupt/render-bomb PDF, 11-photo/11-page caps, flood). **The live run needs a human + a running bot** (mirrors J1's dashboard live session, Task K) — not yet executed.
 - **What's next:** open PR (Tier-2 — security hardening + a new shared file) → independent security-QA (J1's Task J audits the whole app once both lanes report done). Coordinate the shared fixture set (`docs/qa/fixtures/`, J1 seeds). Live Telegram QA session to be run with the Owner.
 - **Assumptions:** single-process rate limiter (same v1 caveat as the media-group buffer; multi-instance → shared store at P9). Webhook rate-limit default is generous so Telegram's own delivery isn't throttled.
+- **Review/merge:** J1 (Owner) independent security-QA — read-diff clean (fail-safe limiter, tracked-IP cap, secret-check 401 non-leak, C0/C1 strip), full suite 371/371 → Owner-authorized merge.
+
+## 2026-07-02 · Claude-J2 (for Jeevan) · chore/jeevan-frontend-qa-security-plan (PLAN handoff to J1)
+- **Files:** `docs/plans/2026-07-02-reference-frontend-qa-security.md` (new), `docs/HANDOFF.md` (top block refresh), this WORKLOG.
+- **What changed:** #1 PDF fully merged (PR #38/#39/#40) → **M1 backend feature-complete (360 tests)**. Wrote the next-phase plan the Owner asked for: a **PC-only reference frontend** exercising every backend feature (Mugi scope ref + human click-test surface), a **fool-proof human-QA checklist**, and a **thorough security-hardening pass** (this app holds sensitive financial data). P5 Frontend + P6 Hardening; execute via subagent-driven-development. Flagged **two real security findings for the hardening task**: `GET /receipt/:fileId` is unauthenticated (receipt-image leak — Critical) and `checkDash` is optional/fail-open; plus CSP/headers, CORS tightening, rate limiting, and strict DOM output-escaping of untrusted OCR/`ai_raw`/agent text (stored-XSS = the #1 new surface a browser frontend introduces).
+- **What's next (J1):** read the plan, brainstorm visual scope with Owner (Task 0), then build task-by-task. Run `/security-review` + independent security-QA before the P6 gate.
+- **Assumptions:** frontend stays no-build vanilla in `public/` (ADR-001), talks only to `/api/*`. Draft (Finexy) = look-and-feel only; unwired widgets render as labelled placeholders, not invented endpoints.
+- **UPDATE (same push, split with Barat):** added plan §0.1 — explicit ownership split so both Claudes can start immediately with zero file collision (SOP §4.6). **J1**: the frontend build (Tasks 0–G) + hardening in Jeevan's own files (`routes/{upload,expenses,reports,agent,excel,review,receipt}.js`, `server.js`) + the dashboard human-QA checklist/runbook + the final whole-app security-QA pass. **Barat's Claude**: security hardening in his own files (`lib/{ocr,groq,supabase,templates,confidence}.js`, `routes/{webhook,templates}.js` — PII/log audit, rate limiting on his two routes, webhook-secret regression test) + a Telegram-bot human-QA checklist/runbook mirroring the dashboard one. Shared QA fixture set (`docs/qa/fixtures/`, J1 seeds it) so both surfaces test the same receipts. No blocking dependency between the two lanes; only the final security-QA pass waits on both.
+>>>>>>> origin/main
 
 ## 2026-07-02 · Claude-J2 (for Jeevan) · feature/jeevan-p4-pdf-route (#1 PDF Task 7 — dashboard glue)
 - **Files:** `routes/upload.js`, `tests/upload.pdf.test.js` (new), `docs/WORKLOG.md`. My lane only.
