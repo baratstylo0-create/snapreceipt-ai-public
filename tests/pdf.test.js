@@ -42,3 +42,28 @@ test('PdfError carries a stable non-leaky code', () => {
   assert.strictEqual(e.code, 'CORRUPT');
   assert.strictEqual(e.name, 'PdfError');
 });
+
+const fs = require('node:fs');
+const { rasterizePdf } = require('../lib/pdf');
+const fx = f => fs.readFileSync(`tests/fixtures/pdf/${f}`);
+const PNG_SIG = Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);
+
+test('rasterizePdf renders a 1-page native PDF to one PNG', async () => {
+  const { pages, truncated } = await rasterizePdf(fx('one-page.pdf'));
+  assert.strictEqual(pages.length, 1);
+  assert.deepStrictEqual(pages[0].subarray(0, 8), PNG_SIG);
+  assert.strictEqual(truncated, false);
+});
+
+test('rasterizePdf renders every page of a multi-page PDF', async () => {
+  const { pages, truncated } = await rasterizePdf(fx('three-page.pdf'));
+  assert.strictEqual(pages.length, 3);
+  assert.ok(pages.every(p => p.subarray(0, 8).equals(PNG_SIG)));
+  assert.strictEqual(truncated, false);
+});
+
+test('rasterizePdf renders a scanned/image-only PDF (same path)', async () => {
+  const { pages } = await rasterizePdf(fx('scanned.pdf'));
+  assert.ok(pages.length >= 1);
+  assert.deepStrictEqual(pages[0].subarray(0, 8), PNG_SIG);
+});
