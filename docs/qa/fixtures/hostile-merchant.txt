@@ -1,0 +1,12 @@
+# Hostile strings an OCR/merchant/line-item field might contain.
+# Paste into an expense (or bake into a receipt image) and confirm the dashboard
+# renders each as INERT LITERAL TEXT — never executes, never breaks layout.
+<script>alert('xss')</script>
+"><img src=x onerror=alert(document.cookie)>
+<svg onload=alert(1)>
+javascript:alert(1)
+{{7*7}}
+${7*7}
+'; DROP TABLE expenses;--
+‮moc.live/gpj.tpircs⁦
+𝕏 emoji test 🧾💸 and a very long run AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
