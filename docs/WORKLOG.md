@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-02 · Claude-B1 (for Barat) · fix/barat-tgsend-plaintext-fallback
+- **Files:** `lib/telegram.js` (`tgSend`), `tests/telegram.test.js` (new).
+- **What changed — fixes B2's Critical "photo received, no reply" finding (Debug loop, SOP §4.8):**
+  - **Root cause:** `tgSend` sends with `parse_mode: 'Markdown'` and interpolates raw merchant/category text. A value with an unbalanced `*` / `_` / `[` / `` ` `` makes Telegram reject the whole message (400 "can't parse entities"). `hreq` does NOT throw on that — it returns `{ ok:false }` — so the old `tgSend` **ignored the rejection and returned as if it succeeded**: the user got total silence, not even a logged error. B2's quieter-bot branch removes the earlier "Reading…" ack, so a failed final send = complete silence (hence it gated that branch).
+  - **Fix:** `tgSend` now checks `r.ok`; on a Telegram rejection it **resends the same text as PLAIN text (no parse_mode)** so a formatting glitch can never swallow the reply. Still never throws (network errors caught as before).
+  - **Tests: 375/375** (4 new: Markdown-rejected→plain-retry, accepted→single-send, both-fail→no-throw, network-error→no-throw).
+- **What's next:** open PR (Tier-2-ish: untrusted-input formatting on the bot reply path) → review. **This un-gates B2's `feat/barat-quieter-bot-acks`** — that branch is safe to merge once this lands (rebase on it). Optional follow-up polish: Markdown-escape interpolated merchant/category at the `lib/ocr.js`/`lib/bot.js` call sites so the styled version survives (the plain-text retry is the safety net either way).
+- **Relaying B2's other open items to the Owner:** the 3 pushed branches (`fix/barat-qa-flushgroup-nonerror`, `fix/barat-qa-money-integrity`, `feat/barat-quieter-bot-acks`) need Jeevan's QA; the RM→MYR currency finding (2-char symbol falls back to USD — overlaps `lib/currency.js`, needs coordination); Supabase test-row cleanup (user-approved, pending).
+- **Assumptions:** none new.
+
 ## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p6-telegram-hardening (MERGED PR #42)
 - **Files:** created `lib/ratelimit.js`, `tests/ratelimit.test.js`, `tests/webhook.route.test.js`, `docs/qa/2026-07-02-telegram-bot-manual-test-plan.md`; modified `routes/webhook.js`, `routes/templates.js`, `lib/templates.js`, `tests/templates.test.js`, `tests/templates_route.test.js`. **My lane only** (frontend/QA/security plan §0.1) — no `public/`, no `server.js`, no J1 route files.
 - **What changed (P6 hardening, Barat's §0.1 Piece 1):**
