@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-02 · Claude-J2 (for Jeevan) · chore/jeevan-frontend-qa-security-plan (PLAN handoff to J1)
+- **Files:** `docs/plans/2026-07-02-reference-frontend-qa-security.md` (new), `docs/HANDOFF.md` (top block refresh), this WORKLOG.
+- **What changed:** #1 PDF fully merged (PR #38/#39/#40) → **M1 backend feature-complete (360 tests)**. Wrote the next-phase plan the Owner asked for: a **PC-only reference frontend** exercising every backend feature (Mugi scope ref + human click-test surface), a **fool-proof human-QA checklist**, and a **thorough security-hardening pass** (this app holds sensitive financial data). P5 Frontend + P6 Hardening; execute via subagent-driven-development. Flagged **two real security findings for the hardening task**: `GET /receipt/:fileId` is unauthenticated (receipt-image leak — Critical) and `checkDash` is optional/fail-open; plus CSP/headers, CORS tightening, rate limiting, and strict DOM output-escaping of untrusted OCR/`ai_raw`/agent text (stored-XSS = the #1 new surface a browser frontend introduces).
+- **What's next (J1):** read the plan, brainstorm visual scope with Owner (Task 0), then build task-by-task. Telegram-bot human-testing is Barat's parallel track. Run `/security-review` + independent security-QA before the P6 gate.
+- **Assumptions:** frontend stays no-build vanilla in `public/` (ADR-001), talks only to `/api/*`. Draft (Finexy) = look-and-feel only; unwired widgets render as labelled placeholders, not invented endpoints.
+
 ## 2026-07-02 · Claude-J2 (for Jeevan) · feature/jeevan-p4-pdf-route (#1 PDF Task 7 — dashboard glue)
 - **Files:** `routes/upload.js`, `tests/upload.pdf.test.js` (new), `docs/WORKLOG.md`. My lane only.
 - **What changed:** Task 7 of the #1 PDF plan — `POST /api/upload` now accepts PDFs. After the existing base64→Buffer decode, each item is sniffed for the `%PDF-` magic byte; a PDF is expanded via Barat's `rasterizePdf(buf)` (already on main, PR #38) into its rendered PNG page buffers, which are just more `images[]` for `runBatch` (Buffer inputs now work end-to-end thanks to Barat's #39 `toImageUrlArg` fix). Non-PDF items keep the existing image path unchanged.
