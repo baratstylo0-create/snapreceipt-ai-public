@@ -1,6 +1,21 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-014 · PDF ingestion (#1) rasterizes via `@hyzyla/pdfium` (WASM PDFium) — not MuPDF, not a system binary
+**Date:** 2026-07-02 · **Status:** Accepted (Owner: Jeevan) — *pending a Barat CJS/ESM interop spike before code (see "Pre-commit check"); fallback named*
+**Context:** #1 accepts PDFs (digital + scanned, untrusted) on both surfaces. Groq vision reads **images, not PDFs** (ADR-007: qwen is image-only), so a PDF must be **rasterized to page images**, which then feed the existing #7 `runBatch` spine unchanged (page images == `runBatch`'s `images[]`; multi-page and multi-receipt-per-page fall out for free). The only real decision is *how* to rasterize under the project's hard constraints: **no build step, minimal deps, pure Node 22, commercial SaaS (license matters), hostile input.** Options weighed:
+
+| Approach | License | Build step | Deps | Notes |
+|---|---|---|---|---|
+| **A. `@hyzyla/pdfium`** (WASM PDFium) | **MIT wrapper / BSD-Apache core** ✅ | none (WASM) | **1**, zero-dep | Chrome's PDF engine; renders native+scanned; WASM sandbox |
+| B. `mupdf` (official, WASM) | **AGPL or paid commercial** ⚠️ | none (WASM) | 1 | highest fidelity, but AGPL network-service copyleft ⇒ must open-source or buy a license |
+| C. `pdf.js` + `@napi-rs/canvas` | Apache-2.0 + MIT ✅ | none (prebuilt) | **2** (one native `.node`) | permissive but platform-specific native binary; JS renderer (slower) |
+| D. system binary (poppler/ghostscript) | — | **host install** ❌ | 0 npm | fragile Windows↔Linux, deploy burden, shell-out on hostile input |
+
+**Decision:** Use **A — `@hyzyla/pdfium`**. Rationale: (1) **License is clean for a product we sell** — permissive, no copyleft; **B is disqualified** while a permissive equal exists (AGPL would obligate source release or an Artifex commercial license for our SaaS). (2) **Best fit for "no build / pure Node"** — pure WASM, no native compile, byte-identical on Windows dev and the eventual Linux host; C's `@napi-rs/canvas` works but pulls a platform-specific native binary (the thing most likely to break a deploy). (3) **One zero-dependency package** vs C's two; the WASM blob vendors in, so bus-factor risk sits on a thin JS wrapper, not the renderer (the renderer is the same C++ core shipped in Chrome). (4) **WASM sandbox** (memory-isolated, no shell) is a genuine security win on hostile PDFs — the reason D was rejected. New dep on an **untrusted-input parsing surface** ⇒ **Tier-2** (SOP §4.7, ADR-012 precedent): its own ADR (this) + independent QA before merge.
+**Pre-commit check (honest risk):** `@hyzyla/pdfium` is a smaller community project than `mupdf`, and is likely **ESM** while this repo is **CommonJS** (`require`). Barat runs a ~10-min spike to confirm CommonJS interop (dynamic `import()`) + the exact render API on a real fixture PDF **before** the ADR fully locks (same wire-up-verify discipline as ADR-007). **Fallback = C** (`pdf.js` + `@napi-rs/canvas`) if interop is unworkable.
+**Consequences:** One WASM dependency added to `package.json` (lands with `lib/pdf.js`, Barat's lane); all render knobs env-driven (`PDF_RENDER_DPI`, `PDF_MAX_BYTES`; page cap reuses `MASS_MAX_IMAGES`), so tuning is config not code. Design: `docs/specs/2026-07-02-pdf-ingestion-design.md`. Precedent (ADR-012/013) reaffirmed: a new dep gets justify-then-ADR-then-Tier-2-review.
+
 ## ADR-013 · `jszip` promoted to an explicit dependency for chart-preserving business Excel
 **Date:** 2026-07-02 · **Status:** Accepted in principle (Owner: Jeevan) — *package.json promotion deferred until business Excel Phase 1 builds (business phase currently PARKED, personal M1 first)*
 **Context:** The business Excel deliverable is a 9-sheet template with 6 charts + 10 drawings + 2783 formula cells. Barat's Task-1 spike proved `exceljs` load→save **drops all charts/drawings** (formulas survive), so the #2 exceljs-fill approach is unsuitable for the business workbook. The validated alternative is targeted **jszip XML-injection**: inject Master Log data rows (inline strings + numeric `<v>`) into `sheet1.xml` and leave every other zip part byte-preserved → all charts, drawings, and formulas survive and the file stays valid (POC confirmed).
