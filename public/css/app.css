@@ -639,7 +639,8 @@ body.theme-dark .nav-link.is-active { color: var(--bg); }
 .up-browse:hover,
 .up-upload:not(:disabled):hover,
 .act-save:hover,
-.tp-submit:not(:disabled):hover {
+.tp-submit:not(:disabled):hover,
+.rp-export-btn:not(:disabled):hover {
   background: var(--accent-strong);
 }
 
@@ -738,3 +739,105 @@ body.theme-dark .nav-link.is-active { color: var(--bg); }
 .tp-msg { margin: 0; font-size: 13px; }
 .tp-msg--ok { color: #2ea043; }
 .tp-msg--err { color: var(--muted); }
+
+/* --- Reports + Excel export (Task F) -------------------------------------- */
+.rp-root { display: flex; flex-direction: column; gap: 16px; }
+
+.rp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.rp-period-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.rp-period-btn {
+  padding: 7px 16px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rp-period-btn:hover { color: var(--txt); border-color: var(--txt); }
+.rp-period-btn.is-active {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.rp-range-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rp-range-label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.rp-date-input {
+  padding: 7px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+
+.rp-export-btn {
+  margin-left: auto;
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rp-export-btn:disabled { opacity: 0.5; cursor: default; }
+
+.rp-export-status { margin: 0; font-size: 13px; color: var(--muted); }
+
+.rp-notice {
+  margin: 0;
+}
+
+.rp-body { display: flex; flex-direction: column; gap: 20px; }
+
+.rp-categories { display: flex; flex-direction: column; gap: 10px; }
+.rp-categories-title { margin: 0; font-size: 14px; color: var(--txt); }
+.rp-categories-empty { margin: 0; }
+
+.rp-category-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rp-category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.rp-category-name { font-weight: 500; overflow-wrap: anywhere; }
+.rp-category-total { font-variant-numeric: tabular-nums; color: var(--txt); font-weight: 600; }
