@@ -12,3 +12,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# graphify knowledge-graph build artifacts (local only)
+graphify-out/
