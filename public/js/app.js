@@ -31,6 +31,7 @@
         if (name === 'Api') return require('./api');
         if (name === 'AuthGate') return require('./authgate');
         if (name === 'Nav') return require('./components/nav');
+        if (name === 'Overview') return require('./components/overview');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -78,9 +79,14 @@
     }
   }
 
-  // Build the empty per-section panels inside #app. Static structural text only.
-  function buildViews(Nav, mount) {
+  // Build the per-section panels inside #app. A section whose id has a registered
+  // view component (see viewComponents) gets that component mounted; the rest get
+  // a static "Coming soon." placeholder. Returns a map of id -> view instance
+  // (those exposing load()) so the switcher can lazy-load data on first show.
+  function buildViews(Nav, mount, deps) {
     var sections = (Nav && Nav.SECTIONS) || [];
+    var components = viewComponents(deps);
+    var instances = {};
     sections.forEach(function (s) {
       var sec = document.createElement('section');
       sec.className = 'view';
@@ -89,12 +95,26 @@
       h.className = 'view-title';
       h.textContent = s.label;
       sec.appendChild(h);
-      var p = document.createElement('p');
-      p.className = 'view-placeholder muted';
-      p.textContent = 'Coming soon.';
-      sec.appendChild(p);
+
+      var comp = components[s.id];
+      if (comp && typeof comp.mount === 'function') {
+        var inst = comp.mount(sec, deps);
+        if (inst) instances[s.id] = inst;
+      } else {
+        var p = document.createElement('p');
+        p.className = 'view-placeholder muted';
+        p.textContent = 'Coming soon.';
+        sec.appendChild(p);
+      }
       mount.appendChild(sec);
     });
+    return instances;
+  }
+
+  // Registry mapping a section id to its view component module. Each component
+  // exposes mount(section, deps) -> { load? }. Add future views here.
+  function viewComponents(deps) {
+    return { overview: (deps && deps.Overview) || dep('Overview') };
   }
 
   // Render the token-entry gate. On submit: normalise, store in sessionStorage,
@@ -156,11 +176,14 @@
     var nav = Nav.buildNav({ onSelect: select, onToggleTheme: toggleTheme });
     if (header && nav) { header.textContent = ''; header.appendChild(nav.el); }
 
-    if (mount) buildViews(Nav, mount);
+    var instances = mount ? buildViews(Nav, mount, deps) : {};
 
     function select(id) {
       showView(id);
       if (nav && nav.setActive) nav.setActive(id);
+      // Lazy-load a view's data the first time it becomes visible.
+      var inst = instances[id];
+      if (inst && typeof inst.load === 'function') inst.load();
     }
 
     var first = (Nav.SECTIONS && Nav.SECTIONS[0] && Nav.SECTIONS[0].id) || 'overview';
@@ -172,6 +195,7 @@
     if (typeof document === 'undefined') return;
     var deps = {
       Escape: dep('Escape'), Api: dep('Api'), AuthGate: dep('AuthGate'), Nav: dep('Nav'),
+      Overview: dep('Overview'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 

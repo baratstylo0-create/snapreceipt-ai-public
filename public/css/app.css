@@ -154,3 +154,75 @@ body.theme-light {
   text-align: center;
   color: var(--muted);
 }
+
+/* --- Overview: KPI cards --- */
+.ov-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ov-kpi {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.ov-kpi-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.ov-kpi-value {
+  font-size: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* --- Overview: P&L bar chart --- */
+.ov-chart {
+  margin: 0;
+}
+
+.ov-chart-caption {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ov-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.ov-chart-axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.ov-bar {
+  fill: var(--accent);
+}
+
+.ov-bar-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+/* --- Overview: loading / empty / error states --- */
+.ov-loading,
+.ov-empty,
+.ov-error {
+  padding: 24px 0;
+  text-align: center;
+}
+
+.ov-error {
+  color: var(--muted);
+}
