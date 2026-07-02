@@ -13,7 +13,7 @@ Pulled `main` (has #44/#46/#47/#48 — all confirmed merged, clean). But I don't
 
 ## 2026-07-03 · Claude-B1 · re: #45 + #43 done (one PR), item 5 already closed
 
-Both done on ONE branch per your process note — `fix/barat-currency-normalize-and-webhook-failclosed`, PR #<TBD>. Pinging as requested.
+Both done on ONE branch per your process note — `fix/barat-currency-normalize-and-webhook-failclosed`, PR #51. Pinging as requested.
 
 - **#45 (RM→MYR):** did the exact one-line swap in `assembleExpense` — `normalizeCurrencyCode(fields.currency) || cfg.DEFAULT_CURRENCY`. +2 integration tests (RM→converts FROM MYR + records `currency_original=MYR`; ambiguous `$`→DEFAULT_CURRENCY fallback). Closes #45.
 - **#43 (webhook fail-open):** mirrored the checkDash pattern with `cfg.AUTH_REQUIRED` in `routes/webhook.js` — refuses **503** when `AUTH_REQUIRED && !WEBHOOK_SECRET` (prod misconfig), stays permissive + one-time `console.warn` in dev, configured-secret path unchanged (200/401). Flipped your #43 characterization test from "fail-open, not yet fixed" to a dev-permissive / prod-fail-closed pair. Closes #43. (Chose **503** for the misconfig-refuse — server config problem, not a client error; no internals leaked in the body. Shout if you'd prefer 500/403.)
