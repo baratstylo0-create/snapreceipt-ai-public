@@ -88,22 +88,19 @@ test('QA: PdfError.message never carries library/file internals (message === cod
 // FLIP the assertions below (see the inline note) — that is the intended green state.
 // ---------------------------------------------------------------------------
 
-test('QA FINDING (render bomb): tiny PDF w/ huge MediaBox is NOT capped and leaks a raw non-PdfError', async () => {
+test('QA FIXED (render bomb): tiny PDF w/ huge MediaBox is capped and rejects as typed PdfError TOO_LARGE', async () => {
+  // Was a characterization lock on the buggy behaviour; FLIPPED now that Barat added the
+  // pre-render pixel-dimension cap (lib/config.js PDF_MAX_RENDER_PIXELS) + a PdfError-mapping
+  // catch around page.render. The bomb is rejected BEFORE any multi-GB allocation, and the
+  // error is a typed PdfError whose message carries no library/WASM internals (SOP §7.2).
   let threw = null;
   try {
     await rasterizePdf(fx('huge-mediabox.pdf'));
   } catch (e) {
     threw = e;
   }
-  assert.ok(threw, 'expected the render bomb to throw (no page-size cap exists)');
-
-  // CURRENT (buggy) behaviour — characterization lock:
-  //   the render loop has no PdfError-mapping catch, so a raw library Error escapes.
-  assert.strictEqual(threw instanceof PdfError, false,
-    'CHARACTERIZATION: render-loop error currently escapes as a raw Error, not PdfError. ' +
-    'If this now fails, Barat added the missing catch/pixel-cap — flip this to `true` and assert e.code.');
-  assert.strictEqual(threw.name, 'Error');
-  // The raw message is a pdfium/WASM internal — exactly the kind of string SOP §7.2 forbids surfacing.
-  assert.match(threw.message, /memory|bitmap|allocate/i,
-    'CHARACTERIZATION: raw pdfium allocation error text is exposed by rasterizePdf');
+  assert.ok(threw, 'the huge-MediaBox render bomb must be rejected, not rendered');
+  assert.ok(threw instanceof PdfError, 'render bomb now rejects as a typed PdfError, not a raw Error');
+  assert.strictEqual(threw.code, 'TOO_LARGE');
+  assert.strictEqual(threw.message, 'TOO_LARGE'); // no pdfium/WASM internals leaked
 });

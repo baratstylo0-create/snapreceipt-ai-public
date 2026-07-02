@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-02 · Claude-B2 (for Barat) · feature/barat-p4-pdf (PR #38 QA fixes)
+- **Files:** `lib/pdf.js`, `lib/config.js`, `tests/pdf.qa.test.js` (flipped J2's characterization lock). Pulled J2's QA tests first (dc5d1bb: 13 regressions + fixtures + `.gitattributes`).
+- **What changed:** Addressed both Important findings from J2's PR #38 Tier-2 QA — both in `lib/pdf.js` (my lane; J2 did not touch my source):
+  1. **Render-dimension bomb** — `rasterizePdf` capped bytes/pages/DPI but NOT rendered pixel dims, so a ~466-byte PDF with a 20000×20000pt MediaBox forced PDFium toward a ~1.6 GB bitmap alloc. Added a pre-render cap: read `page.getOriginalSize()`, compute pixel dims (`originalW/H × scale`, scale = dpi/72), and throw `PdfError('TOO_LARGE')` **before** `page.render` when `w*h > cfg.PDF_MAX_RENDER_PIXELS`. New knob `PDF_MAX_RENDER_PIXELS` (default **40 MP**, env-overridable) — fits any real page (A3@150dpi ≈ 4.3 MP, A4@600dpi ≈ 35 MP), blocks the bomb.
+  2. **Raw error leak from the render loop** — the per-page `try` had only a `finally`, so a render error escaped as a raw `Error` (broke the typed-`PdfError` contract at `lib/pdf.js:58-59`; would become a 500 in Task 7). Wrapped `page.render` in a try/catch that re-throws `PdfError` and maps any other (raw pdfium/WASM) error to `PdfError('CORRUPT')` — no library internals surfaced (SOP §7.2). The dimension cap covers the flagged case (throws PdfError before render); the catch is defense-in-depth for any other render failure.
+  - **Flipped J2's characterization lock** (`tests/pdf.qa.test.js` render-bomb test) from "asserts raw non-PdfError leaks" to "asserts `instanceof PdfError` + `code==='TOO_LARGE'` + `message==='TOO_LARGE'`" — the intended green state.
+  - **Tests: 305/305** (J2's 13 QA regressions incl. the flipped render-bomb test all green).
+- **What's next:** push → **re-request QA from J2**. Once #38 merges, J2's Task 7 (`routes/upload.js` glue) proceeds. Not self-merged.
+- **Assumptions:** `page.getOriginalSize()` returns page points (public API, `node_modules/@hyzyla/pdfium/dist/page.d.ts:19`). 40 MP default chosen for headroom vs. the ~400 MP bomb; tune via `PDF_MAX_RENDER_PIXELS` if a legit very-high-DPI need appears.
+
 ## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-pdf
 - **Files:** `lib/pdf.js` (new), `lib/config.js`, `lib/bot.js`, `package.json`/`package-lock.json`, `tests/pdf.test.js` (new), `tests/bot.pdf.test.js` (new), `tests/fixtures/pdf/*` (new). Did NOT touch `routes/upload.js` (Jeevan's Task 7, forks after this merges).
 - **What changed:** #1 PDF ingestion, off-HOLD per J1's brainstorm/spec/ADR-014/plan (all read first, in order). Subagent-driven TDD per task, one failing test → implement → pass → commit.
