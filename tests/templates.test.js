@@ -54,6 +54,15 @@ test('maps common headers to canonical keys, types, and required flags', () => {
   ]);
 });
 
+test('P6 hardening: strips C0/C1 control chars from a label (parse-side of issue #17)', () => {
+  // A hostile CSV header with NUL, ESC, DEL and a C1 byte embedded in the label.
+  const hostile = 'Ven\u0000\u001b\u007f\u009fdor';
+  const [col] = parseTemplate(hostile + ',Amount');
+  assert.strictEqual(col.label, 'Vendor');          // control bytes removed, visible text kept
+  assert.ok(!/[\u0000-\u001F\u007F-\u009F]/.test(col.label), 'no control chars survive into the stored label');
+  assert.strictEqual(col.key, 'merchant');          // still maps to the canonical key
+});
+
 test('keeps unknown headers verbatim as free-text columns with a safe key', () => {
   const cols = parseTemplate('Project Code,Cost Center #2');
   assert.deepStrictEqual(cols, [

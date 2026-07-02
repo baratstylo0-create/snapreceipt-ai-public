@@ -10,12 +10,17 @@
 const express = require('express');
 const { getFieldSpec, saveTemplate } = require('../lib/templates');
 const { checkDash } = require('./expenses'); // reuse the optional dashboard-token gate
+const { createRateLimiter } = require('../lib/ratelimit');
 
 const BODY_LIMIT = '256kb';
+// P6 abuse defense: cap per-IP requests on the template routes (POST parses untrusted
+// CSV; both are behind the optional token, so a limiter also blunts token brute-force).
+// Tune via TEMPLATES_RATE_MAX. Runs before auth/body-parsing so limited requests are cheap.
+const templatesLimiter = createRateLimiter({ max: Number(process.env.TEMPLATES_RATE_MAX) || 60 });
 
 module.exports = function mountTemplates(app) {
   // Current field spec for the account.
-  app.get('/api/templates', checkDash, async (req, res) => {
+  app.get('/api/templates', templatesLimiter, checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     try {
       res.json(await getFieldSpec());
@@ -28,6 +33,7 @@ module.exports = function mountTemplates(app) {
   // Import a CSV template. Accepts a raw text/csv (or text/plain) body, or a
   // JSON body { csv: "...", name?: "..." }. Optional ?name= to store under a name.
   app.post('/api/templates',
+    templatesLimiter,
     checkDash,
     express.text({ type: ['text/*'], limit: BODY_LIMIT }),
     express.json({ limit: BODY_LIMIT }),

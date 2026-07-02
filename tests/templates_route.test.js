@@ -166,12 +166,16 @@ test('QA: a column label containing HTML/script content is stored and echoed bac
   });
 });
 
-test('QA: a header containing an embedded NUL byte is accepted and persisted without stripping', async () => {
-  // Control characters (NUL, etc.) in a customer-supplied header are not
-  // stripped or rejected before being persisted via saveTemplate(). This is
-  // low-severity on its own but is unvalidated control-character data flowing
-  // into storage and back out over the API (SOP §7.2 "validate at the boundary").
-  await withServer(emptyDb, async (base) => {
+test('QA: an embedded NUL/control byte in a header is STRIPPED at the boundary (P6 fix, parse-side of #17)', () => {
+  // UPDATED 2026-07-02 (Barat, P6 hardening): this previously locked the gap where
+  // control bytes survived into the stored label. lib/templates.js parseTemplate now
+  // strips C0/C1 control chars (stripControls) at the parse boundary, so unvalidated
+  // control-character data no longer flows into storage or back over the API
+  // (SOP §7.2 "validate at the boundary"). This closes the CONTROL-CHAR part of #17.
+  // NOTE — the HTML/`<script>` supply case above is intentionally NOT changed here:
+  // printable tags still pass through by design; neutralising them is RENDER-side
+  // output-escaping in the frontend lane (the remaining part of issue #17).
+  return withServer(emptyDb, async (base) => {
     const r = await fetch(base + '/api/templates', {
       method: 'POST',
       headers: { 'Content-Type': 'text/csv' },
@@ -179,7 +183,8 @@ test('QA: a header containing an embedded NUL byte is accepted and persisted wit
     });
     assert.strictEqual(r.status, 200);
     const j = await r.json();
-    assert.ok(j.columns[0].label.includes('\x00'), 'expected the NUL byte to survive uncleaned in the stored label');
+    assert.ok(!j.columns[0].label.includes('\x00'), 'the NUL byte must not survive into the stored label');
+    assert.strictEqual(j.columns[0].label, 'VendorEvil'); // control byte removed, visible text kept
   });
 });
 
