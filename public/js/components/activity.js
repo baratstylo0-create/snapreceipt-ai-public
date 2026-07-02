@@ -91,8 +91,18 @@
       .map(str).join(' ').toLowerCase();
   }
 
-  // Filter (search + status + category) -> sort (date|amount, asc|desc) -> page.
-  // Pure: returns { rows, total, page, pageCount, pageSize }. Never throws.
+  // expense_date is free-text (OCR-sourced); only treat it as a comparable ISO-ish
+  // date (YYYY-MM-DD prefix) for range filtering. Anything else (garbage, empty,
+  // null) is "not a date we can range-compare" and is excluded from range filters
+  // rather than crashing or being wrongly included.
+  var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
+  function isoDatePrefix(v) {
+    var s = str(v).trim();
+    return ISO_DATE_RE.test(s) ? s.slice(0, 10) : null;
+  }
+
+  // Filter (search + status + category + date range) -> sort (date|amount, asc|desc)
+  // -> page. Pure: returns { rows, total, page, pageCount, pageSize }. Never throws.
   function filterSortPage(rows, opts) {
     opts = opts || {};
     var list = Array.isArray(rows) ? rows.slice() : [];
@@ -108,6 +118,22 @@
     // filter: category
     var fc = str(opts.filterCategory).trim();
     if (fc && fc.toLowerCase() !== 'all') list = list.filter(function (r) { return str(r && r.category) === fc; });
+
+    // filter: date range (inclusive). expense_date is TEXT; ISO (YYYY-MM-DD) strings
+    // sort/compare correctly lexically, so plain string comparison is fine. Rows whose
+    // expense_date isn't a recognisable ISO-ish date are excluded once a range is active
+    // (never included by accident, never thrown on).
+    var dateFrom = isoDatePrefix(opts.dateFrom);
+    var dateTo = isoDatePrefix(opts.dateTo);
+    if (dateFrom || dateTo) {
+      list = list.filter(function (r) {
+        var d = isoDatePrefix(r && r.expense_date);
+        if (d === null) return false;
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    }
 
     // sort
     var sortBy = str(opts.sortBy);
@@ -157,6 +183,17 @@
     return '/receipt/' + encodeURIComponent(str(fileId));
   }
 
+  var VIEW_MODE_KEY = 'activityViewMode';
+  var VIEW_MODES = { table: 'table', cards: 'cards' };
+
+  // Normalise a raw sessionStorage value (or any input) to a known view mode.
+  // Unset/null/undefined, anything not exactly 'table' or 'cards', and non-string
+  // garbage all fall back to the default ('table' — today's unchanged behavior).
+  // Pure, never throws.
+  function normaliseViewMode(raw) {
+    return VIEW_MODES[raw] ? VIEW_MODES[raw] : 'table';
+  }
+
   // ---- DOM helpers (browser only) ----------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -198,6 +235,33 @@
     return wrap;
   }
 
+  // Auth'd receipt-image fetch, shared by the drawer's full-size render and the
+  // card view's thumbnail (P6 hardening): /receipt/:fileId requires checkDash, so a
+  // plain <img src="/receipt/...">  or <a href> can't carry the bearer token and
+  // would 401. Fetch the bytes via Api.fetchBlob (attaches the same Authorization
+  // header as every other API call), turn them into a browser-generated blob:
+  // object URL, and set it on a real <img> via .src — never innerHTML, never a URL
+  // built from unescaped data. imgWrap starts with a loading message and is
+  // replaced in place once the fetch resolves/rejects. className/alt let the
+  // caller size the thumbnail vs. the full drawer image differently via CSS.
+  function loadReceiptImage(fileId, imgWrap, opts) {
+    opts = opts || {};
+    var imgClassName = opts.imgClassName || 'act-receipt-image';
+    var alt = opts.alt || 'Receipt image';
+    if (!Api || typeof Api.fetchBlob !== 'function') return;
+    Api.fetchBlob(receiptPath(fileId)).then(function (blob) {
+      var url = URL.createObjectURL(blob);
+      clear(imgWrap);
+      var img = el('img', imgClassName);
+      img.src = url;          // browser-generated object URL, not derived from untrusted data
+      img.alt = alt;
+      imgWrap.appendChild(img);
+    }).catch(function () {
+      clear(imgWrap);
+      imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt image.'));
+    });
+  }
+
   // ---- render: expense table ---------------------------------------------
 
   function buildToolbar(state, onChange) {
@@ -228,7 +292,51 @@
     catSel.addEventListener('change', function () { onChange({ filterCategory: catSel.value, page: 1 }); });
     bar.appendChild(catSel);
 
+    // Date range (native <input type="date">, no picker library). expense_date is
+    // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
+    // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
+    var fromWrap = el('label', 'act-filter act-filter--date');
+    var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, 'From'); fromWrap.appendChild(fromLab);
+    var dateFrom = el('input', 'act-date-from');
+    dateFrom.type = 'date';
+    dateFrom.setAttribute('aria-label', 'From date');
+    dateFrom.value = state.dateFrom || '';
+    dateFrom.addEventListener('change', function () { onChange({ dateFrom: dateFrom.value, page: 1 }); });
+    fromWrap.appendChild(dateFrom);
+    bar.appendChild(fromWrap);
+
+    var toWrap = el('label', 'act-filter act-filter--date');
+    var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, 'To'); toWrap.appendChild(toLab);
+    var dateTo = el('input', 'act-date-to');
+    dateTo.type = 'date';
+    dateTo.setAttribute('aria-label', 'To date');
+    dateTo.value = state.dateTo || '';
+    dateTo.addEventListener('change', function () { onChange({ dateTo: dateTo.value, page: 1 }); });
+    toWrap.appendChild(dateTo);
+    bar.appendChild(toWrap);
+
     return bar;
+  }
+
+  // Table/Cards view toggle — two pill buttons matching the nav/theme pill style
+  // (.nav-link/.nav-theme visual language, see app.css). Default is 'table'
+  // (today's behavior, unchanged); the active mode is marked with is-active.
+  function buildViewToggle(state, onChange) {
+    var wrap = el('div', 'act-view-toggle');
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', 'Switch between table and card view');
+
+    function modeBtn(mode, label) {
+      var btn = el('button', 'act-view-btn' + (state.viewMode === mode ? ' is-active' : ''));
+      btn.type = 'button';
+      Escape.setText(btn, label);
+      btn.addEventListener('click', function () { onChange({ viewMode: mode }); });
+      return btn;
+    }
+
+    wrap.appendChild(modeBtn('table', 'Table'));
+    wrap.appendChild(modeBtn('cards', 'Cards'));
+    return wrap;
   }
 
   function sortableTh(label, key, state, onChange) {
@@ -288,6 +396,63 @@
     });
     table.appendChild(tbody);
     return table;
+  }
+
+  // Card view: same filtered/sorted/paginated row set as the table, rendered as a
+  // grid of cards instead of <tr>s. Reuses badgeChips/pill (same pure badgesFor
+  // descriptors as the table row — no duplicated badge logic) and the shared
+  // loadReceiptImage auth'd-fetch helper for the thumbnail. Clicking a card opens
+  // the same detail drawer as clicking a table row (handlers.onOpen).
+  function buildCard(r, handlers) {
+    var card = el('div', 'act-card');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('role', 'button');
+
+    if (r.receipt_file_id) {
+      var thumbWrap = el('div', 'act-card-thumb');
+      thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
+      card.appendChild(thumbWrap);
+      loadReceiptImage(r.receipt_file_id, thumbWrap, { imgClassName: 'act-card-thumb-image', alt: 'Receipt thumbnail' });
+    }
+
+    var body = el('div', 'act-card-body');
+
+    var head = el('div', 'act-card-head');
+    head.appendChild(textCell('span', 'act-card-merchant', r.merchant));
+    head.appendChild(pill(r.category));
+    body.appendChild(head);
+
+    body.appendChild(badgeChips(r));
+
+    var meta = el('div', 'act-card-meta');
+    meta.appendChild(textCell('span', 'act-card-date', r.expense_date));
+    var amt = el('span', 'act-card-amount');
+    Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
+    meta.appendChild(amt);
+    body.appendChild(meta);
+
+    body.appendChild(textCell('span', 'act-card-status act-td--status', r.status));
+
+    if (r.remark) {
+      var remark = el('p', 'act-card-remark');
+      Escape.setText(remark, r.remark);                          // untrusted -> textContent
+      remark.setAttribute('title', Escape.stripControls(str(r.remark))); // full text on hover, text not HTML
+      body.appendChild(remark);
+    }
+
+    card.appendChild(body);
+
+    card.addEventListener('click', function () { handlers.onOpen(r); });
+    card.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); handlers.onOpen(r); }
+    });
+    return card;
+  }
+
+  function buildCardGrid(page, handlers) {
+    var grid = el('div', 'act-card-grid');
+    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers)); });
+    return grid;
   }
 
   function buildPager(page, onChange) {
@@ -402,13 +567,10 @@
       drawer.appendChild(liWrap);
     }
 
-    // Receipt image (P6 hardening): /receipt/:fileId now requires checkDash, so a plain
-    // <a href> navigation can't carry the bearer token and would 401. Instead fetch the
-    // bytes via Api.fetchBlob (attaches the same Authorization header as every other API
-    // call), turn them into a browser-generated blob: object URL, and set it on a real
-    // <img> via .src — never innerHTML, never an href built from unescaped data. Fetched
-    // eagerly on drawer-open (not per-row in the table) so opening a list of rows doesn't
-    // fan out N image requests before the user asks to see any of them.
+    // Receipt image: full-size render via the shared auth'd-fetch helper (see
+    // loadReceiptImage above). Fetched eagerly on drawer-open (not per-row in the
+    // table) so opening a list of rows doesn't fan out N image requests before the
+    // user asks to see any of them.
     var receipt = el('div', 'act-receipt');
     if (rowObj.receipt_file_id) {
       receipt.appendChild(textCell('span', 'act-receipt-label muted', 'Receipt image'));
@@ -417,20 +579,7 @@
       Escape.setText(status2, 'Loading receipt image…');
       imgWrap.appendChild(status2);
       receipt.appendChild(imgWrap);
-
-      if (Api && typeof Api.fetchBlob === 'function') {
-        Api.fetchBlob(receiptPath(rowObj.receipt_file_id)).then(function (blob) {
-          var url = URL.createObjectURL(blob);
-          clear(imgWrap);
-          var img = el('img', 'act-receipt-image');
-          img.src = url;          // browser-generated object URL, not derived from untrusted data
-          img.alt = 'Receipt image';
-          imgWrap.appendChild(img);
-        }).catch(function () {
-          clear(imgWrap);
-          imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt image.'));
-        });
-      }
+      loadReceiptImage(rowObj.receipt_file_id, imgWrap, { imgClassName: 'act-receipt-image', alt: 'Receipt image' });
     } else {
       receipt.appendChild(textCell('span', 'act-receipt-label muted', 'No receipt image on file'));
     }
@@ -464,10 +613,26 @@
 
   // ---- mount --------------------------------------------------------------
 
+  // Guarded sessionStorage accessors for the table/cards view preference — same
+  // pattern as app.js's theme persistence (try/catch around a possibly-absent or
+  // privacy-mode-blocked sessionStorage; never throws).
+  function ss(root) {
+    try { return root && root.sessionStorage ? root.sessionStorage : null; } catch (e) { return null; }
+  }
+  function getStoredViewMode(root) {
+    var s = ss(root);
+    try { return normaliseViewMode(s ? s.getItem(VIEW_MODE_KEY) : null); } catch (e) { return 'table'; }
+  }
+  function storeViewMode(root, mode) {
+    var s = ss(root);
+    try { if (s) s.setItem(VIEW_MODE_KEY, normaliseViewMode(mode)); } catch (e) { /* ignore */ }
+  }
+
   function mount(section, opts) {
     if (!hasDom() || !section) return null;
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
+    var storageRoot = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
 
     var rootEl = el('div', 'act-root');
     section.appendChild(rootEl);
@@ -484,8 +649,9 @@
 
     var state = {
       loaded: false, loading: false, rows: [],
-      search: '', filterStatus: 'all', filterCategory: 'all',
+      search: '', filterStatus: 'all', filterCategory: 'all', dateFrom: '', dateTo: '',
       sortBy: 'date', sortDir: 'desc', page: 1, pageSize: DEFAULT_PAGE_SIZE,
+      viewMode: getStoredViewMode(storageRoot),
     };
     var reviewState = { loading: false, loaded: false, rows: [] };
 
@@ -494,16 +660,28 @@
       if (state.loading) { tableArea.appendChild(msg('act-loading muted', 'Loading expenses…')); return; }
       if (state.error) { tableArea.appendChild(msg('act-error', 'Could not load your expenses. Please try again shortly.')); return; }
       tableArea.appendChild(buildToolbar(state, onChange));
+      tableArea.appendChild(buildViewToggle(state, onChange));
       var pageData = filterSortPage(state.rows, state);
       if (pageData.total === 0) {
         tableArea.appendChild(msg('act-empty muted', state.rows.length ? 'No expenses match your filters.' : 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
         return;
       }
-      tableArea.appendChild(buildTable(pageData, state, { onChange: onChange, onOpen: openDrawer }));
+      if (state.viewMode === 'cards') {
+        tableArea.appendChild(buildCardGrid(pageData, { onOpen: openDrawer }));
+      } else {
+        tableArea.appendChild(buildTable(pageData, state, { onChange: onChange, onOpen: openDrawer }));
+      }
       tableArea.appendChild(buildPager(pageData, onChange));
     }
 
-    function onChange(patch) { Object.assign(state, patch); renderTable(); }
+    function onChange(patch) {
+      Object.assign(state, patch);
+      if (patch && 'viewMode' in patch) {
+        state.viewMode = normaliseViewMode(state.viewMode);
+        storeViewMode(storageRoot, state.viewMode);
+      }
+      renderTable();
+    }
 
     function closeDrawer() { clear(drawerHost); }
 
@@ -590,6 +768,7 @@
     categoryColor: categoryColor,
     patchBody: patchBody,
     receiptPath: receiptPath,
+    normaliseViewMode: normaliseViewMode,
     // render (browser)
     mount: mount,
   };

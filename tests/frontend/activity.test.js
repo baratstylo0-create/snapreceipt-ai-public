@@ -12,7 +12,9 @@ const assert = require('node:assert');
 
 const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
-const { filterSortPage, badgesFor, categoryColor, patchBody, receiptPath } = Activity;
+const {
+  filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
+} = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
 function row(over) {
@@ -270,4 +272,135 @@ test('receiptPath: percent-encodes a hostile/path-breaking fileId (no raw markup
 test('receiptPath: null/undefined fileId does not throw, yields a safe empty-ish path', () => {
   assert.strictEqual(receiptPath(null), '/receipt/');
   assert.strictEqual(receiptPath(undefined), '/receipt/');
+});
+
+// --- filterSortPage: dateFrom / dateTo (Task L) ----------------------------
+
+test('filterSortPage: dateFrom/dateTo applies an inclusive range on expense_date', () => {
+  const rows = [
+    row({ id: 'a', expense_date: '2026-06-01' }),
+    row({ id: 'b', expense_date: '2026-06-15' }),
+    row({ id: 'c', expense_date: '2026-06-30' }),
+  ];
+  assert.deepStrictEqual(
+    filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-15' }).rows.map((r) => r.id),
+    ['a', 'b'],
+  );
+  // boundaries are inclusive
+  assert.deepStrictEqual(
+    filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-01' }).rows.map((r) => r.id),
+    ['a'],
+  );
+  assert.deepStrictEqual(
+    filterSortPage(rows, { dateFrom: '2026-06-30', dateTo: '2026-06-30' }).rows.map((r) => r.id),
+    ['c'],
+  );
+});
+
+test('filterSortPage: dateFrom only / dateTo only work as open-ended ranges', () => {
+  const rows = [
+    row({ id: 'a', expense_date: '2026-06-01' }),
+    row({ id: 'b', expense_date: '2026-06-15' }),
+    row({ id: 'c', expense_date: '2026-06-30' }),
+  ];
+  assert.deepStrictEqual(
+    filterSortPage(rows, { dateFrom: '2026-06-15' }).rows.map((r) => r.id),
+    ['b', 'c'],
+  );
+  assert.deepStrictEqual(
+    filterSortPage(rows, { dateTo: '2026-06-15' }).rows.map((r) => r.id),
+    ['a', 'b'],
+  );
+});
+
+test('filterSortPage: no dateFrom/dateTo set is a no-op (existing behavior unchanged)', () => {
+  const rows = [row({ id: 'a', expense_date: '2026-06-01' }), row({ id: 'b', expense_date: '' })];
+  assert.strictEqual(filterSortPage(rows, {}).rows.length, 2);
+  assert.strictEqual(filterSortPage(rows, { dateFrom: '', dateTo: '' }).rows.length, 2);
+});
+
+test('filterSortPage: malformed/non-ISO expense_date is excluded from a range filter, never throws', () => {
+  const rows = [
+    row({ id: 'a', expense_date: '2026-06-10' }),
+    row({ id: 'b', expense_date: 'not-a-date' }),
+    row({ id: 'c', expense_date: null }),
+    row({ id: 'd', expense_date: undefined }),
+    row({ id: 'e', expense_date: '' }),
+  ];
+  assert.doesNotThrow(() => filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30' }));
+  const out = filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30' }).rows.map((r) => r.id);
+  assert.deepStrictEqual(out, ['a']);
+});
+
+test('filterSortPage: dateFrom/dateTo on an empty result set is handled gracefully', () => {
+  const rows = [row({ id: 'a', expense_date: '2026-01-01' })];
+  const out = filterSortPage(rows, { dateFrom: '2027-01-01', dateTo: '2027-12-31' });
+  assert.deepStrictEqual(out.rows, []);
+  assert.strictEqual(out.total, 0);
+  assert.strictEqual(out.pageCount, 1);
+});
+
+test('filterSortPage: dateFrom/dateTo composes with search/status/category filters', () => {
+  const rows = [
+    row({ id: 'a', expense_date: '2026-06-01', category: 'Food' }),
+    row({ id: 'b', expense_date: '2026-06-01', category: 'Petrol' }),
+    row({ id: 'c', expense_date: '2026-07-01', category: 'Food' }),
+  ];
+  const out = filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30', filterCategory: 'Food' });
+  assert.deepStrictEqual(out.rows.map((r) => r.id), ['a']);
+});
+
+// --- badgesFor: shared between table row and card rendering (Task L) ------
+// The table row and the new card view both build their badge chips by calling the
+// SAME badgesFor(row) + a single badgeChips() DOM builder (see activity.js) rather
+// than each having their own copy. We can't render DOM here (no jsdom), but we can
+// prove the pure descriptor layer both paths are built from is deterministic and
+// produces identical output for the identical input, which is what "no behavior
+// drift between the two render paths" reduces to once there is only one DOM builder.
+test('badgesFor: identical row produces identical badge descriptors on repeated calls (no hidden state)', () => {
+  const hostile = row({
+    anomaly: { flagged: true, reason: 'weird' },
+    confidence: { merchant: 'low' },
+    amount_original: 8.5, fx_rate: 1.18, currency_original: 'EUR',
+  });
+  const first = badgesFor(hostile);
+  const second = badgesFor(hostile);
+  assert.deepStrictEqual(first, second);
+});
+
+// --- normaliseViewMode: table/cards toggle persistence (Task L) -----------
+
+test('normaliseViewMode: unset (null/undefined) defaults to "table"', () => {
+  assert.strictEqual(normaliseViewMode(null), 'table');
+  assert.strictEqual(normaliseViewMode(undefined), 'table');
+});
+
+test('normaliseViewMode: "table" and "cards" pass through unchanged', () => {
+  assert.strictEqual(normaliseViewMode('table'), 'table');
+  assert.strictEqual(normaliseViewMode('cards'), 'cards');
+});
+
+test('normaliseViewMode: garbage/unknown values fall back to "table"', () => {
+  assert.strictEqual(normaliseViewMode('grid'), 'table');
+  assert.strictEqual(normaliseViewMode('<script>alert(1)</script>'), 'table');
+  assert.strictEqual(normaliseViewMode(123), 'table');
+  assert.strictEqual(normaliseViewMode({}), 'table');
+});
+
+// --- card remark/merchant XSS safety (Task L) ------------------------------
+// The card view renders remark/merchant through the same Escape.setText/safeText
+// path as the table (see activity.js buildCard). Mirrors the existing hostile-value
+// pattern above: assert the escaped string never carries raw executable markup.
+test('hostile card remark/merchant render INERT via Escape.safeText (same bar as table)', () => {
+  const hostile = row({
+    merchant: '<img src=x onerror=alert(1)>',
+    remark: '<script>alert(2)</script>' + 'x'.repeat(200),
+  });
+  const merchantOut = Escape.safeText(hostile.merchant);
+  assert.ok(merchantOut.indexOf('<img') === -1);
+  assert.ok(merchantOut.indexOf('onerror') !== -1 && merchantOut.indexOf('<') === -1);
+
+  const remarkOut = Escape.safeText(hostile.remark);
+  assert.ok(remarkOut.indexOf('<script>') === -1);
+  assert.ok(remarkOut.indexOf('&lt;script&gt;') !== -1);
 });
