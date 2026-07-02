@@ -13,8 +13,8 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 ## Who's on what
 | Person | Claude | Current task | State |
 |---|---|---|---|
-| Jeevan | J1 | #1 PDF: spec/ADR-014/plan done, spike validated. Waiting on Barat's `lib/pdf.js` PR to QA, then builds Task 7 route glue | dispatched Barat, waiting |
-| Barat | — | **Building `feature/barat-p4-pdf`** (Tasks 0–5 in the plan): `lib/pdf.js`, config knobs, Telegram PDF path. Business Excel PARKED | in build |
+| Jeevan | J2 | **#1 PDF Telegram side QA'd + MERGED (PR #38)** — 2 Important findings (render-dimension bomb + raw-error leak) found, fixed by Barat, re-QA APPROVE (317/317). Next: build Task 7 (`routes/upload.js` PDF glue) after the `/api/upload` Buffer→data-URI fix lands | #38 merged, Task 7 next |
+| Barat | B1/B2 | **#1 PDF ingestion built + merged** (`lib/pdf.js` rasterizer + Telegram path, `@hyzyla/pdfium` ADR-014, render-pixel cap). Also fixed issue #30 (#34). Separate open branch `fix/barat-ocr-buffer-image` (/api/upload raw-Buffer bug) awaiting J2 PR/QA. PDF was the last item in Barat's lane | PDF merged; buffer-fix awaiting QA |
 | Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
 
 ## Feature status (personal M1)

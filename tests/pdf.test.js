@@ -1,0 +1,103 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert');
+// NOTE (deviation from the plan's literal snippet): lib/config.js exports { cfg,
+// assertConfig }, not flat top-level constants -- every other module in the repo
+// consumes it as `const { cfg } = require('./config')`. Matching that real shape here.
+const { cfg } = require('../lib/config');
+
+test('config exposes PDF knobs with sane defaults', () => {
+  assert.strictEqual(typeof cfg.PDF_RENDER_DPI, 'number');
+  assert.ok(cfg.PDF_RENDER_DPI >= 72);
+  assert.strictEqual(typeof cfg.PDF_MAX_BYTES, 'number');
+  assert.ok(cfg.PDF_MAX_BYTES > 0);
+});
+
+const zlib = require('node:zlib');
+const { rgbaToPng, PdfError } = require('../lib/pdf');
+
+test('rgbaToPng emits a valid PNG with correct signature and dimensions', () => {
+  // 2x1 image, two opaque pixels (red, green)
+  const rgba = Buffer.from([255,0,0,255,  0,255,0,255]);
+  const png = rgbaToPng(rgba, 2, 1);
+  // PNG signature
+  assert.deepStrictEqual(png.subarray(0, 8),
+    Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+  // IHDR is the first chunk: bytes 12..16 type 'IHDR', then width/height
+  assert.strictEqual(png.subarray(12, 16).toString('ascii'), 'IHDR');
+  assert.strictEqual(png.readUInt32BE(16), 2); // width
+  assert.strictEqual(png.readUInt32BE(20), 1); // height
+  // IDAT inflates back to filtered scanlines (1 filter byte + 8 data bytes)
+  const idatStart = png.indexOf(Buffer.from('IDAT', 'ascii'));
+  const idatLen = png.readUInt32BE(idatStart - 4);
+  const idat = png.subarray(idatStart + 4, idatStart + 4 + idatLen);
+  const raw = zlib.inflateSync(idat);
+  assert.strictEqual(raw.length, (2 * 4 + 1) * 1); // (width*4 + filterByte) * height
+  assert.strictEqual(raw[0], 0); // filter: none
+});
+
+test('PdfError carries a stable non-leaky code', () => {
+  const e = new PdfError('CORRUPT');
+  assert.ok(e instanceof Error);
+  assert.strictEqual(e.code, 'CORRUPT');
+  assert.strictEqual(e.name, 'PdfError');
+});
+
+const fs = require('node:fs');
+const { rasterizePdf } = require('../lib/pdf');
+const fx = f => fs.readFileSync(`tests/fixtures/pdf/${f}`);
+const PNG_SIG = Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);
+
+test('rasterizePdf renders a 1-page native PDF to one PNG', async () => {
+  const { pages, truncated } = await rasterizePdf(fx('one-page.pdf'));
+  assert.strictEqual(pages.length, 1);
+  assert.deepStrictEqual(pages[0].subarray(0, 8), PNG_SIG);
+  assert.strictEqual(truncated, false);
+});
+
+test('rasterizePdf renders every page of a multi-page PDF', async () => {
+  const { pages, truncated } = await rasterizePdf(fx('three-page.pdf'));
+  assert.strictEqual(pages.length, 3);
+  assert.ok(pages.every(p => p.subarray(0, 8).equals(PNG_SIG)));
+  assert.strictEqual(truncated, false);
+});
+
+test('rasterizePdf renders a scanned/image-only PDF (same path)', async () => {
+  const { pages } = await rasterizePdf(fx('scanned.pdf'));
+  assert.ok(pages.length >= 1);
+  assert.deepStrictEqual(pages[0].subarray(0, 8), PNG_SIG);
+});
+
+test('rasterizePdf caps at maxPages and flags truncated', async () => {
+  const { pages, truncated } = await rasterizePdf(fx('eleven-page.pdf')); // default cap 10
+  assert.strictEqual(pages.length, 10);
+  assert.strictEqual(truncated, true);
+});
+
+test('rasterizePdf rejects oversized buffers BEFORE parsing', async () => {
+  const big = Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(21 * 1024 * 1024)]);
+  await assert.rejects(() => rasterizePdf(big), e => e instanceof PdfError && e.code === 'TOO_LARGE');
+});
+
+test('rasterizePdf rejects non-PDF bytes', async () => {
+  await assert.rejects(() => rasterizePdf(fx('not-a-pdf.bin')),
+    e => e.code === 'NOT_PDF');
+});
+
+test('rasterizePdf rejects a corrupt/truncated PDF without leaking internals', async () => {
+  await assert.rejects(() => rasterizePdf(fx('corrupt.pdf')),
+    e => e instanceof PdfError && e.code === 'CORRUPT');
+});
+
+test('rasterizePdf rejects an encrypted PDF as ENCRYPTED', async () => {
+  await assert.rejects(() => rasterizePdf(fx('encrypted.pdf')),
+    e => e instanceof PdfError && e.code === 'ENCRYPTED');
+});
+
+test('rasterizePdf never throws a raw library error (only PdfError)', async () => {
+  for (const f of ['not-a-pdf.bin', 'corrupt.pdf', 'encrypted.pdf']) {
+    await rasterizePdf(fx(f)).then(
+      () => assert.fail(`${f} should have rejected`),
+      e => assert.strictEqual(e.name, 'PdfError', `${f} leaked a non-PdfError`));
+  }
+});
