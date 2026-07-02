@@ -108,6 +108,23 @@ test('all photos fail to resolve → a "couldn\'t download" message, runBatch sk
   assert.match(sent[sent.length - 1].text, /Couldn't download/i);
 });
 
+// QA (Tier-2): a download that REJECTS (not just returns null) must also degrade safely —
+// the per-file try/catch in flushGroup swallows it, so a group where every download throws
+// still hits the "couldn't download" path, runBatch is skipped, and nothing throws.
+test('every photo download rejects → safe "couldn\'t download" message, runBatch skipped, no throw', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent, runBatchCalls } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    tgFileUrl: async () => { throw new Error('ECONNREFUSED downloading file'); },
+  });
+  await handleUpdate(photoUpdate('grpThrow', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpThrow', 'f2'), deps);
+  await assert.doesNotReject(() => timers.runPending());
+  assert.strictEqual(runBatchCalls.length, 0);
+  assert.match(sent[sent.length - 1].text, /Couldn't download/i);
+  assert.ok(!sent.some(s => /ECONNREFUSED/.test(s.text)), 'raw download error never reaches the user');
+});
+
 test('formatBatchSummary renders counts and NEVER surfaces failed[].reason (SOP §7.2)', () => {
   const text = formatBatchSummary({
     images: 4, receipts: 5, saved: 3,

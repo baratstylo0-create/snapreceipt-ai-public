@@ -3,27 +3,33 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION IN PROGRESS — Claude-J2. READ THIS FIRST.  (updated 2026-07-02, later)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST.  (updated 2026-07-02, latest)
 
-**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #29 merge (`d52bc96`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **~212 passing** (post-#29). On the `feature/jeevan-p4-massupload` branch = **266**.
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #32 merge (`0e48033`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **273 passing** (274 on the open `chore/jeevan-j1-session-end` branch with 1 cherry-picked QA test).
 
 ### What landed recently (state as of this refresh)
-1. **PR #27 (housekeeping) — MERGED (`a13ba6d`).** ADR-013 (jszip), refreshed HANDOFF/STATUS, 2 cherry-picked groq QA tests. Merged after the full read-diff + test-run self-review protocol (self-merge is auto-blocked).
-2. **PR #29 — MERGED (`d52bc96`, Barat's `extractReceipts()` in `lib/ocr.js`).** The #7 cross-lane dep. Opened on Barat's behalf (no `gh` auth); fresh independent Tier-2 QA = **APPROVE WITH MINOR FINDINGS** — verified `extractReceipt`/`parseModelJson` behaviour-preserved, array-rejection intact, unterminated-`<think>`→`[]`, extra-key stripping, `fileId:null` tolerated. +19 QA regression tests (new file, `lib/ocr.js` untouched). The one Minor (single-object-array leak on the singular path) is **pre-existing on main, not a regression** → filed as **issue #30** (Barat, low priority). Branch conflict (WORKLOG) resolved keep-both before merge.
-3. **#9 (PR #25) + `groqChatTools()` (PR #26)** — merged earlier this day (see prior HANDOFF history / WORKLOG).
+1. **#7 MASS UPLOAD — COMPLETE ON BOTH SURFACES.**
+   - **PR #28 MERGED** (`a3b800b`) — Jeevan's `lib/massupload.js` `runBatch` (best-effort, never-throws batch orchestrator) + `routes/upload.js` `POST /api/upload` (checkDash, base64→Buffer, ≤10 → 413, 503 dark-path). Independent Tier-2 QA APPROVE.
+   - **PR #29 MERGED** (`d52bc96`) — Barat's `extractReceipts()` in `lib/ocr.js` (the #7 OCR dep). QA APPROVE-with-minor; the one Minor is pre-existing → **issue #30** (low priority, Barat's `lib/ocr.js`).
+   - **PR #32 MERGED** (`0e48033`) — Barat's **Telegram multi-photo adapter** (`lib/bot.js` buffers a media group by `media_group_id`, debounces ~2s, clamps to `MASS_MAX_IMAGES`=10 → ONE `runBatch` → one counts-only summary). Independent Tier-2 QA = **APPROVE (clean)**: buffering/debounce correct, never-throws holds, `failed[].reason` non-leak confirmed (planted-secret regression test), single-photo path unchanged. `meta.fileId:null` (Option A; per-image links = **issue #31**, deferred).
+2. **PR #27 (housekeeping) MERGED** — ADR-013 (jszip), + groq QA tests.
+3. **#9 (PR #25) + `groqChatTools()` (PR #26)** — merged earlier (see WORKLOG).
 
 ### Open PRs
-- **PR #28 `feature/jeevan-p4-massupload`** (#7 mass upload) — **CLEAN/MERGEABLE, awaiting OWNER merge** (self-authored → sandbox blocks self-merge; independent Tier-2 QA already APPROVE, 266/266). `lib/massupload.js` `runBatch` + `routes/upload.js` `POST /api/upload`. Synced with main (has #29). **Owner: just merge it.**
+- **`chore/jeevan-j1-session-end`** (this refresh) — cherry-picked the PR #32 QA's 1 hardening test (download-rejection safety) so it lands on main (SOP §4.4 — not pushed to Barat's branch), + this HANDOFF/STATUS refresh. Tier-1; self-merge auto-blocked → **Owner merges, or next Claude read-diff+test reviews first.**
 
 ### EXACT NEXT ACTIONS for next Claude (in order)
-1. **Owner merges PR #28** (#7 mass upload). After it lands, #7's live `POST /api/upload` un-darkens on the next **server restart** (dep resolved at mount time; `ocr.extractReceipts` is already on main via #29).
-2. **#1 PDF ingestion** — PARKED pending a **joint rasterization brainstorm with the Owner** (the no-build-step constraint makes the dependency choice non-trivial). Barat is holding; don't let him start solo. **This is the next thing that needs the Owner.**
-3. **Barat's next build:** Telegram multi-photo adapter (`lib/bot.js` gathers a media group → calls the transport-agnostic `runBatch`) — his lane, spec-only until #28 lands. #1 PDF stays held for the brainstorm.
-4. **ADR-011 reference frontend** for Mugi (after the backend features land).
+1. **Merge the `chore/jeevan-j1-session-end` PR** (Owner, or self-review-first).
+2. **#1 PDF ingestion — THE ONLY REMAINING BACKEND ITEM.** Blocked on a **joint rasterization brainstorm with the Owner** (turning a PDF into page images with the project's no-build-step + minimal-deps constraint makes the dependency choice non-trivial — likely a new ADR). **Owner asked to do this as a FRESH SESSION** (budget: one session per feature — this session did #9 + #7 end-to-end and ran heavy). Barat is HOLDING — do not let him start #1 PDF solo; it needs the brainstorm first. Start: brainstorm → spec → plan → subagent-TDD, same as #2/#9/#7.
+3. **ADR-011 reference frontend** for Mugi (after #1 PDF, or in parallel — surfaces every /api/* feature for Mugi to design production UI from).
 
-### Decisions locked this session (2026-07-02)
-- **Business Excel phase: PARKED** (personal M1 first per SOP). Barat's spike done (exceljs drops charts → jszip XML-injection validated); resume when personal M1 backend is complete.
-- **jszip → explicit dep: APPROVED in principle (ADR-013)**; the actual `package.json` promotion is deferred to the business-Excel Phase-1 PR (don't add an unused dep while parked).
+### Barat status (his #7 work is DONE)
+`extractReceipts` (#29) + Telegram multi-photo (#32) both merged. Nothing urgent open in his lane. Remaining: **#1 PDF (WAIT for the joint brainstorm)**, business Excel (PARKED). Issue #30 (low-priority hardening in his `lib/ocr.js`) is his call, non-blocking.
+
+### Decisions locked (2026-07-02)
+- **Business Excel phase: PARKED** (personal M1 first per SOP). jszip validated for it (exceljs drops charts).
+- **jszip → explicit dep: APPROVED in principle (ADR-013)**; package.json promotion deferred to business-Excel Phase-1.
+- **Workflow: one fresh session per feature** going forward (marathon multi-feature sessions burn the quota window fast; the HANDOFF contract is designed for exactly this).
 
 ### GOTCHAs (carry forward)
 - (a) **Before diagnosing "post-merge test failures" as a code bug, run `npm install`** — a dependency added to `main` after your branch forked leaves your local `node_modules` missing it (whole-test-file load failures + an "all modules import" failure = a missing dep, not logic). PR #22 was nearly mis-triaged this way (missing `exceljs`).

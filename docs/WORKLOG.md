@@ -4,11 +4,20 @@
 
 ---
 
-## 2026-07-02 · Claude-B1/B2 (for Barat) · fix/barat-issue30-parsemodeljson-array-leak
+## 2026-07-02 · Claude-B1/B2 (for Barat) · fix/barat-issue30-parsemodeljson-array-leak (MERGED PR #34)
 - **Files:** `lib/ocr.js` (`parseModelJson`), `tests/ocr.qa.test.js` (updated the characterization test + 1 new dedicated regression test).
 - **What changed:** Fixed **issue #30** (low-priority, non-blocking hardening — Barat's own backlog item, not requested by anyone this session). `parseModelJson` (the single-receipt untrusted-output parser, SOP §7.3) is meant to reject ANY top-level JSON array on the singular OCR path, but its brace-scan (`indexOf('{')..lastIndexOf('}')`) let a **single-object array** like `[{"merchant":"X","amount":1}]` leak its inner object — multi-object and scalar arrays were already correctly rejected. Fix: before brace-scanning, check whether `[` appears before any `{`; if so, treat the whole response as array-wrapped and reject (return `{}`) regardless of length. Verified the sibling `parseModelJsonArray` (mass-upload path, #7) and objects with a nested array field (e.g. `line_items`) are unaffected — confirmed with a live check, not just tests.
 - **Tests:** 274/274 pass (273 + 1 new regression lock). Updated the existing QA characterization test (previously documented the leak as an accepted "quirk") to assert the fixed behavior instead, with a clear comment on why it changed.
-- **What's next:** open PR (small, low-risk, well-tested — Tier-1 candidate per SOP §4.7 since it only touches the already-hardened untrusted-output parser with full regression coverage, but Barat defers Tier classification to the reviewer). Closes issue #30 on merge.
+- **Review/merge:** J1 (Owner) did an independent non-author read-diff + full-suite run (274/274 green) → clean; Owner-authorized merge (`--merge`, PR #34). Closes issue #30.
+- **Assumptions:** none new.
+
+## 2026-07-02 · Claude-J1 (for Jeevan) · chore/jeevan-j1-session-end (session wrap, MERGED PR #33)
+- **Files:** `tests/bot.batch.test.js` (cherry-picked +1 QA test), `docs/HANDOFF.md` (top block refresh), `docs/STATUS.md`, this WORKLOG entry.
+- **What changed:** Session-wrap after re-syncing from a stale-context handoff (a prior session had already merged #27/#28/#29; my in-context memory was behind — re-established from git/gh, not memory).
+  1. **Opened + Tier-2-QA'd + merged PR #32** (Barat's Telegram multi-photo adapter, `lib/bot.js`). Fresh independent QA verdict = **APPROVE (clean)**: media-group buffering keyed by `media_group_id` with correct per-photo debounce re-arm + isolated concurrent groups + clean timer/Map teardown; safe 11th-photo clamp; never-throws holds (every `fileUrl`/`runBatch` await guarded); **`failed[].reason` non-leak confirmed** (summary is counts-only; planted-secret regression test is genuine); single-photo path is a pure refactor (unchanged behaviour). Merged (`0e48033`). **#7 mass upload is now complete on BOTH surfaces** (dashboard #28 + Telegram #32). QA's 1 hardening test (download-rejection safety) **cherry-picked here** rather than pushed to Barat's branch (SOP §4.4). `main` = 273; this branch = **274**.
+  2. **Refreshed HANDOFF top block + STATUS** to current reality (#28/#29/#32 merged; #7 done; #1 PDF is the only remaining backend item).
+- **Owner decisions this session:** #1 PDF ingestion to be done as a **FRESH session** (budget: one session per feature — this session ran #9 + #7 end-to-end + heavy review cycles). Business Excel stays PARKED; jszip ADR-013 stands.
+- **What's next:** merge this housekeeping PR → then a fresh session drives the **#1 PDF rasterization brainstorm with the Owner** (Barat holding, don't start solo) → then ADR-011 reference frontend for Mugi.
 - **Assumptions:** none new.
 
 ## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-telegram-multiphoto (IMPLEMENTED)
