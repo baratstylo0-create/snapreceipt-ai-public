@@ -67,3 +67,37 @@ test('rasterizePdf renders a scanned/image-only PDF (same path)', async () => {
   assert.ok(pages.length >= 1);
   assert.deepStrictEqual(pages[0].subarray(0, 8), PNG_SIG);
 });
+
+test('rasterizePdf caps at maxPages and flags truncated', async () => {
+  const { pages, truncated } = await rasterizePdf(fx('eleven-page.pdf')); // default cap 10
+  assert.strictEqual(pages.length, 10);
+  assert.strictEqual(truncated, true);
+});
+
+test('rasterizePdf rejects oversized buffers BEFORE parsing', async () => {
+  const big = Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(21 * 1024 * 1024)]);
+  await assert.rejects(() => rasterizePdf(big), e => e instanceof PdfError && e.code === 'TOO_LARGE');
+});
+
+test('rasterizePdf rejects non-PDF bytes', async () => {
+  await assert.rejects(() => rasterizePdf(fx('not-a-pdf.bin')),
+    e => e.code === 'NOT_PDF');
+});
+
+test('rasterizePdf rejects a corrupt/truncated PDF without leaking internals', async () => {
+  await assert.rejects(() => rasterizePdf(fx('corrupt.pdf')),
+    e => e instanceof PdfError && e.code === 'CORRUPT');
+});
+
+test('rasterizePdf rejects an encrypted PDF as ENCRYPTED', async () => {
+  await assert.rejects(() => rasterizePdf(fx('encrypted.pdf')),
+    e => e instanceof PdfError && e.code === 'ENCRYPTED');
+});
+
+test('rasterizePdf never throws a raw library error (only PdfError)', async () => {
+  for (const f of ['not-a-pdf.bin', 'corrupt.pdf', 'encrypted.pdf']) {
+    await rasterizePdf(fx(f)).then(
+      () => assert.fail(`${f} should have rejected`),
+      e => assert.strictEqual(e.name, 'PdfError', `${f} leaked a non-PdfError`));
+  }
+});
