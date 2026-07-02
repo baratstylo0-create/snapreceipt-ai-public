@@ -75,3 +75,69 @@ test('empty images -> zeroed summary, never throws', async () => {
   const s = await runBatch([], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
   assert.deepEqual(s, { images: 0, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] });
 });
+
+test('extractReceipts throws a plain string: image failed with string reason, others processed', async () => {
+  const extractReceipts = async (image) => {
+    if (image === 'img1') throw 'blurry-string';
+    return { receipts: [{ fields: { merchant: 'Aldi' }, rawParsed: {} }] };
+  };
+  const assembleExpense = async (arg) => ({ expense: { merchant: arg.fields && arg.fields.merchant }, flagged: false });
+  const s = await runBatch(['img1', 'img2'], FS, { extractReceipts, assembleExpense });
+  assert.equal(s.failed.length, 1);
+  assert.equal(s.failed[0].image_index, 0);
+  assert.equal(s.failed[0].reason, 'blurry-string');
+  assert.equal(s.saved, 1);
+});
+
+test('assembleExpense throws undefined: receipt failed with string reason, siblings saved', async () => {
+  const f = fakes({
+    img1: { receipts: [{ fields: { merchant: 'Ok' }, rawParsed: {} }, { fields: { merchant: 'Boom' }, rawParsed: {} }] },
+  });
+  const assembleExpense = async (arg) => {
+    if (arg.fields && arg.fields.merchant === 'Boom') throw undefined;
+    return { expense: { merchant: arg.fields.merchant }, flagged: false };
+  };
+  const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense });
+  assert.equal(s.saved, 1);
+  assert.equal(s.failed.length, 1);
+  assert.equal(s.failed[0].receipt_index, 1);
+  assert.equal(typeof s.failed[0].reason, 'string');
+  assert.equal(s.failed[0].reason, 'undefined');
+});
+
+test('assembleExpense resolves null: receipt failed (destructure throws), siblings saved', async () => {
+  const f = fakes({
+    img1: { receipts: [{ fields: { merchant: 'Ok' }, rawParsed: {} }, { fields: { merchant: 'Null' }, rawParsed: {} }] },
+  });
+  const assembleExpense = async (arg) => {
+    if (arg.fields && arg.fields.merchant === 'Null') return null;
+    return { expense: { merchant: arg.fields.merchant }, flagged: false };
+  };
+  const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense });
+  assert.equal(s.saved, 1);
+  assert.equal(s.failed.length, 1);
+  assert.equal(s.failed[0].receipt_index, 1);
+  assert.equal(typeof s.failed[0].reason, 'string');
+});
+
+test('malformed extractReceipts output treated as zero receipts, no failed entry, image succeeds', async () => {
+  const extractReceipts = async (image) => {
+    if (image === 'img1') return {};
+    if (image === 'img2') return { receipts: 'junk' };
+    return { receipts: [] };
+  };
+  const assembleExpense = async () => { throw new Error('should not be called'); };
+  const s = await runBatch(['img1', 'img2'], FS, { extractReceipts, assembleExpense });
+  assert.equal(s.images, 2);
+  assert.equal(s.receipts, 0);
+  assert.equal(s.saved, 0);
+  assert.deepEqual(s.failed, []);
+});
+
+test('runBatch called with no deps argument: resolves, image lands in failed', async () => {
+  const s = await runBatch(['x'], FS);
+  assert.equal(s.images, 1);
+  assert.equal(s.failed.length, 1);
+  assert.equal(s.failed[0].image_index, 0);
+  assert.equal(typeof s.failed[0].reason, 'string');
+});
