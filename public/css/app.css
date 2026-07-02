@@ -1,15 +1,21 @@
-/* app.css — minimal base styles for the reference frontend.
-   Real styling comes in later tasks; a strict CSP (no inline styles) is added
-   later, so all CSS must live in this external stylesheet. */
+/* app.css — visual language for the reference frontend (Owner-supplied Finexy-style
+   draft as the look-and-feel reference: light, card-based, orange accent, soft
+   shadows). Values only — every existing className hook is preserved so no
+   component JS changes. A strict CSP (no inline styles) is enforced, so all CSS
+   lives in this external stylesheet. */
 
 :root {
-  --bg: #0e1117;
-  --panel: #161b22;
-  --line: #28303e;
-  --txt: #e6edf3;
-  --muted: #8b97a7;
-  --accent: #5b9dff;
-  --radius: 12px;
+  --bg: #eef0f4;
+  --panel: #ffffff;
+  --panel-shadow: 0 1px 2px rgba(20, 22, 30, 0.04), 0 8px 24px rgba(20, 22, 30, 0.06);
+  --line: #e7e9ee;
+  --txt: #14161a;
+  --muted: #7a828d;
+  --accent: #ff6b3d;
+  --accent-strong: #f0552a;
+  --accent-contrast: #ffffff;
+  --radius: 18px;
+  --radius-sm: 10px;
 }
 
 * { box-sizing: border-box; }
@@ -32,7 +38,9 @@ body {
 }
 
 .app-main {
-  padding: 20px;
+  padding: 12px 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
 }
 
 .app-modal[hidden] { display: none; }
@@ -40,29 +48,40 @@ body {
 .app-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(20, 22, 30, 0.45);
 }
 
 /* --- theme (visual only; app.js toggles a body class + persists in sessionStorage) --- */
-body.theme-light {
-  --bg: #f5f7fa;
-  --panel: #ffffff;
-  --line: #d5dbe4;
-  --txt: #1a2230;
-  --muted: #5b6472;
-  --accent: #2563eb;
+body.theme-dark {
+  --bg: #0e1117;
+  --panel: #161b22;
+  --panel-shadow: none;
+  --line: #28303e;
+  --txt: #e6edf3;
+  --muted: #8b97a7;
+  --accent: #ff8452;
+  --accent-strong: #ff6b3d;
+  --accent-contrast: #14161a;
 }
 
-/* --- top nav --- */
+/* --- top nav: a floating rounded bar, dark "pill" for the active section --- */
+.app-header { padding: 20px 24px 8px; max-width: 1280px; margin: 0 auto; }
+
 .nav {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--panel-shadow);
+  padding: 10px 18px;
 }
 
 .nav-brand {
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .nav-links {
@@ -76,10 +95,12 @@ body.theme-light {
   background: transparent;
   color: var(--muted);
   border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 6px 12px;
+  border-radius: 999px;
+  padding: 7px 16px;
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
 .nav-link:hover,
@@ -89,14 +110,21 @@ body.theme-light {
 }
 
 .nav-link.is-active {
-  color: var(--txt);
-  background: var(--panel);
-  border-color: var(--line);
+  color: var(--accent-contrast);
+  background: var(--txt);
+  border-color: var(--txt);
 }
+
+body.theme-dark .nav-link.is-active { color: var(--bg); }
 
 .nav-greeting {
   margin-left: auto;
   color: var(--muted);
+  font-weight: 500;
+}
+
+.nav-theme {
+  border: 1px solid var(--line);
 }
 
 /* --- views --- */
@@ -104,14 +132,18 @@ body.theme-light {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 20px;
+  box-shadow: var(--panel-shadow);
+  padding: 24px;
+  margin-top: 20px;
 }
 
 .view[hidden] { display: none; }
 
 .view-title {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .muted { color: var(--muted); }
@@ -126,6 +158,7 @@ body.theme-light {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
   padding: 24px;
 }
 
@@ -155,32 +188,43 @@ body.theme-light {
   color: var(--muted);
 }
 
-/* --- Overview: KPI cards --- */
+/* --- Overview: KPI cards (first tile gets the orange "highlight" treatment,
+   matching the reference's accent card) --- */
 .ov-kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
 }
 
 .ov-kpi {
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+  transition: transform 0.15s;
 }
+
+.ov-kpi:first-child {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.ov-kpi:first-child .ov-kpi-label { color: var(--accent-contrast); opacity: 0.85; }
 
 .ov-kpi-label {
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  font-weight: 600;
 }
 
 .ov-kpi-value {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
@@ -258,7 +302,7 @@ body.theme-light {
   border-collapse: collapse;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .act-th,
@@ -589,3 +633,108 @@ body.theme-light {
 }
 .up-result--flagged { border-left-color: #d29922; }
 .up-result--failed { border-left-color: #f85149; }
+
+/* --- shared accent-button hover polish (matches the reference's brand color) --- */
+.token-gate-submit:hover,
+.up-browse:hover,
+.up-upload:not(:disabled):hover,
+.act-save:hover,
+.tp-submit:not(:disabled):hover {
+  background: var(--accent-strong);
+}
+
+/* --- Manage: field-template import (Task E) ------------------------------- */
+.tp-root { display: flex; flex-direction: column; gap: 20px; }
+.tp-intro { margin: 0; }
+
+.tp-spec-area { display: flex; flex-direction: column; gap: 10px; }
+.tp-spec-meta { margin: 0; font-size: 13px; }
+.tp-loading, .tp-error, .tp-empty { padding: 12px 0; }
+.tp-error { color: var(--muted); }
+
+.tp-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.tp-table th, .tp-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.tp-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tp-table tr:last-child td { border-bottom: 0; }
+
+.tp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tp-badge--required { background: var(--accent); color: var(--accent-contrast); }
+.tp-badge--optional { background: var(--line); color: var(--muted); }
+
+.tp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.tp-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.tp-csv-textarea {
+  min-height: 110px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+.tp-csv-file { font-size: 13px; color: var(--muted); }
+.tp-name-input {
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+  max-width: 260px;
+}
+.tp-submit {
+  align-self: flex-start;
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-submit:disabled { opacity: 0.5; cursor: default; }
+.tp-msg { margin: 0; font-size: 13px; }
+.tp-msg--ok { color: #2ea043; }
+.tp-msg--err { color: var(--muted); }

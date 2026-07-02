@@ -208,7 +208,7 @@
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
-    applyTheme(storedTheme() === 'light' ? 'light' : 'dark');
+    applyTheme(storedTheme() === 'dark' ? 'dark' : 'light');
 
     // Attach any already-stored token to Api up front so config carries it too.
     var stored = getStoredToken();
