@@ -29,7 +29,8 @@ function sanitizeSummary(summary) {
 module.exports = function mountUpload(app, deps = {}) {
   const runBatch = deps.runBatch || realRunBatch;
   // Resolve via 'in deps' so a test can force the unavailable (503) path with an explicit undefined,
-  // regardless of whether Barat's ocr.extractReceipts has merged yet.
+  // regardless of whether Barat's ocr.extractReceipts has merged yet. Resolution happens at mount
+  // time (server boot), so the 503 lifts on the next restart after ocr.extractReceipts merges.
   const extractReceipts = ('extractReceipts' in deps) ? deps.extractReceipts : ocr.extractReceipts;
   const assembleExpense = ('assembleExpense' in deps) ? deps.assembleExpense : ocr.assembleExpense;
   const getFieldSpec = deps.getFieldSpec || templates.getFieldSpec;
