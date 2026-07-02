@@ -4,8 +4,25 @@ const { checkDash } = require('./expenses');
 const { runBatch: realRunBatch } = require('../lib/massupload');
 const ocr = require('../lib/ocr');
 const templates = require('../lib/templates');
+const pdf = require('../lib/pdf');
 
 const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
+
+// #1 PDF: map lib/pdf's typed PdfError codes to an HTTP status + a FIXED client message.
+// The message NEVER interpolates the code or any library internals (SOP §7.2). TOO_LARGE
+// (byte cap OR the render-pixel-dimension cap) is a 413; every other reject is a 422.
+const PDF_ERR_STATUS = { TOO_LARGE: 413, NOT_PDF: 422, CORRUPT: 422, ENCRYPTED: 422, EMPTY: 422 };
+const PDF_ERR_MSG = {
+  TOO_LARGE: 'a PDF was too large to process',
+  NOT_PDF: 'a file was not a readable PDF',
+  CORRUPT: 'a PDF could not be read',
+  ENCRYPTED: 'a PDF is password-protected; please remove the password and resend',
+  EMPTY: 'a PDF had no pages',
+};
+
+function isPdfBuffer(buf) {
+  return buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-';
+}
 
 // Strip a data-URI prefix ("data:image/png;base64,") if the client sent one.
 function stripDataUri(s) {
@@ -34,6 +51,7 @@ module.exports = function mountUpload(app, deps = {}) {
   const extractReceipts = ('extractReceipts' in deps) ? deps.extractReceipts : ocr.extractReceipts;
   const assembleExpense = ('assembleExpense' in deps) ? deps.assembleExpense : ocr.assembleExpense;
   const getFieldSpec = deps.getFieldSpec || templates.getFieldSpec;
+  const rasterizePdf = deps.rasterizePdf || pdf.rasterizePdf;
 
   app.post('/api/upload', checkDash, express.json({ limit: '10mb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
@@ -46,11 +64,41 @@ module.exports = function mountUpload(app, deps = {}) {
       if (typeof extractReceipts !== 'function') return res.status(503).json({ error: 'mass upload not available yet' });
 
       const buffers = images.map(s => Buffer.from(stripDataUri(s), 'base64'));
+
+      // Expand any PDF item into its rendered page images (a PDF page is just another
+      // image for runBatch); non-PDF items pass straight through. rasterizePdf enforces
+      // its own byte/page/pixel caps and throws a typed PdfError, which we map to a safe
+      // 413/422 here. A PDF rejection fails the whole request (not a best-effort item)
+      // so the client gets an actionable status.
+      let pagesTruncated = false;
+      let expanded;
+      try {
+        expanded = [];
+        for (const buf of buffers) {
+          if (isPdfBuffer(buf)) {
+            const { pages, truncated } = await rasterizePdf(buf);
+            if (truncated) pagesTruncated = true;
+            for (const p of pages) expanded.push(p);
+          } else {
+            expanded.push(buf);
+          }
+        }
+      } catch (e) {
+        const code = e && e.code;
+        if (code && PDF_ERR_STATUS[code]) return res.status(PDF_ERR_STATUS[code]).json({ error: PDF_ERR_MSG[code] });
+        throw e; // not a PdfError → generic 502 via the outer catch (no internals leaked)
+      }
+      // Defensive: a batch of PDFs can expand past MAX_IMAGES pages — bound the Groq
+      // call count (cost/DoS) and surface the truncation, same knob as the input cap.
+      if (expanded.length > MAX_IMAGES) { expanded.length = MAX_IMAGES; pagesTruncated = true; }
+
       const fieldSpec = await getFieldSpec();
       const meta = { repName: 'Dashboard', fileId: null };
-      const summary = await runBatch(buffers, fieldSpec, { extractReceipts, assembleExpense, meta });
+      const summary = await runBatch(expanded, fieldSpec, { extractReceipts, assembleExpense, meta });
       if (summary.failed && summary.failed.length) console.error('[api/upload] failures:', JSON.stringify(summary.failed));
-      res.json(sanitizeSummary(summary));
+      const out = sanitizeSummary(summary);
+      if (pagesTruncated) out.pages_truncated = true;
+      res.json(out);
     } catch (e) {
       console.error('[api/upload]', e && e.message);
       res.status(502).json({ error: 'upload failed' });

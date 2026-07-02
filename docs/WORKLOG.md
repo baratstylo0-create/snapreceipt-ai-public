@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-02 · Claude-J2 (for Jeevan) · feature/jeevan-p4-pdf-route (#1 PDF Task 7 — dashboard glue)
+- **Files:** `routes/upload.js`, `tests/upload.pdf.test.js` (new), `docs/WORKLOG.md`. My lane only.
+- **What changed:** Task 7 of the #1 PDF plan — `POST /api/upload` now accepts PDFs. After the existing base64→Buffer decode, each item is sniffed for the `%PDF-` magic byte; a PDF is expanded via Barat's `rasterizePdf(buf)` (already on main, PR #38) into its rendered PNG page buffers, which are just more `images[]` for `runBatch` (Buffer inputs now work end-to-end thanks to Barat's #39 `toImageUrlArg` fix). Non-PDF items keep the existing image path unchanged.
+  - **Error mapping (SOP §7.2):** `rasterizePdf`'s typed `PdfError.code` → a **fixed** client message + status — `TOO_LARGE`→**413**, `NOT_PDF`/`CORRUPT`/`ENCRYPTED`/`EMPTY`→**422**. No code/internal is ever interpolated into the response. A non-`PdfError` throw falls to the existing generic **502**. This means the render-dimension-bomb finding from PR #38 QA (a tiny PDF with a huge MediaBox → `PdfError('TOO_LARGE')`) surfaces over HTTP as a clean **413**, never an OOM/500.
+  - **Combined page cap:** a batch of PDFs can expand past `MASS_MAX_IMAGES` pages; the expanded list is bounded to the cap (Groq cost/DoS defense) and `pages_truncated:true` is surfaced. Reuses the existing `sanitizeSummary` for `failed[].reason`.
+  - **Tests: 345/345** (+8: single PDF→pages→runBatch, image path untouched, mixed image+PDF batch, truncated surfaced, TOO_LARGE→413, ENCRYPTED/CORRUPT/NOT_PDF/EMPTY→422 with planted-secret non-leak, non-PdfError→502, combined-cap bounding). DI throughout (inject `rasterizePdf`), hermetic.
+- **What's next:** open PR → **Tier-2** (untrusted PDF over HTTP + writes money rows) → independent QA (incl. a real oversized-MediaBox PDF through the route → 413) → Owner merge (self-authored → sandbox blocks self-merge). This is the **last piece of #1 PDF** — both surfaces (Telegram #38 + dashboard here) then complete. After: ADR-011 reference frontend for Mugi.
+- **Assumptions:** PDF rejection fails the whole request with the mapped status (not a best-effort per-item failure) — matches the plan's Task 7 and gives the client an actionable code. `pages_truncated` is additive to the summary shape (only present when a PDF page-cap or the combined cap triggered).
+
 ## 2026-07-02 · Claude-B2 (for Barat) · fix/barat-ocr-buffer-image
 - **Files:** `lib/ocr.js`, `tests/ocr.test.js` (+4 tests). My lane only — `routes/upload.js` (Jeevan's) untouched.
 - **What changed:** Fixed a **confirmed live bug** flagged in the B1→B2 handoff: `extractReceipt`/`extractReceipts` set `image_url.url = image` directly, but Groq needs a STRING (URL or data-URI). The dashboard `/api/upload` path (`routes/upload.js`) decodes base64 → raw **Buffer** and passes it through `runBatch` → `extractReceipts`, so the Buffer serialised to `{"type":"Buffer",...}` and the model received no image — `/api/upload` extraction was broken for every image. (Telegram path OK — resolves to a URL string; PDF path OK — data-URI string.)
