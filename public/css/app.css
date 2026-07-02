@@ -1,0 +1,44 @@
+/* app.css — minimal base styles for the reference frontend.
+   Real styling comes in later tasks; a strict CSP (no inline styles) is added
+   later, so all CSS must live in this external stylesheet. */
+
+:root {
+  --bg: #0e1117;
+  --panel: #161b22;
+  --line: #28303e;
+  --txt: #e6edf3;
+  --muted: #8b97a7;
+  --accent: #5b9dff;
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+.app-header,
+.app-footer {
+  padding: 16px 20px;
+}
+
+.app-main {
+  padding: 20px;
+}
+
+.app-modal[hidden] { display: none; }
+
+.app-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
