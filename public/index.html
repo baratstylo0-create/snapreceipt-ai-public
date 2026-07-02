@@ -16,9 +16,13 @@
   <footer id="app-footer" class="app-footer"></footer>
 
   <!-- Foundation modules. Order matters: escape.js first (globals other modules
-       depend on), then api/render, then the app entrypoint added later. -->
+       depend on), then api/render, then authgate + nav, then the app entrypoint
+       which reads all of them and boots the shell. All external (no inline JS). -->
   <script src="js/escape.js"></script>
   <script src="js/api.js"></script>
   <script src="js/render.js"></script>
+  <script src="js/authgate.js"></script>
+  <script src="js/components/nav.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

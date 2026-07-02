@@ -42,3 +42,115 @@ body {
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
 }
+
+/* --- theme (visual only; app.js toggles a body class + persists in sessionStorage) --- */
+body.theme-light {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --line: #d5dbe4;
+  --txt: #1a2230;
+  --muted: #5b6472;
+  --accent: #2563eb;
+}
+
+/* --- top nav --- */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.nav-brand {
+  font-weight: 600;
+}
+
+.nav-links {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.nav-link,
+.nav-theme {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-link:hover,
+.nav-theme:hover {
+  color: var(--txt);
+  border-color: var(--line);
+}
+
+.nav-link.is-active {
+  color: var(--txt);
+  background: var(--panel);
+  border-color: var(--line);
+}
+
+.nav-greeting {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+/* --- views --- */
+.view {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.view[hidden] { display: none; }
+
+.view-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.muted { color: var(--muted); }
+
+/* --- token gate --- */
+.token-gate {
+  max-width: 360px;
+  margin: 40px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.token-gate-input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--txt);
+  font: inherit;
+}
+
+.token-gate-submit {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-error {
+  max-width: 480px;
+  margin: 40px auto;
+  text-align: center;
+  color: var(--muted);
+}
