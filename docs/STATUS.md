@@ -25,6 +25,7 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
+| **LAUNCH GATE (ADR-015):** no real user onboarded until (a) every secret is rotated post-dev-exposure AND (b) Jeevan holds an independent Supabase backup outside the account | Owner/Barat | tracked, blocks any real-user launch |
 | Barat's `lib/pdf.js` PR — not yet open; check `gh pr list` | Barat/J1 | in build |
 | #6 categorizer hardening (GitHub issue #14) | Jeevan | tracked, non-blocking |
 | `/api/templates` label sanitization + control-char rejection (GitHub issue #17) | Jeevan/Mugi | tracked, non-blocking |
