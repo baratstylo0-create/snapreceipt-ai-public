@@ -1,16 +1,56 @@
 # Reference Frontend + Human-QA Harness + Security Hardening — Implementation Plan
 
-> **For J1 (executing Claude).** Owner-requested. Three intertwined deliverables in ONE effort:
+> **Split between J1 (Jeevan) and Barat's Claude — read your own section, SOP §4.6 collision rule applies:
+> edit only your files.** Owner-requested. Three intertwined deliverables in ONE effort:
 > 1. a **reference frontend** (desktop/PC only) that surfaces *every* backend feature so Mugi sees the full
 >    scope (features, flows, buttons) and so a **human can click-test every feature**;
-> 2. a **serious human-QA harness + checklist** (fool-proof, per-feature happy + adversarial);
+> 2. a **serious human-QA harness + checklist** (fool-proof, per-feature happy + adversarial) — covering
+>    BOTH the dashboard (J1) and the Telegram bot (Barat);
 > 3. a **thorough cybersecurity hardening pass** — this app holds people's sensitive financial data, so it
->    must be defensible against injection, XSS, data leaks, IDOR, and token abuse.
+>    must be defensible against injection, XSS, data leaks, IDOR, and token abuse — across BOTH lanes' files.
 >
 > **Execute via superpowers:subagent-driven-development** (fresh implementer per task + two-stage review),
 > same as #7/#9/#1. This is **P5 Frontend + P6 Hardening** in the SOP phase model. Do a short
 > **brainstorm with the Owner first** on visual scope (Task 0) — the Owner supplied a Finexy-style draft as
 > the *look-and-feel* reference, not a literal spec.
+
+## 0.1 Ownership split (SOP §4.6 — edit ONLY your files; no cross-lane edits)
+
+**J1 (Jeevan) — Tasks 0–G, most of H, I, J, K.** Owns: everything in `public/` (new), `server.js` (security
+headers + CORS middleware, mount-level rate limiting), and the hardening fixes inside HIS OWN route files:
+`routes/upload.js`, `routes/expenses.js`, `routes/reports.js`, `routes/agent.js`, `routes/excel.js`,
+`routes/review.js`, `routes/receipt.js` (unowned by either role file — falls to Jeevan since it's the
+dashboard receipt-image proxy the frontend directly consumes; **this is the file with the Critical
+unauthenticated-image finding — gate it behind `checkDash`**). Authors the human-QA checklist (Task I) and
+runbook (Task K) for the **dashboard**, and dispatches the final independent security-QA subagent (Task J)
+covering the whole app (both lanes) once both sides report done.
+
+**Barat's Claude — parallel Task H-Telegram + Task I/K-Telegram.** Does NOT touch `public/` or `server.js`.
+Two pieces of work, same phase (P6 Hardening) and same "sensitive financial data" bar, on **his own files**
+(`lib/ocr.js`, `lib/groq.js`, `lib/supabase.js`, `lib/templates.js`, `lib/confidence.js`, `routes/webhook.js`,
+`routes/templates.js`, `schema.sql`):
+  1. **Security hardening in his lane** (mirrors §4 below, applied to his files): confirm no PII/receipt
+     images/tokens ever hit `console.log`/error logs; confirm `routes/templates.js` (untrusted CSV over
+     HTTP) and `routes/webhook.js` (Telegram webhook) have sane body-size limits and — since there's no
+     rate limiting anywhere yet — add the same lightweight in-process rate limiter (§4.4) to those two
+     routes; confirm the Telegram webhook's `WEBHOOK_SECRET` check actually rejects an unsigned/wrong-secret
+     request (write a regression test if none exists); re-confirm (still true after PDF work) that model
+     output from `lib/ocr.js`/`lib/groq.js` is never trusted/executed and that a malformed FieldSpec/CSV
+     can't be used to inject anything downstream (Excel/dashboard render — cross-check with issue #17).
+  2. **Telegram bot human-QA checklist + runbook** (mirrors §3/Task K, for the bot instead of the dashboard):
+     `docs/qa/2026-07-02-telegram-bot-manual-test-plan.md` — every bot feature (single photo, media-group
+     multi-photo #7, PDF document #1, "show expenses" command, low-confidence/anomaly warning messages) with
+     happy/empty/error/boundary/adversarial cases (hostile filenames, oversized files, a receipt image
+     containing injection-style text, spamming the bot) exactly like §3's dashboard checklist. Then run it
+     live on a real Telegram chat and record pass/fail, same rigor as J1's dashboard session (Task K).
+
+**Shared QA data set:** both sides test against the **same** small set of real + hostile receipt
+images/PDFs/CSVs (J1 seeds `docs/qa/fixtures/` first; Barat reuses them) so a bug found on one surface can
+be checked against the other.
+
+**No blocking dependency either direction** — both lanes can start immediately and merge independently;
+only the FINAL security-QA pass (Task J, J1) waits for both to report their own hardening done, since it
+audits the whole app.
 
 **Phase:** P5 (Frontend) + P6 (Hardening). **Track:** Vertical AI, M1 personal. **Scope:** PC/desktop only.
 **Stack constraint (unchanged, ADR-001/ARCH §1):** NO build step, NO framework. Vanilla HTML/CSS/JS static
@@ -191,6 +231,7 @@ on `/api/*` responses that carry data. HSTS is set at the reverse proxy on deplo
 
 ## 6. Out of scope (park)
 Mobile/responsive (PC only now); multi-tenant/business layer + per-user auth (M2); billing; production visual
-design (Mugi owns, from this reference); deploy/hosting (P9). **Telegram bot human-testing is a PARALLEL track
-owned by Barat** — not part of this frontend plan; coordinate a shared QA data set so both surfaces test the
-same receipts.
+design (Mugi owns, from this reference); deploy/hosting (P9). Telegram-bot human-testing + Telegram-lane
+hardening are Barat's tasks **within this same plan** (§0.1) — parallel to J1's frontend work, own PR, own
+branch, no file overlap; coordinate via the shared QA fixture set (§0.1) so both surfaces test the same
+receipts.
