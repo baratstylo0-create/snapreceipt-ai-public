@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-flushgroup-timer-unhandled-rejection
+- **Files:** `lib/bot.js` (`flushGroup`, its `setTimeout` call site in `handleUpdate`), `tests/bot.flushgroup-guard.test.js` (new).
+- **What changed — closes a QA subagent finding (Debug loop, SOP §4.8), same failure shape as PR #44's `tgSend` bug:**
+  - **Root cause:** `flushGroup`'s dependency-resolution lines (`tgFileUrl`/`getFieldSpec`/`runBatch`/`extractReceipts`/`assembleExpense`) sat OUTSIDE its own `try/catch`. If any of them threw while being read (e.g. a hostile/misconfigured `deps` object, or a future refactor), the throw escaped the async function ungaurded. The `setTimeout` call site invokes `flushGroup(id, deps)` fire-and-forget (no `await`/`.catch` — production `setTimeout` ignores return values), and by the time the debounce timer fires, `handleUpdate`'s own promise chain has long since resolved and detached — so the rejection became a silent Node `unhandledRejection` with **no reply ever sent to the user**. Currently latent (not the live cause of Barat's "bot stuck" report — that was PR #44 not yet pulled locally), but a real robustness gap in the exact same "swallowed by omission" shape.
+  - **Fix:** widened the `try` to cover all dependency resolution (only `send` itself is resolved before the `try`, since the `catch` block needs it to report failure even if everything else throws). Added a defense-in-depth `.catch(e => console.error(...))` at the `setTimeout` call site so even a future regression that reopens this gap can't produce a silent unhandled rejection again.
+  - **Tests: 377/377** (2 new: a hostile getter-throwing dep resolved outside the old try → safe reply, not silence; a normal in-try throw — `getFieldSpec` rejecting — confirmed unaffected/still safe).
+- **What's next:** open PR → review (Tier-2-ish: same class as PR #44, untrusted-input-adjacent robustness on the bot reply path). **Coordinate with open PR #46** (`fix/barat-qa-flushgroup-nonerror`) — both touch the same `catch (e) { console.error('[group]', e.message) }` line in `flushGroup`; this branch already applies #46's `e && e.message` guard inline to avoid a conflict, so #46 can be closed/superseded once this merges (confirm with Jeevan first — see ready-to-send message).
+- **Assumptions:** none new. Found via an independent QA subagent pass specifically hunting for other "receives message, never replies" bugs after PR #44 fixed the first one.
+
+---
+
+## 2026-07-02 · Claude-B2 (for Barat) · feat/barat-quieter-bot-acks
+- **Files:** `lib/bot.js`, `tests/bot.batch.test.js`, `tests/bot.pdf.test.js`.
+- **What changed:** UX (user request during live QA): the bot no longer sends the intermediate "🧾 Reading…" acknowledgment before processing — it now replies **once** with the final result/summary only. Removed 4 ack sends: single photo + image-document (`handleUpdate`), media-group flush (`flushGroup` "Reading N receipts…"), and PDF (`handlePdfDocument` "Reading your PDF…"). Motivation: sending two single photos produced two stacked "Reading your receipt…" messages; the user found it noisy. `expenseFromPhoto` still sends the single "✅ Expense Captured" result, so single-photo still gets exactly one reply. Updated the two tests that asserted a 2-message (ack+result) sequence to assert one message + no "Reading" ack. **371/371 green.**
+- **What's next:** push → J1 review (Tier-1 UX, no money/auth/untrusted change) → merge. Possible future upgrade offered to user: edit-the-ack-in-place (send "Reading…", then `editMessageText` to the result) to keep instant feedback with zero clutter — needs a `tgEdit` helper in `lib/telegram.js`; not done here.
+- **Assumptions:** dropping the ack means ~a few seconds of no feedback during the Groq call on a single photo; accepted per the user's explicit "make it quieter". Reversible.
 ## 2026-07-02 · Claude-B1 (for Barat) · fix/barat-tgsend-plaintext-fallback
 - **Files:** `lib/telegram.js` (`tgSend`), `tests/telegram.test.js` (new).
 - **What changed — fixes B2's Critical "photo received, no reply" finding (Debug loop, SOP §4.8):**
