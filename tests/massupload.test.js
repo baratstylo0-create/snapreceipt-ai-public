@@ -1,0 +1,77 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert');
+const { runBatch } = require('../lib/massupload');
+
+// Fake extractReceipts: keyed by the image value (a string here) to script per-image behavior.
+function fakes(script) {
+  const assembleCalls = [];
+  const extractReceipts = async (image) => {
+    const s = script[image];
+    if (s.throw) throw new Error(s.throw);
+    return { receipts: s.receipts, truncated: !!s.truncated };
+  };
+  const assembleExpense = async (arg) => {
+    assembleCalls.push(arg);
+    if (arg.fields && arg.fields.__fail) throw new Error('assemble boom');
+    return { expense: { merchant: arg.fields ? arg.fields.merchant : undefined }, flagged: arg.fields ? arg.fields.__flag : false };
+  };
+  return { extractReceipts, assembleExpense, assembleCalls };
+}
+const FS = { columns: [{ key: 'merchant', type: 'text' }] };
+
+test('all-success batch: saved == total receipts, failed empty, meta passed through', async () => {
+  const f = fakes({
+    img1: { receipts: [{ fields: { merchant: 'Shell' }, rawParsed: { a: 1 } }, { fields: { merchant: 'Tesco' }, rawParsed: {} }] },
+    img2: { receipts: [{ fields: { merchant: 'Aldi' }, rawParsed: {} }] },
+  });
+  const s = await runBatch(['img1', 'img2'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense, meta: { repName: 'Dashboard', fileId: null } });
+  assert.equal(s.images, 2);
+  assert.equal(s.receipts, 3);
+  assert.equal(s.saved, 3);
+  assert.deepEqual(s.failed, []);
+  assert.equal(f.assembleCalls[0].repName, 'Dashboard');    // meta passed
+  assert.equal(f.assembleCalls[0].fieldSpec, FS);           // fieldSpec passed
+  assert.equal(f.assembleCalls[0].rawParsed.a, 1);          // rawParsed passed
+});
+
+test('one image extract throws: that image failed, others fully processed', async () => {
+  const f = fakes({
+    img1: { throw: 'blurry' },
+    img2: { receipts: [{ fields: { merchant: 'Aldi' }, rawParsed: {} }] },
+  });
+  const s = await runBatch(['img1', 'img2'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.equal(s.saved, 1);
+  assert.equal(s.failed.length, 1);
+  assert.equal(s.failed[0].image_index, 0);
+  assert.equal(s.failed[0].reason, 'blurry');
+  assert.equal('receipt_index' in s.failed[0], false); // whole-image failure has no receipt_index
+});
+
+test('one receipt assemble throws: that receipt failed, siblings saved', async () => {
+  const f = fakes({
+    img1: { receipts: [{ fields: { merchant: 'Ok' }, rawParsed: {} }, { fields: { __fail: true }, rawParsed: {} }] },
+  });
+  const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.equal(s.receipts, 2);
+  assert.equal(s.saved, 1);
+  assert.equal(s.failed.length, 1);
+  assert.deepEqual({ i: s.failed[0].image_index, j: s.failed[0].receipt_index }, { i: 0, j: 1 });
+});
+
+test('truncated image index recorded; flagged receipts aggregated', async () => {
+  const f = fakes({
+    img1: { truncated: true, receipts: [{ fields: { merchant: 'Fuel', __flag: 'anomaly:dup' }, rawParsed: {} }] },
+  });
+  const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.deepEqual(s.truncated_images, [0]);
+  assert.equal(s.saved, 1);
+  assert.equal(s.flagged.length, 1);
+  assert.deepEqual({ i: s.flagged[0].image_index, m: s.flagged[0].merchant, r: s.flagged[0].reason }, { i: 0, m: 'Fuel', r: 'anomaly:dup' });
+});
+
+test('empty images -> zeroed summary, never throws', async () => {
+  const f = fakes({});
+  const s = await runBatch([], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.deepEqual(s, { images: 0, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] });
+});
