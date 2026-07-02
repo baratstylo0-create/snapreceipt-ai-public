@@ -448,3 +448,144 @@ body.theme-light {
   cursor: pointer;
 }
 .act-review-msg { font-size: 13px; }
+
+/* ---- Mass Upload (Task D) ------------------------------------------------ */
+.up-root { display: flex; flex-direction: column; gap: 14px; }
+.up-intro { margin: 0; }
+
+.up-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.up-zone:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.up-zone.is-dragover { border-color: var(--accent); background: #388bfd1a; color: var(--txt); }
+.up-zone-text { margin: 0; font-size: 15px; }
+.up-browse {
+  padding: 6px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.up-hints { display: flex; flex-direction: column; gap: 6px; }
+.up-hint {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: #d2992222;
+  border: 1px solid #d29922;
+  border-radius: 8px;
+  color: var(--txt);
+}
+
+.up-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.up-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.up-file-kind {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #0e1117;
+}
+.up-file-kind--pdf { background: #ffa657; }
+.up-file-kind--img { background: #79c0ff; }
+.up-file-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-file-size { flex: none; font-size: 13px; }
+.up-file-remove {
+  flex: none;
+  width: 26px; height: 26px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.up-file-remove:hover { color: var(--txt); border-color: var(--txt); }
+
+.up-actions { display: flex; gap: 10px; }
+.up-upload {
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.up-upload:disabled, .up-clear:disabled, .up-browse:disabled, .up-file-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.up-clear {
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  cursor: pointer;
+}
+.up-status { margin: 0; font-size: 14px; }
+
+.up-summary { display: flex; flex-direction: column; gap: 12px; }
+.up-counts { display: flex; flex-wrap: wrap; gap: 10px; }
+.up-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 78px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.up-count-num { font-size: 22px; font-weight: 700; color: var(--txt); }
+.up-count-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.up-count--saved .up-count-num { color: #7ee787; }
+.up-count--failed .up-count-num { color: #f85149; }
+.up-count--flagged .up-count-num { color: #d29922; }
+
+.up-notice {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: #d2992222;
+  border: 1px solid #d29922;
+  border-radius: 8px;
+  color: var(--txt);
+}
+.up-notice--ok { background: #7ee78722; border-color: #7ee787; }
+
+.up-list-title { margin: 4px 0 0; font-size: 14px; color: var(--txt); }
+.up-result-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.up-result {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border-left: 3px solid var(--line);
+  background: var(--panel);
+  word-break: break-word;
+}
+.up-result--flagged { border-left-color: #d29922; }
+.up-result--failed { border-left-color: #f85149; }

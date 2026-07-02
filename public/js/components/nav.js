@@ -18,6 +18,7 @@
   var SECTIONS = [
     { id: 'overview', label: 'Overview' },
     { id: 'activity', label: 'Activity' },
+    { id: 'upload', label: 'Upload' },
     { id: 'manage', label: 'Manage' },
     { id: 'reports', label: 'Reports' },
     { id: 'agent', label: 'Agent' },

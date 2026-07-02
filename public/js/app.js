@@ -33,6 +33,7 @@
         if (name === 'Nav') return require('./components/nav');
         if (name === 'Overview') return require('./components/overview');
         if (name === 'Activity') return require('./components/activity');
+        if (name === 'Upload') return require('./components/upload');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -118,6 +119,7 @@
     return {
       overview: (deps && deps.Overview) || dep('Overview'),
       activity: (deps && deps.Activity) || dep('Activity'),
+      upload: (deps && deps.Upload) || dep('Upload'),
     };
   }
 
@@ -199,7 +201,7 @@
     if (typeof document === 'undefined') return;
     var deps = {
       Escape: dep('Escape'), Api: dep('Api'), AuthGate: dep('AuthGate'), Nav: dep('Nav'),
-      Overview: dep('Overview'), Activity: dep('Activity'),
+      Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
