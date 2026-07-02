@@ -1,6 +1,12 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-013 · `jszip` promoted to an explicit dependency for chart-preserving business Excel
+**Date:** 2026-07-02 · **Status:** Accepted in principle (Owner: Jeevan) — *package.json promotion deferred until business Excel Phase 1 builds (business phase currently PARKED, personal M1 first)*
+**Context:** The business Excel deliverable is a 9-sheet template with 6 charts + 10 drawings + 2783 formula cells. Barat's Task-1 spike proved `exceljs` load→save **drops all charts/drawings** (formulas survive), so the #2 exceljs-fill approach is unsuitable for the business workbook. The validated alternative is targeted **jszip XML-injection**: inject Master Log data rows (inline strings + numeric `<v>`) into `sheet1.xml` and leave every other zip part byte-preserved → all charts, drawings, and formulas survive and the file stays valid (POC confirmed).
+**Decision:** Approve promoting **`jszip`** (already vendored transitively via `exceljs`, so **zero added install weight**) to an *explicit* dependency when the business Excel work lands. Recorded now so the dependency decision isn't re-litigated later; the actual `package.json` entry is added by the business-Excel Phase-1 PR (not now — business is parked, and we don't add an unused explicit dep). New-dep policy (SOP §4.7 / ADR-012 precedent) still applies: the Phase-1 PR is Tier-2 (untrusted-output XML surface + a promoted dep) → independent QA before merge.
+**Consequences:** Business workbook can be filled without losing its charts/formulas; no new vendor risk (jszip is already in the tree). Precedent reaffirmed: even a zero-weight promotion of an existing transitive dep gets a recorded decision.
+
 ## ADR-012 · Excel export (#2) adds `exceljs` — first exception to the "two deps only" rule
 **Date:** 2026-07-01 · **Status:** Accepted (Owner: Jeevan)
 **Context:** CLAUDE.md/ARCHITECTURE §1 keep runtime deps to `express`+`dotenv` only. #2's acceptance criterion is a real `.xlsx` file whose columns match the customer's FieldSpec — a genuine binary OOXML workbook (correct cell types, real Excel metadata) can't be produced with string concatenation, and hand-rolling an XLSX/zip writer is a worse trade (more custom code, more subtle-spec-bug surface, no real security benefit) for a money-facing export.
