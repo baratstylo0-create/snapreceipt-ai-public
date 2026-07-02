@@ -114,6 +114,49 @@ test('extractReceipt throws without a valid FieldSpec', async () => {
   await assert.rejects(() => extractReceipt('img', { columns: [] }), /FieldSpec/);
 });
 
+// ---- Buffer image → data-URI (bug: /api/upload passes raw Buffers; Groq needs a string) ----
+
+function sentImageUrl(sent) {
+  return sent.messages[1].content.find(p => p.type === 'image_url').image_url.url;
+}
+
+test('extractReceipt converts a Buffer image to a base64 data-URI string (not {"type":"Buffer"})', async () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]); // PNG magic + bytes
+  const s = stubGroq('{"merchant":"X","amount":1,"expense_date":"2026-01-01"}');
+  try {
+    await extractReceipt(png, SPEC);
+    const url = sentImageUrl(s.sent());
+    assert.strictEqual(typeof url, 'string', 'url must be a string, never a Buffer object');
+    assert.strictEqual(url, 'data:image/png;base64,' + png.toString('base64'));
+  } finally { s.restore(); }
+});
+
+test('extractReceipt sniffs JPEG magic bytes for the data-URI mime', async () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 5, 6, 7]);
+  const s = stubGroq('{"merchant":"X","amount":1,"expense_date":"2026-01-01"}');
+  try {
+    await extractReceipt(jpeg, SPEC);
+    assert.match(sentImageUrl(s.sent()), /^data:image\/jpeg;base64,/);
+  } finally { s.restore(); }
+});
+
+test('extractReceipt passes a string URL / data-URI through unchanged', async () => {
+  const s = stubGroq('{"merchant":"X","amount":1,"expense_date":"2026-01-01"}');
+  try {
+    await extractReceipt('https://example.com/r.png', SPEC);
+    assert.strictEqual(sentImageUrl(s.sent()), 'https://example.com/r.png');
+  } finally { s.restore(); }
+});
+
+test('extractReceipts also converts a Buffer image to a data-URI (mass-upload /api/upload path)', async () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 9, 9, 9]);
+  const s = stubGroq('[{"merchant":"X","amount":1,"expense_date":"2026-01-01"}]');
+  try {
+    await extractReceipts(png, SPEC);
+    assert.strictEqual(sentImageUrl(s.sent()), 'data:image/png;base64,' + png.toString('base64'));
+  } finally { s.restore(); }
+});
+
 // ---- #7 mass upload: parseModelJsonArray + extractReceipts (multi-receipt) ----
 
 test('parseModelJsonArray extracts an array of objects and drops non-objects', () => {
