@@ -3,29 +3,34 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION IN PROGRESS — Claude-J2. READ THIS FIRST.
+## ⚡ SESSION IN PROGRESS — Claude-J1. READ THIS FIRST.  (updated 2026-07-02)
 
-**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #19 merge (`f4d5827`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **150 passing**. No open PRs.
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #26 merge (`cbfae82`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **190 passing**.
 
-### What J2 did this session
-1. **Merged PR #13 — Barat's `/api/templates` (#12 HTTP door).** Fresh non-author QA subagent → **CHANGES REQUESTED (1 Critical)**: malformed JSON / unsupported charset made `express.json()`/`express.text()` throw synchronously, bypassing the route's try/catch and leaking a full stack trace + server file paths (SOP §7.2). Fixed inline (route-local error middleware + a global app-level fallback in `server.js`). QA's 5 adversarial tests kept. Non-blocking findings → **issue #17**.
-2. **Merged PR #8 — reports (#8).** Fresh QA re-review found **2 Important verified bugs**: `Number(e.amount) || 0` turned non-numeric garbage into fake money and let `Infinity` poison the whole report. Fixed with a strict `toAmount()` helper. Added the queued `status=neq.rejected` filter to `routes/reports.js`.
-3. **Merged PR #18** — docs refresh (self-merge was auto-blocked; merged after the Owner explicitly directed it).
-4. **Built + merged PR #19 — #2 Excel export.** Full brainstorm → spec (`docs/specs/2026-07-01-excel-design.md`) → plan (`docs/plans/2026-07-01-excel-export.md`) → **subagent-driven TDD** (fresh implementer per task + two-stage spec/quality review). `lib/excel.js` (pure FieldSpec-driven `buildWorkbook`) + `routes/excel.js` (`GET /api/excel?from=&to=`, real `.xlsx` download). Reuses #8's `toAmount()`/`isISO()`; excludes rejected/soft-deleted rows; `X-Truncated` header on row-cap hit. New dep **exceljs** = ADR-012 (first exception to the two-deps rule). Two code-quality Important findings fixed pre-PR (dup-FieldSpec-key data loss → positional rows; missing CORS on 502 path). Final independent Tier-2 QA = **APPROVE clean** (formula/CSV-injection ruled out — ExcelJS writes plain string cells, not formulas). Non-blocking exceljs `uuid` audit finding → **issue #20**. `main` = 150 tests.
-5. **Barat's ingestion-wiring PR is STILL NOT open** — check `gh pr list` first thing. It's Tier-2 (touches `lib/ocr.js`/`lib/bot.js` + `db/2026-07-01-category_corrections.sql`). Remind Barat: `detectAnomalies` opts must be built server-side only, never from client body (ADR-010).
+### What landed recently (state as of this refresh)
+1. **#9 dashboard agent (Phase 1, read-only) — MERGED (PR #25).** Constrained native tool-calling + stateless multi-turn. `lib/agent.js` (`runAgent` + 3 allow-listed read tools `getReport`/`listExpenses`/`topMerchants`, each server-validated + clamped) + `routes/agent.js` (`POST /api/agent`, `checkDash`, transcript caps). Final Tier-2 QA APPROVE (prompt-injection rated LOW/mitigated; iteration cap unconditional; money integrity + `ai_raw` non-leakage + auth verified). Built via subagent-driven TDD (per-task spec + code-quality review). **Note:** `listExpenses`/`topMerchants` return `{ items, fetched_count, truncated }` (truncation surfaced, mirrors `getReport`).
+2. **`groqChatTools()` — MERGED (PR #26, Barat's additive fn in `lib/groq.js`).** Un-darkens #9's live path (`routes/agent.js` was calling it defensively). Independent Tier-2 QA = **APPROVE clean** (groqChat/groqVision byte-unchanged; 429 backoff intact; full assistant message incl. `tool_calls`; safe degradation; no secret leak). QA's 2 adversarial regression tests were cherry-picked into `chore/jeevan-j1-housekeeping` (SOP §4.4 — don't push to a teammate's branch).
+3. **PR #24 (old docs refresh after #22) CLOSED as superseded** — it went `CONFLICTING` once #9 merged and advanced the same docs; the #22 exceljs-`node_modules` GOTCHA it documented is preserved in STATUS + this HANDOFF.
 
-### Open PRs at handoff
-None open as of this refresh.
+### Open PRs
+- **`chore/jeevan-j1-housekeeping`** (this refresh + jszip ADR-013 + cherry-picked groq QA tests) — Tier-1 docs/tests; self-merge auto-blocked → Owner merges, or next Claude does a read-diff+test review first.
 
 ### EXACT NEXT ACTIONS for next Claude (in order)
-1. **Check `gh pr list`** — if Barat's ingestion-wiring PR has landed, review it first (Tier-2).
-2. **Jeevan's remaining features:** #9 dashboard agent → #7 mass upload. Each = brainstorm → spec → plan → subagent-driven TDD → branch + PR + independent Tier-2 QA (money/AI surfaces).
-3. **Then ADR-011 reference frontend** for Mugi.
-4. **Merge conflicts:** every feature PR touches WORKLOG/STATUS/HANDOFF/MEMORY. WORKLOG = keep-both (append-only). State docs (STATUS/HANDOFF/MEMORY) = take `--theirs` (main) then refresh once.
-5. **Gotchas learned this session:** (a) feature branches that forked before a batch of P4 PRs landed will show a stale standalone test count — `git merge origin/main` into the branch BEFORE `npm test`/`gh pr merge`, or the merge reports "not mergeable." Right after `git push`, `gh pr view --json mergeable` can return `UNKNOWN` for a few seconds — wait/retry. (b) The auto-mode classifier BLOCKS self-authored PR merges (even Tier-1 docs) as "merge without review" — the Owner must explicitly direct the merge, OR do the full read-diff + run-tests review first. (c) ExcelJS 4.4.0 gotcha: `row.values` drops trailing null cells (they read as `undefined`, not `null`); read via `getCell(i).value` over `columnCount` when asserting on blank cells in tests.
+1. **#7 mass upload** — Jeevan's `lib/massupload.js` + `routes/upload.js` are **ORCHESTRATION ONLY**: call Barat's `extractReceipts(image, fieldSpec, opts) -> {receipts, truncated}` (his additive fn in `lib/ocr.js`, branch `feature/barat-p4-mass-ocr`), loop each result through the already-exported `assembleExpense()`, aggregate a per-receipt success/failure summary. **Do NOT build vision/OCR extraction yourself** (Barat's lane). Build deps-injected/defensive against `extractReceipts` not existing yet (same pattern #9 used for `groqChatTools`). Open + independent-QA Barat's `feature/barat-p4-mass-ocr` as the cross-lane dependency (QA focus: `extractReceipt` untouched, array-parse + unterminated-`<think>` rejection + extra-key stripping, `stripThink` refactor behaviour-preserving).
+2. **#1 PDF ingestion** — PARKED pending a **joint rasterization brainstorm with the Owner** (the no-build-step constraint makes the dependency choice non-trivial). Barat is holding; don't let him start solo.
+3. **ADR-011 reference frontend** for Mugi (after the backend features land).
+
+### Decisions locked this session (2026-07-02)
+- **Business Excel phase: PARKED** (personal M1 first per SOP). Barat's spike done (exceljs drops charts → jszip XML-injection validated); resume when personal M1 backend is complete.
+- **jszip → explicit dep: APPROVED in principle (ADR-013)**; the actual `package.json` promotion is deferred to the business-Excel Phase-1 PR (don't add an unused dep while parked).
+
+### GOTCHAs (carry forward)
+- (a) **Before diagnosing "post-merge test failures" as a code bug, run `npm install`** — a dependency added to `main` after your branch forked leaves your local `node_modules` missing it (whole-test-file load failures + an "all modules import" failure = a missing dep, not logic). PR #22 was nearly mis-triaged this way (missing `exceljs`).
+- (b) The auto-mode classifier **blocks self-authored PR merges** (even Tier-1 docs) — the Owner merges, OR you do the full read-diff + run-tests review yourself first. It also blocks `git reset --hard` that would discard a local-only commit a handoff relied on.
+- (c) A subagent dispatched to QA a teammate's PR **checks out that branch in the shared working tree** — don't do local git ops while it runs; wait for it to finish.
 
 ### Merge-decision authority (Owner delegated to J1/J2)
-Merge when the independent QA/Tier-2 review is clean OR after fixing its findings; HOLD on Critical/Important, or when the fix is the author's (Barat's file: `lib/ocr.js`, `lib/groq.js`, `lib/supabase.js`, `lib/templates.js`, `lib/confidence.js`). Auto-mode may prompt before merging a teammate's PR — verify the precondition landed (git log), then proceed.
+Merge when the independent QA/Tier-2 review is clean OR after fixing its findings; HOLD on Critical/Important, or when the fix is the author's (Barat's files: `lib/ocr.js`, `lib/groq.js`, `lib/supabase.js`, `lib/templates.js`, `lib/confidence.js`). Auto-mode may prompt before merging a teammate's PR — verify the precondition landed (git log), then proceed.
 
 ---
 
