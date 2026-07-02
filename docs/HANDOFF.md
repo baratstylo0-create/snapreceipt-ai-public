@@ -3,22 +3,23 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION IN PROGRESS — Claude-J1. READ THIS FIRST.  (updated 2026-07-02)
+## ⚡ SESSION IN PROGRESS — Claude-J2. READ THIS FIRST.  (updated 2026-07-02, later)
 
-**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #26 merge (`cbfae82`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **190 passing**.
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #29 merge (`d52bc96`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **~212 passing** (post-#29). On the `feature/jeevan-p4-massupload` branch = **266**.
 
 ### What landed recently (state as of this refresh)
-1. **#9 dashboard agent (Phase 1, read-only) — MERGED (PR #25).** Constrained native tool-calling + stateless multi-turn. `lib/agent.js` (`runAgent` + 3 allow-listed read tools `getReport`/`listExpenses`/`topMerchants`, each server-validated + clamped) + `routes/agent.js` (`POST /api/agent`, `checkDash`, transcript caps). Final Tier-2 QA APPROVE (prompt-injection rated LOW/mitigated; iteration cap unconditional; money integrity + `ai_raw` non-leakage + auth verified). Built via subagent-driven TDD (per-task spec + code-quality review). **Note:** `listExpenses`/`topMerchants` return `{ items, fetched_count, truncated }` (truncation surfaced, mirrors `getReport`).
-2. **`groqChatTools()` — MERGED (PR #26, Barat's additive fn in `lib/groq.js`).** Un-darkens #9's live path (`routes/agent.js` was calling it defensively). Independent Tier-2 QA = **APPROVE clean** (groqChat/groqVision byte-unchanged; 429 backoff intact; full assistant message incl. `tool_calls`; safe degradation; no secret leak). QA's 2 adversarial regression tests were cherry-picked into `chore/jeevan-j1-housekeeping` (SOP §4.4 — don't push to a teammate's branch).
-3. **PR #24 (old docs refresh after #22) CLOSED as superseded** — it went `CONFLICTING` once #9 merged and advanced the same docs; the #22 exceljs-`node_modules` GOTCHA it documented is preserved in STATUS + this HANDOFF.
+1. **PR #27 (housekeeping) — MERGED (`a13ba6d`).** ADR-013 (jszip), refreshed HANDOFF/STATUS, 2 cherry-picked groq QA tests. Merged after the full read-diff + test-run self-review protocol (self-merge is auto-blocked).
+2. **PR #29 — MERGED (`d52bc96`, Barat's `extractReceipts()` in `lib/ocr.js`).** The #7 cross-lane dep. Opened on Barat's behalf (no `gh` auth); fresh independent Tier-2 QA = **APPROVE WITH MINOR FINDINGS** — verified `extractReceipt`/`parseModelJson` behaviour-preserved, array-rejection intact, unterminated-`<think>`→`[]`, extra-key stripping, `fileId:null` tolerated. +19 QA regression tests (new file, `lib/ocr.js` untouched). The one Minor (single-object-array leak on the singular path) is **pre-existing on main, not a regression** → filed as **issue #30** (Barat, low priority). Branch conflict (WORKLOG) resolved keep-both before merge.
+3. **#9 (PR #25) + `groqChatTools()` (PR #26)** — merged earlier this day (see prior HANDOFF history / WORKLOG).
 
 ### Open PRs
-- **`chore/jeevan-j1-housekeeping`** (this refresh + jszip ADR-013 + cherry-picked groq QA tests) — Tier-1 docs/tests; self-merge auto-blocked → Owner merges, or next Claude does a read-diff+test review first.
+- **PR #28 `feature/jeevan-p4-massupload`** (#7 mass upload) — **CLEAN/MERGEABLE, awaiting OWNER merge** (self-authored → sandbox blocks self-merge; independent Tier-2 QA already APPROVE, 266/266). `lib/massupload.js` `runBatch` + `routes/upload.js` `POST /api/upload`. Synced with main (has #29). **Owner: just merge it.**
 
 ### EXACT NEXT ACTIONS for next Claude (in order)
-1. **#7 mass upload** — Jeevan's `lib/massupload.js` + `routes/upload.js` are **ORCHESTRATION ONLY**: call Barat's `extractReceipts(image, fieldSpec, opts) -> {receipts, truncated}` (his additive fn in `lib/ocr.js`, branch `feature/barat-p4-mass-ocr`), loop each result through the already-exported `assembleExpense()`, aggregate a per-receipt success/failure summary. **Do NOT build vision/OCR extraction yourself** (Barat's lane). Build deps-injected/defensive against `extractReceipts` not existing yet (same pattern #9 used for `groqChatTools`). Open + independent-QA Barat's `feature/barat-p4-mass-ocr` as the cross-lane dependency (QA focus: `extractReceipt` untouched, array-parse + unterminated-`<think>` rejection + extra-key stripping, `stripThink` refactor behaviour-preserving).
-2. **#1 PDF ingestion** — PARKED pending a **joint rasterization brainstorm with the Owner** (the no-build-step constraint makes the dependency choice non-trivial). Barat is holding; don't let him start solo.
-3. **ADR-011 reference frontend** for Mugi (after the backend features land).
+1. **Owner merges PR #28** (#7 mass upload). After it lands, #7's live `POST /api/upload` un-darkens on the next **server restart** (dep resolved at mount time; `ocr.extractReceipts` is already on main via #29).
+2. **#1 PDF ingestion** — PARKED pending a **joint rasterization brainstorm with the Owner** (the no-build-step constraint makes the dependency choice non-trivial). Barat is holding; don't let him start solo. **This is the next thing that needs the Owner.**
+3. **Barat's next build:** Telegram multi-photo adapter (`lib/bot.js` gathers a media group → calls the transport-agnostic `runBatch`) — his lane, spec-only until #28 lands. #1 PDF stays held for the brainstorm.
+4. **ADR-011 reference frontend** for Mugi (after the backend features land).
 
 ### Decisions locked this session (2026-07-02)
 - **Business Excel phase: PARKED** (personal M1 first per SOP). Barat's spike done (exceljs drops charts → jszip XML-injection validated); resume when personal M1 backend is complete.
