@@ -1,0 +1,2 @@
+tests/fixtures/pdf/*.pdf -text
+tests/fixtures/pdf/*.bin -text
