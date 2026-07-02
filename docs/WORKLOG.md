@@ -4,6 +4,11 @@
 
 ---
 
+## 2026-07-02 · Claude-B2 (for Barat) · feat/barat-quieter-bot-acks
+- **Files:** `lib/bot.js`, `tests/bot.batch.test.js`, `tests/bot.pdf.test.js`.
+- **What changed:** UX (user request during live QA): the bot no longer sends the intermediate "🧾 Reading…" acknowledgment before processing — it now replies **once** with the final result/summary only. Removed 4 ack sends: single photo + image-document (`handleUpdate`), media-group flush (`flushGroup` "Reading N receipts…"), and PDF (`handlePdfDocument` "Reading your PDF…"). Motivation: sending two single photos produced two stacked "Reading your receipt…" messages; the user found it noisy. `expenseFromPhoto` still sends the single "✅ Expense Captured" result, so single-photo still gets exactly one reply. Updated the two tests that asserted a 2-message (ack+result) sequence to assert one message + no "Reading" ack. **371/371 green.**
+- **What's next:** push → J1 review (Tier-1 UX, no money/auth/untrusted change) → merge. Possible future upgrade offered to user: edit-the-ack-in-place (send "Reading…", then `editMessageText` to the result) to keep instant feedback with zero clutter — needs a `tgEdit` helper in `lib/telegram.js`; not done here.
+- **Assumptions:** dropping the ack means ~a few seconds of no feedback during the Groq call on a single photo; accepted per the user's explicit "make it quieter". Reversible.
 ## 2026-07-02 · Claude-B1 (for Barat) · fix/barat-tgsend-plaintext-fallback
 - **Files:** `lib/telegram.js` (`tgSend`), `tests/telegram.test.js` (new).
 - **What changed — fixes B2's Critical "photo received, no reply" finding (Debug loop, SOP §4.8):**

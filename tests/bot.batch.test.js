@@ -57,10 +57,10 @@ test('a media group (N updates, same media_group_id) → ONE runBatch call with 
   assert.strictEqual(runBatchCalls.length, 1, 'exactly one batch call for the group');
   assert.deepStrictEqual(runBatchCalls[0].images, ['https://tg/fileA', 'https://tg/fileB', 'https://tg/fileC']);
   assert.strictEqual(runBatchCalls[0].meta.fileId, null, 'option A: single meta, fileId null');
-  // "Reading 3 receipts…" then the summary
-  assert.strictEqual(sent.length, 2);
-  assert.match(sent[0].text, /Reading 3 receipts/);
-  assert.match(sent[1].text, /Batch processed/);
+  // Quiet mode: no "Reading…" ack — ONE reply, the summary.
+  assert.strictEqual(sent.length, 1);
+  assert.match(sent[0].text, /Batch processed/);
+  assert.ok(!sent.some(s => /Reading/.test(s.text)), 'no intermediate "Reading…" ack is sent');
 });
 
 test('a single photo (no media_group_id) uses expenseFromPhoto — runBatch NOT called', async (t) => {
