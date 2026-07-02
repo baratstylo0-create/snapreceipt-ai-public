@@ -65,7 +65,14 @@ rasterizePdf(pdfBuffer, { maxPages = MASS_MAX_IMAGES, dpi = PDF_RENDER_DPI (defa
 ```
 
 - `pages` = **PNG** buffers, one per rendered page, in document order.
-- Renders at a middle-ground **~150 DPI**: legible enough for qwen OCR, small enough to bound size.
+- **Encoding note (from the real `@hyzyla/pdfium` API):** `page.render()` returns **raw RGBA**
+  (`{ data, width, height, channels: 4 }`), not PNG. The documented example encodes with `sharp` —
+  a heavy native dep we **reject** (it would undercut ADR-014's zero-added-native-deps rationale).
+  Instead `lib/pdf.js` supplies its own `render` function that encodes RGBA → **PNG using Node's
+  built-in `node:zlib`** (a small in-module helper, ~40 lines, no new dependency). Groq vision accepts
+  PNG, so the only added dependency stays the WASM `@hyzyla/pdfium` itself.
+- Renders at a middle-ground **~150 DPI** via `render({ scale })` (scale = `PDF_RENDER_DPI` / 72):
+  legible enough for qwen OCR, small enough to bound size.
 - Caps at `maxPages`; if the document has more pages, render the first `maxPages` and set
   `truncated: true` (do not render the rest).
 - **Error contract (decided):** `rasterizePdf` **throws a single typed `PdfError`** (with a stable,
