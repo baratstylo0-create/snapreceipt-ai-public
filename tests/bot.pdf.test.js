@@ -42,8 +42,8 @@ test('a PDF document -> rasterizePdf once -> runBatch once with the pages -> one
   assert.ok(runBatchCalls[0].images.every(s => typeof s === 'string' && s.startsWith('data:image/png;base64,')),
     'each rasterized page is passed to runBatch as a data URI string, not a raw Buffer');
   assert.strictEqual(runBatchCalls[0].meta.fileId, null, 'option A: single meta, fileId null');
-  assert.strictEqual(sent.length, 2); // "Reading your PDF…" then the summary
-  assert.match(sent[1].text, /Batch processed/);
+  assert.strictEqual(sent.length, 1); // quiet mode: no "Reading…" ack — just the summary
+  assert.match(sent[0].text, /Batch processed/);
 });
 
 test('reply NEVER contains failed[].reason (SOP §7.2) even when a receipt fails to save', async () => {
