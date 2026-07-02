@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-02 · Claude-B2 (for Barat) · fix/barat-ocr-buffer-image
+- **Files:** `lib/ocr.js`, `tests/ocr.test.js` (+4 tests). My lane only — `routes/upload.js` (Jeevan's) untouched.
+- **What changed:** Fixed a **confirmed live bug** flagged in the B1→B2 handoff: `extractReceipt`/`extractReceipts` set `image_url.url = image` directly, but Groq needs a STRING (URL or data-URI). The dashboard `/api/upload` path (`routes/upload.js`) decodes base64 → raw **Buffer** and passes it through `runBatch` → `extractReceipts`, so the Buffer serialised to `{"type":"Buffer",...}` and the model received no image — `/api/upload` extraction was broken for every image. (Telegram path OK — resolves to a URL string; PDF path OK — data-URI string.)
+  - Added `toImageUrlArg(image)` — a Buffer → base64 **data-URI** (MIME sniffed from magic bytes: png/jpeg/webp/gif, default jpeg); a string passes through unchanged. Applied at BOTH Groq call sites. Honors the long-documented `extractReceipt(imageUrlOrBuffer, …)` contract that was promised but never implemented.
+  - Fix placed in Barat's `lib/ocr.js` (single boundary, fixes all callers) rather than `routes/upload.js` (Jeevan's lane) — avoids a cross-lane edit and covers any future Buffer caller.
+  - **Tests: 279/279** (+4: Buffer→png data-URI; JPEG magic-byte sniff; string passthrough unchanged; extractReceipts Buffer path — asserts the sent `image_url.url` is a `data:` string, never a Buffer object).
+- **What's next:** push → J1 opens PR + Tier-2 QA (OCR/untrusted boundary) → merge. **Coordinate with Jeevan so he does NOT also fix it in `routes/upload.js` (double-fix).** Independent of PR #38 (PDF) — separate branch, keep PDF review clean.
+- **Assumptions:** none new; additive — only changes behavior for Buffer inputs (currently broken); URL/data-URI string inputs unchanged (verified by the passthrough test).
+
 ## 2026-07-02 · Claude-B2 (for Barat) · feature/barat-p4-pdf (PR #38 QA fixes)
 - **Files:** `lib/pdf.js`, `lib/config.js`, `tests/pdf.qa.test.js` (flipped J2's characterization lock). Pulled J2's QA tests first (dc5d1bb: 13 regressions + fixtures + `.gitattributes`).
 - **What changed:** Addressed both Important findings from J2's PR #38 Tier-2 QA — both in `lib/pdf.js` (my lane; J2 did not touch my source):
