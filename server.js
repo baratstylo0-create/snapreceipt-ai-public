@@ -16,6 +16,7 @@ const mountExcel = require('./routes/excel');
 const mountMisc = require('./routes/misc');
 const mountReview = require('./routes/review'); // #5 admin review queue
 const mountAgent = require('./routes/agent');   // #9 dashboard agent
+const mountUpload = require('./routes/upload'); // #7 mass upload
 
 assertConfig();
 
@@ -30,6 +31,7 @@ mountExcel(app);
 mountMisc(app);
 mountReview(app);
 mountAgent(app);
+mountUpload(app);
 
 // Global error handler: body-parser (express.json/text) throws synchronously
 // on malformed input, before any route's own try/catch runs. Without this,

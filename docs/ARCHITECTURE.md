@@ -27,7 +27,7 @@ lib/
   agent.js       [JEEVAN] dashboard assistant (chat + read-only tools). Exports runAgent().  (#9)
   excel.js       [JEEVAN] export expenses to .xlsx matching field spec. Exports exportExcel().  (#2)
   currency.js    [JEEVAN] FX fetch+cache, convert to local. Exports convertCurrency().  (#10)
-  massupload.js  [JEEVAN] split a multi-receipt image into N. Exports splitReceipts().  (#7)
+  massupload.js  [JEEVAN] transport-agnostic batch orchestrator (multi-image, best-effort). Exports runBatch().  (#7)
 routes/
   webhook.js     [BARAT]  POST /webhook  (Telegram)
   upload.js      [JEEVAN] POST /api/upload (dashboard image/pdf/multi)  (#7, #1)
@@ -117,8 +117,24 @@ OCR calls need a generous `max_tokens` (or thinking disabled).
 (20 messages / 12k chars → 413), malformed body → 400, upstream failure → 502 (no leak). No session
 state persisted server-side — the dashboard client resends the running transcript each request.
 
+### 3.7 Mass upload — `lib/massupload.js` (#7, batch orchestrator)
+```js
+// runBatch(images, fieldSpec, { extractReceipts, assembleExpense, meta?, extractOpts? })
+//   -> { images, receipts, saved, failed:[{image_index, receipt_index?, reason}],
+//        flagged:[{image_index, receipt_index, merchant, reason}], truncated_images:[i] }
+//   Transport-agnostic, sequential (one awaited Groq call at a time), best-effort: every image and
+//   every receipt is individually try/caught — NEVER throws. All I/O via injected deps (Barat's
+//   ocr.extractReceipts / ocr.assembleExpense), so it's fully unit-testable with fakes.
+//   failed[].reason is RAW server-side error text — adapters must sanitize before client exposure (§7.2).
+```
+`routes/upload.js` (`POST /api/upload`) is the dashboard adapter: `checkDash` auth, `{images:[base64]}`
+(≤ `MASS_MAX_IMAGES`, default 10, else 413), lenient base64/data-URI decode, sanitizes `failed[].reason`
+to fixed strings before responding, 503 dark-path until Barat's `ocr.extractReceipts` merges (resolved at
+mount time — lifts on next restart). Future consumer of the same `runBatch`: Telegram multi-photo
+(media group) adapter in `lib/bot.js` — Barat's lane, not built yet.
+
 ## 4. Data flow (end to end)
-`import CSV template → templates.js stores FieldSpec → receipt in (Telegram/upload, image/PDF/multi) → [massupload.splitReceipts if multi] → ocr.extractReceipt(img, fieldSpec) via groq → confidence.scoreConfidence → categorize + anomaly + currency.convert → supabase insert → dashboard / reports / excel render per FieldSpec`
+`import CSV template → templates.js stores FieldSpec → receipt in (Telegram/upload, image/PDF/multi) → [massupload.runBatch over the batch → ocr.extractReceipts per image if multi] → ocr.extractReceipt(img, fieldSpec) via groq → confidence.scoreConfidence → categorize + anomaly + currency.convert → supabase insert → dashboard / reports / excel render per FieldSpec`
 
 ## 5. Build order (dependency-aware)
 1. **P1/P2:** modularize `server.js` → `lib/` + `routes/` (no behaviour change); set frozen interfaces above. *(Owner-coordinated; small focused PRs.)*
