@@ -2,32 +2,31 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P4 — Features (nearly complete).** Merged to `main`: #12 template engine, #6 categorization, #5 anomaly (ADR-010), #10 currency, #4 OCR + #11 confidence, #8 reports, #2 Excel (ADR-012), ingestion wiring (#22), #9 dashboard agent Phase 1 (#25), `groqChatTools()` (#26), **#7 MASS UPLOAD — complete both surfaces** (#28/#29/#32), issue #30 fix (PR #34). `npm test` on main = **275 passing**. No open PRs. **#1 PDF ingestion: brainstorm+spec+ADR-014+plan DONE (PR #35/#36)** — `@hyzyla/pdfium` (WASM), interop spike PASSED in-session (J1), fallback not needed. **Barat dispatched, building `feature/barat-p4-pdf`** per `docs/plans/2026-07-02-pdf-ingestion.md`. Next Claude: check `gh pr list` for his PR; if open, do independent Tier-2 QA; if not yet, this is a waiting state — check WORKLOG/HANDOFF for anything else pending, else idle-window tasks (see STATUS "Not doing yet" / open GitHub issues).
+**P5/P6 — Reference frontend + security hardening.** All 12 M1 backend features + #1 PDF (both surfaces) merged to `main` (`360` passing there). Active work is on **`feature/jeevan-p5-frontend`** (not yet merged, **522 passing** on-branch): Tasks 0/A–G of `docs/plans/2026-07-02-reference-frontend-qa-security.md` are **DONE** (shell+CSP+auth gate, Overview, Activity, Upload incl. PDFs, Templates, Reports+Excel, Agent chat) plus a Finexy-style visual pass. Verified live in a browser preview — clean render, zero console errors, CSP holds. **Barat's P6 lane also DONE + merged** (PR #42: rate limiting, webhook-secret test, control-char strip, Telegram bot QA checklist). Remaining on the plan: **Task H (security hardening — `/receipt/:fileId` auth gate, `checkDash` fail-closed, CORS tighten, reuse `lib/ratelimit.js`)**, then I/J/K (QA checklist, independent security-QA, live runbook).
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
 
 ## Sprint goal (current)
-**#1 PDF ingestion is IN BUILD.** Brainstorm+spec+ADR-014+plan done (PR #35/#36); Barat dispatched on `feature/barat-p4-pdf` per `docs/plans/2026-07-02-pdf-ingestion.md`. His Task 0 interop spike is pre-validated (J1 ran it in-session — see ADR-014). Remaining: (1) Barat builds `lib/pdf.js`+Telegram path, TDD, PR → independent Tier-2 QA → merge; (2) J1's Task 7 route glue (`routes/upload.js`) after that merges; (3) ADR-011 reference frontend for Mugi.
+**Finish the frontend/security plan, then merge `feature/jeevan-p5-frontend`.** Next: J1's **Task H** (dashboard-side hardening — the two real findings: unauthenticated `/receipt/:fileId`, fail-open `checkDash`). Barat's Telegram live-QA is his own to run (has the creds) whenever he's able — not blocking. A new idea floated by Owner: **Groq API key rotation across multiple accounts** (Barat's + Jeevan's 2 + Mugi's) to multiply the free-tier daily cap — same model, no quality loss, purely a quota pool via the existing 429-retry loop in `lib/groq.js`. Design pending a short brainstorm + ADR; touches Barat's frozen file, so needs his sign-off. Slotted in after Task H.
 
 ## Who's on what
 | Person | Claude | Current task | State |
 |---|---|---|---|
-| Jeevan | J2 | **#1 PDF Telegram side QA'd + MERGED (PR #38)** — 2 Important findings (render-dimension bomb + raw-error leak) found, fixed by Barat, re-QA APPROVE (317/317). Next: build Task 7 (`routes/upload.js` PDF glue) after the `/api/upload` Buffer→data-URI fix lands | #38 merged, Task 7 next |
-| Barat | B1/B2 | **#1 PDF ingestion built + merged** (`lib/pdf.js` rasterizer + Telegram path, `@hyzyla/pdfium` ADR-014, render-pixel cap). Also fixed issue #30 (#34). Separate open branch `fix/barat-ocr-buffer-image` (/api/upload raw-Buffer bug) awaiting J2 PR/QA. PDF was the last item in Barat's lane | PDF merged; buffer-fix awaiting QA |
-| Mugi | M1 | Deferred — production UI/UX from the ADR-011 reference frontend (later) | parked |
+| Jeevan | J1 | Frontend Tasks 0–G done (522 tests). Next: **Task H** hardening on his own route files + `server.js` | building Task H |
+| Barat | B1/B2 | **P6 lane DONE + merged (PR #42).** Schema verification 4/5 confirmed (item 5 — no foreign data — pending a live re-scan when his tools are back). Telegram live-QA run his own to schedule | idle / available for live-QA + schema re-check |
+| Mugi | M1 | Deferred — production UI/UX from this reference frontend, after it merges | parked |
 
 ## Feature status (personal M1)
-- ✅ Merged: #2 Excel · #4 OCR · #5 anomaly · #6 categorization · #8 reports · #10 currency · #11 low-confidence · #12 template engine · ingestion wiring (#22) · #9 agent Phase 1 (#25) · `groqChatTools()` (#26) · **#7 mass upload both surfaces** (#28/#29/#32) · issue #30 fix (#34)
-- 🔄 In build: **#1 PDF** — `lib/pdf.js` rasterizer + Telegram path (Barat, `feature/barat-p4-pdf`); route glue (J1, after)
-- ⏳ To do: #3 dashboard (Mugi), ADR-011 reference frontend
+- ✅ All 12 backend features + #1 PDF (both surfaces) merged to `main`.
+- 🔄 In build (branch `feature/jeevan-p5-frontend`, not yet merged): reference frontend Tasks 0–G done; **Task H hardening next**; I/J/K (QA + security-QA + live runbook) queued.
+- ⏳ To do: #3 dashboard (Mugi, from the reference frontend once merged); Groq multi-key rotation (design pending).
 
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| **OPEN VERIFICATION — inspect Barat's actual Supabase project (`xurnpvesgcybrnilxszf`).** Before integration: confirm its `expenses` table matches standalone `schema.sql` (scoped by **`account_id`** text, `expense_date` as **TEXT**, has the 6 feature columns `confidence`/`anomaly`/`amount_original`/`currency_original`/`fx_rate`/`template_id`, plus `field_templates` + `category_corrections` tables) and that the receipt data isn't commingled with unrelated data. **NOTE:** the MCP Supabase connector here is authed to Jeevan's OWN org (project `fziaxuhonvrhqjulhcyu` = Jeevan's CRM bot, NOT this app) and cannot reach Barat's project (permission denied) — so this must be verified by Barat directly, or by re-authing the connector with a token that has access to `xurnpvesgcybrnilxszf`. (An earlier scan mistakenly inspected Jeevan's CRM project and was retracted.) | Barat/Owner | verify before integration |
+| **SCHEMA VERIFICATION (2026-07-02, Barat) — 4/5 PASS, 1 pending.** ✅ account_id-text scoping (no tenant_id) · ✅ expense_date TEXT · ✅ 6 feature columns (confidence/anomaly/amount_original/currency_original/fx_rate/template_id) · ✅ field_templates + category_corrections tables — all confirmed via schema.sql + Barat's earlier live insert/read. ⚠️ **Item 5 (no unrelated/foreign-product data commingled) NOT YET RE-CONFIRMED LIVE** — Barat's query tools were in read-only mode when asked; he'll run one live table-list scan the moment they're back. Not a red flag (nothing foreign has ever surfaced), just an open re-check. | Barat | item 5 pending, re-scan when able |
 | **LAUNCH GATE (ADR-015):** no real user onboarded until (a) every secret is rotated post-dev-exposure AND (b) Jeevan holds an independent Supabase backup outside the account | Owner/Barat | tracked, blocks any real-user launch |
-| Barat's `lib/pdf.js` PR — not yet open; check `gh pr list` | Barat/J1 | in build |
 | #6 categorizer hardening (GitHub issue #14) | Jeevan | tracked, non-blocking |
 | `/api/templates` label sanitization + control-char rejection (GitHub issue #17) | Jeevan/Mugi | tracked, non-blocking |
 | exceljs transitive `uuid` audit bump (GitHub issue #20) | Jeevan | tracked, non-blocking |
