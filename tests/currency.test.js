@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { convertCurrency, _resetCache } = require('../lib/currency');
+const { convertCurrency, _resetCache, normalizeCurrencyCode } = require('../lib/currency');
 
 // Stub global.fetch so tests never hit the real FX API. Returns a Frankfurter-shaped body.
 function stubFetch(ratesByTo, { fail = false } = {}) {
@@ -102,4 +102,43 @@ test('unknown but valid-format code (Frankfurter has no rate) → ok:false, fail
     assert.strictEqual(r.amount, 10); // original preserved
     assert.strictEqual(r.rate, null);
   } finally { restore(); }
+});
+
+// --- normalizeCurrencyCode (issue #45: OCR often extracts a symbol/abbreviation like
+// "RM" for Malaysian Ringgit instead of an ISO-4217 code; assembleExpense's raw
+// /^[A-Za-z]{3}$/ check rejects it and silently falls back to DEFAULT_CURRENCY,
+// so the conversion never happens. This normalizer runs BEFORE that check.) ---
+
+test('normalizeCurrencyCode: already a valid 3-letter ISO code passes through uppercased', () => {
+  assert.strictEqual(normalizeCurrencyCode('usd'), 'USD');
+  assert.strictEqual(normalizeCurrencyCode('MYR'), 'MYR');
+});
+
+test('normalizeCurrencyCode: known unambiguous symbols/abbreviations map to ISO', () => {
+  assert.strictEqual(normalizeCurrencyCode('RM'), 'MYR');
+  assert.strictEqual(normalizeCurrencyCode('rm'), 'MYR');
+  assert.strictEqual(normalizeCurrencyCode('€'), 'EUR');
+  assert.strictEqual(normalizeCurrencyCode('£'), 'GBP');
+  assert.strictEqual(normalizeCurrencyCode('₹'), 'INR');
+  assert.strictEqual(normalizeCurrencyCode('Rp'), 'IDR');
+  assert.strictEqual(normalizeCurrencyCode('₩'), 'KRW');
+  assert.strictEqual(normalizeCurrencyCode('₱'), 'PHP');
+  assert.strictEqual(normalizeCurrencyCode('฿'), 'THB');
+  assert.strictEqual(normalizeCurrencyCode('₫'), 'VND');
+});
+
+test('normalizeCurrencyCode: genuinely ambiguous symbols are NOT guessed (return null)', () => {
+  // Bare "$" and "kr" are shared by many currencies (USD/SGD/AUD/CAD/HKD/MYR-"RM" aside;
+  // SEK/NOK/DKK) — guessing wrong would silently misconvert money, worse than falling
+  // back to DEFAULT_CURRENCY. Only unambiguous symbols get an alias.
+  assert.strictEqual(normalizeCurrencyCode('$'), null);
+  assert.strictEqual(normalizeCurrencyCode('kr'), null);
+});
+
+test('normalizeCurrencyCode: junk/empty/non-string input returns null, never throws', () => {
+  assert.strictEqual(normalizeCurrencyCode(''), null);
+  assert.strictEqual(normalizeCurrencyCode(null), null);
+  assert.strictEqual(normalizeCurrencyCode(undefined), null);
+  assert.strictEqual(normalizeCurrencyCode(42), null);
+  assert.strictEqual(normalizeCurrencyCode('nonsense123'), null);
 });
