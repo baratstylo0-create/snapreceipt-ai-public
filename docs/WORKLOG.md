@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-telegram-multiphoto (IMPLEMENTED)
+- **Files:** `lib/bot.js` (media-group adapter), `tests/bot.batch.test.js` (new, 7 tests), `docs/ARCHITECTURE.md` (§3.7 note updated: adapter now built), this WORKLOG. Merged `main` in first (runBatch #28 + extractReceipts #29 both landed; WORKLOG keep-both conflict resolved).
+- **What changed:** Built the Telegram multi-photo adapter (#7, Barat's lane) per the approved spec — the second consumer of J1's `runBatch()` (ARCHITECTURE §3.7), after his dashboard `routes/upload.js`. A Telegram media group arrives as N separate webhook updates sharing a `media_group_id`; `handleUpdate` now buffers photos per group in an in-memory Map, (re)arms a debounce (`MASS_GROUP_DEBOUNCE_MS`, default 2000ms; clamped to `MASS_MAX_IMAGES`, default 10), and on flush resolves each `file_id` → URL via `tgFileUrl` and calls `runBatch` **once**, replying with a single summary.
+  - **Decision locked with J1: option (A)** — one `meta` per batch with `fileId:null` (consistent with the dashboard adapter; `assembleExpense` tolerates null). Per-image Receipt Image Links = **issue #31** (per-image-meta `runBatch` enhancement, J1's, later).
+  - **Security/UX:** summary reports **counts only** — never surfaces `failed[].reason` (raw server error text, SOP §7.2), verified by a regression test that plants a fake stack trace and asserts it never reaches the user. `flushGroup`/`handleUpdate` **never throw** (mirrors `expenseFromPhoto`); a batch error or all-photos-unresolvable both send a safe message. **Single-photo + document-image paths unchanged** (still `expenseFromPhoto`) — the media-group branch is checked first and returns, so grouped photos don't each start a single flow.
+  - Deps dependency-injected (setTimeout/clearTimeout/runBatch/extractReceipts/assembleExpense/tgSend/tgFileUrl/getFieldSpec + debounceMs/maxGroupImages) so it's fully hermetic — the timer callback returns the flush promise so injected test timers can await the real flush.
+  - **Tests: 273/273** (7 new: N-updates→one runBatch+one summary; single photo → `expenseFromPhoto`, runBatch NOT called; debounce coalescing; runBatch-throws → safe message, never throws; `MAX_GROUP_IMAGES` clamp; all-URLs-unresolvable → "couldn't download", runBatch skipped; two groups don't mix; summary formatting never leaks `failed[].reason`). No new dependency.
+- **What's next:** push branch → J1 opens PR + independent Tier-2 QA (untrusted image input + writes money rows), same bar as #7/#9. `expenseFromPhoto` unchanged so single-receipt regression risk is nil.
+- **Assumptions:** single-process webhook (in-memory group buffer; a group mid-arrival during a restart is best-effort — documented). Telegram media groups are ≤10 (aligns with `MASS_MAX_IMAGES`). `runBatch` frozen interface consumed read-only (J1's).
+
+## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-telegram-multiphoto (SPEC-ONLY)
+- **Files:** `docs/specs/2026-07-02-telegram-multiphoto-design.md` (new). No code.
+- **What changed:** Wrote the design spec for the Telegram multi-photo adapter (#7, Barat's lane) — the
+  Telegram consumer of J1's frozen `runBatch()` (ARCHITECTURE §3.7), sibling to J1's dashboard `routes/upload.js`.
+  Prep work only, per J1's 2026-07-02 message ("brainstorm/spec now, hold implementation until #7 `runBatch`
+  + `extractReceipts` merge"). Core design: a media group arrives as N separate webhook updates sharing a
+  `media_group_id`, so `lib/bot.js` buffers them (keyed by group id) with a short debounce, then on flush
+  resolves each `file_id` → URL and calls `runBatch` once, replying with one sanitized summary. Single-photo
+  path unchanged. Flags one open point for J1: `runBatch` takes one `meta` for the batch, so per-image
+  `file_id` (Receipt Image Link) is lost → recommend v1 uses `meta.fileId:null` (already how the dashboard
+  adapter works; needs `assembleExpense` to tolerate `fileId:null` — it does), with a per-image-meta
+  `runBatch` enhancement raised as a possible follow-up.
+- **What's next:** HOLD implementation until `feature/jeevan-p4-massupload` (runBatch) + `feature/barat-p4-mass-ocr`
+  (extractReceipts) both land on `main`; then implement on this branch. Meanwhile Barat is on standby for QA
+  fixes on `feature/barat-p4-mass-ocr`.
+- **Assumptions:** single-process webhook (in-memory group buffer acceptable for v1); Telegram media groups ≤10
+  (aligns with `MASS_MAX_IMAGES`). No code, no dependency, no behaviour change yet.
+
 ## 2026-07-02 · Claude-J2 (for Jeevan) · feature/jeevan-p4-massupload (#7 mass upload — BUILT, PR pending final QA)
 - **Files:** `lib/massupload.js` + `tests/massupload.test.js` (review fixes), `routes/upload.js` + `tests/upload.route.test.js` (new), `server.js` (mount), `tests/smoke.test.js` (imports), `.env.example` (`MASS_MAX_IMAGES`), `docs/ARCHITECTURE.md` (§2 map, new §3.7, §4 flow), this WORKLOG, `docs/STATUS.md`.
 - **What changed (picked up J1's mid-build handoff; subagent-driven TDD continued):**
