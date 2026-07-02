@@ -32,6 +32,7 @@
         if (name === 'AuthGate') return require('./authgate');
         if (name === 'Nav') return require('./components/nav');
         if (name === 'Overview') return require('./components/overview');
+        if (name === 'Activity') return require('./components/activity');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -114,7 +115,10 @@
   // Registry mapping a section id to its view component module. Each component
   // exposes mount(section, deps) -> { load? }. Add future views here.
   function viewComponents(deps) {
-    return { overview: (deps && deps.Overview) || dep('Overview') };
+    return {
+      overview: (deps && deps.Overview) || dep('Overview'),
+      activity: (deps && deps.Activity) || dep('Activity'),
+    };
   }
 
   // Render the token-entry gate. On submit: normalise, store in sessionStorage,
@@ -195,7 +199,7 @@
     if (typeof document === 'undefined') return;
     var deps = {
       Escape: dep('Escape'), Api: dep('Api'), AuthGate: dep('AuthGate'), Nav: dep('Nav'),
-      Overview: dep('Overview'),
+      Overview: dep('Overview'), Activity: dep('Activity'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
