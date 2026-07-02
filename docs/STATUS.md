@@ -8,7 +8,7 @@
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
 
 ## Sprint goal (current)
-**#7 mass upload BUILT** on `feature/jeevan-p4-massupload` (212/212 tests): `lib/massupload.js` `runBatch` orchestrator + `routes/upload.js` `POST /api/upload` (503 dark-path until Barat's `extractReceipts` merges — lifts on restart). Every task passed two-stage spec + code-quality review (1 Critical found+fixed in Task 1). Next: final independent Tier-2 QA → PR → merge; open + QA Barat's `feature/barat-p4-mass-ocr`; then #1 PDF (joint rasterization brainstorm with Owner), then the ADR-011 reference frontend for Mugi.
+**#7 mass upload BUILT + QA'd** on `feature/jeevan-p4-massupload` (240/240 tests): `lib/massupload.js` `runBatch` orchestrator + `routes/upload.js` `POST /api/upload` (503 dark-path until Barat's `extractReceipts` merges — lifts on restart). Two-stage spec + code-quality review per task (1 Critical found+fixed Task 1) + final independent Tier-2 QA = APPROVE (1 Minor fixed, +28 adversarial regressions). Next: PR → merge; open + QA Barat's `feature/barat-p4-mass-ocr`; then #1 PDF (joint rasterization brainstorm with Owner), then the ADR-011 reference frontend for Mugi.
 
 ## Who's on what
 | Person | Claude | Current task | State |
@@ -20,7 +20,7 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 ## Feature status (personal M1)
 - ✅ Merged: #2 Excel · #4 OCR · #5 anomaly · #6 categorization · #8 reports · #10 currency · #11 low-confidence · #12 template engine + `/api/templates` route · ingestion wiring (#5/#6/#10/#11 → PR #22)
 - ✅ Also merged: **#9 dashboard agent** (Phase 1 read-only, PR #25) · **`groqChatTools()`** (PR #26)
-- 🔄 Built, awaiting final Tier-2 QA + PR: **#7 mass upload** (`feature/jeevan-p4-massupload`, 212/212; dashboard live path 503 until Barat's `extractReceipts` merges + restart; Telegram multi-photo adapter = Barat follow-up reusing `runBatch`)
+- 🔄 Built + QA'd (APPROVE), PR pending merge: **#7 mass upload** (`feature/jeevan-p4-massupload`, 240/240; dashboard live path 503 until Barat's `extractReceipts` merges + restart; Telegram multi-photo adapter = Barat follow-up reusing `runBatch`)
 - ⏳ To do: #1 PDF (joint brainstorm pending) · #3 dashboard (Mugi)
 
 ## Blockers
