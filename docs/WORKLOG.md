@@ -24,7 +24,6 @@
 - **What's next (J1):** read the plan, brainstorm visual scope with Owner (Task 0), then build task-by-task. Run `/security-review` + independent security-QA before the P6 gate.
 - **Assumptions:** frontend stays no-build vanilla in `public/` (ADR-001), talks only to `/api/*`. Draft (Finexy) = look-and-feel only; unwired widgets render as labelled placeholders, not invented endpoints.
 - **UPDATE (same push, split with Barat):** added plan §0.1 — explicit ownership split so both Claudes can start immediately with zero file collision (SOP §4.6). **J1**: the frontend build (Tasks 0–G) + hardening in Jeevan's own files (`routes/{upload,expenses,reports,agent,excel,review,receipt}.js`, `server.js`) + the dashboard human-QA checklist/runbook + the final whole-app security-QA pass. **Barat's Claude**: security hardening in his own files (`lib/{ocr,groq,supabase,templates,confidence}.js`, `routes/{webhook,templates}.js` — PII/log audit, rate limiting on his two routes, webhook-secret regression test) + a Telegram-bot human-QA checklist/runbook mirroring the dashboard one. Shared QA fixture set (`docs/qa/fixtures/`, J1 seeds it) so both surfaces test the same receipts. No blocking dependency between the two lanes; only the final security-QA pass waits on both.
->>>>>>> origin/main
 
 ## 2026-07-02 · Claude-J2 (for Jeevan) · feature/jeevan-p4-pdf-route (#1 PDF Task 7 — dashboard glue)
 - **Files:** `routes/upload.js`, `tests/upload.pdf.test.js` (new), `docs/WORKLOG.md`. My lane only.
