@@ -25,7 +25,9 @@ Vertical AI Solution. Milestone M1 = Personal version (12 features).
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
+| **🔴 INTEGRATION BLOCKER — isolated data home (found 2026-07-02 via Supabase connector).** The live Supabase project (`fziaxuhonvrhqjulhcyu`) is the SHARED parent-FrictionAI DB (companies/contacts/quotes/tenants/product_catalogue/… + 15 `*_old` tables). Its `public.expenses` is FrictionAI's table: scoped by `tenant_id` (our app injects `account_id` on every query → hard fail), `expense_date` is `date` not TEXT, and it's missing all 6 feature columns + `field_templates`/`category_corrections`. Table name `public.expenses` COLLIDES with our `schema.sql`, so schema.sql can't just be applied. **App cannot run against this DB as-is.** Fix (Barat's lane): give the receipt-analyser its own isolated home — a **dedicated Supabase project** (preferred) or a separate schema (`receipts.*`) — apply standalone `schema.sql` there, point `.env` at it. Also: this shares one service-key blast radius across two products (ADR-015 sharpened — isolation now required-for-function, not just for-scale). | Barat | **blocks integration/connection** |
 | **LAUNCH GATE (ADR-015):** no real user onboarded until (a) every secret is rotated post-dev-exposure AND (b) Jeevan holds an independent Supabase backup outside the account | Owner/Barat | tracked, blocks any real-user launch |
+| Supabase advisor (their DB): `public.rollout_flags` has RLS DISABLED (a FrictionAI table, anon-readable). Not ours — flag to Barat; do NOT auto-enable (needs policies) | Barat | flagged, not ours to fix |
 | Barat's `lib/pdf.js` PR — not yet open; check `gh pr list` | Barat/J1 | in build |
 | #6 categorizer hardening (GitHub issue #14) | Jeevan | tracked, non-blocking |
 | `/api/templates` label sanitization + control-char rejection (GitHub issue #17) | Jeevan/Mugi | tracked, non-blocking |
