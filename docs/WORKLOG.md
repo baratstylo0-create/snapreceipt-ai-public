@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-02 · Claude-J1 (for Jeevan) · feature/jeevan-p4-massupload (#7 mass upload — IN PROGRESS, handoff to J2)
+- **Files:** `docs/specs/2026-07-02-mass-upload-design.md`, `docs/plans/2026-07-02-mass-upload.md`, `lib/massupload.js` + `tests/massupload.test.js` (Task 1 of 3).
+- **What changed (mid-build — brainstorm → spec → plan → subagent-driven TDD, mirroring #9):**
+  - **Brainstormed #7 with the Owner.** Decisions: entry surface = **BOTH** dashboard (now, my lane) + Telegram multi-photo (later, Barat's lane) → so the orchestrator is transport-agnostic and shared. Failure model = **best-effort + summary** (one bad photo never blocks the rest). Limits = **conservative + sequential** (~10 images/batch, one Groq call at a time).
+  - **Spec + plan written & committed.** ORCHESTRATION ONLY — I do NOT build vision/OCR (Barat's lane).
+  - **Task 1 DONE (commit `5fb57a6`):** `lib/massupload.js` `runBatch(images, fieldSpec, { extractReceipts, assembleExpense, meta, extractOpts }) -> { images, receipts, saved, failed, flagged, truncated_images }`. Best-effort, **never throws** (every image + receipt try/caught). DI so it's fully unit-tested with fakes (no network/DB). **Tests: 5/5 new; full suite 195/195.** ⚠️ **NOT yet reviewed** — the two-stage spec + code-quality review still owes running before Task 2.
+- **Verified cross-lane contract (Barat, `feature/barat-p4-mass-ocr`):** `extractReceipts(image, fieldSpec, {maxReceipts?}) -> { receipts:[{fields,rawParsed}], truncated }` (already implemented + exported on his branch). `assembleExpense({chatId,repName,fileId,fields,rawParsed,fieldSpec}) -> {expense,flagged}`.
+- **What's next (J2):** review Task 1 (spec + code-quality) → Task 2 `routes/upload.js` (POST /api/upload, checkDash, base64→Buffer, ≤10 → 413, **503 dark-path** until Barat's extractReceipts merges) → Task 3 docs/env → final independent Tier-2 QA → PR. Separately: **open + independently QA Barat's `feature/barat-p4-mass-ocr`** (focus: extractReceipt untouched, array-parse + unterminated-`<think>` rejection + extra-key stripping, stripThink behaviour-preserving, and `assembleExpense` tolerates `fileId:null`).
+- **Assumptions:** `lib/massupload.js`/`routes/upload.js` are Jeevan's files; `extractReceipts`/`assembleExpense`/`getFieldSpec` consumed read-only (Barat's). Telegram multi-photo wiring is a Barat-lane follow-up reusing `runBatch`.
+
 ## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-groq-tools
 - **Files:** `lib/groq.js` (additive), `tests/groq.test.js` (new).
 - **What changed:** Added `groqChatTools(messages, { model?, max_tokens?, temperature?, tools?, tool_choice? })` to `lib/groq.js` — the cross-lane dependency #9's `routes/agent.js` was calling defensively (dark until this landed, per `docs/plans/2026-07-01-dashboard-agent.md`). Implemented exactly to the "Cross-lane dependency" spec in that plan / `docs/ARCHITECTURE.md` §3.2: forwards `tools`/`tool_choice` into the request body when provided, returns the **full assistant message** (`{ role, content, tool_calls? }`, not just `.content`), same exponential-backoff-on-429 pattern as `groqChat`. Purely additive — `groqChat`/`groqVision` untouched (ocr/bot/categorize unaffected), confirmed by full suite still green.
