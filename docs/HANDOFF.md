@@ -3,25 +3,23 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST.  (updated 2026-07-02, latest — #1 PDF dispatched)
+## ⚡ SESSION END — Claude-J2. READ THIS FIRST.  (updated 2026-07-02, latest — #1 PDF DONE; frontend+security plan handed off)
 
-**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #36 merge. gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **275 passing**. **No open PRs.**
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #40 merge (`79f204b`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **360 passing**. **No open PRs.**
 
-### State: #1 PDF ingestion is IN BUILD (Barat's lane)
-Brainstormed with Owner → spec + **ADR-014** (`@hyzyla/pdfium`, WASM PDFium) + full TDD plan, all merged to main (PR #35, #36). **J1 ran the Task-0 interop spike in-session** (throwaway, not committed) and it **PASSED**: dynamic `import()` from CJS works, `page.render()`→RGBA→`node:zlib` PNG (no `sharp`) produced a legible page, zero-dep confirmed. **Fallback not needed.** Full detail in ADR-014 (`docs/DECISIONS.md`) and `docs/plans/2026-07-02-pdf-ingestion.md`.
+### State: BACKEND FEATURE-COMPLETE (M1). #1 PDF fully landed (both surfaces).
+- **#1 PDF DONE:** `lib/pdf.js` rasterizer + Telegram path (**PR #38**), `/api/upload` PDF glue (**PR #40**), and the `/api/upload` Buffer→data-URI fix (**PR #39**) — all independently Tier-2-QA'd + merged. The render-dimension-bomb finding was fixed at source (`lib/pdf.js` pixel cap, `PDF_MAX_RENDER_PIXELS` 40 MP) and verified clean over HTTP (huge-MediaBox → 413).
+- **All 12 M1 backend features are on main.** Barat's lane is empty (business Excel PARKED by Owner). Open issues #14/#17/#20/#31 are non-blocking, Jeevan/Mugi lane.
 
-**Barat was dispatched** (full task list relayed in-session) to build `feature/barat-p4-pdf`: `lib/pdf.js` (rasterizer) + Telegram PDF path in `lib/bot.js`, TDD, Tier-2. His Task 0 is reduced (spike pre-done) to: install dep + generate fixtures + confirm the encrypted-PDF error string.
-
-### EXACT NEXT ACTIONS for next Claude
-1. **`gh pr list`** — check if Barat's `feature/barat-p4-pdf` PR is open.
-   - **If open:** read the plan (`docs/plans/2026-07-02-pdf-ingestion.md`) Tasks 0–5 as the acceptance checklist, do the **independent Tier-2 QA** (untrusted PDF parser + new dep — fixture coverage: native/scanned/multi-page/encrypted/corrupt/oversized/non-PDF, no leaked internals, `MASS_MAX_IMAGES` cap respected), then merge if clean (Owner delegated authority) or hand findings back.
-   - **If not open yet:** nothing to do on #1 — check WORKLOG.md top for anything else pending; otherwise this is a natural idle window (non-blocking issues below, or wait).
-2. **After Barat's `lib/pdf.js` merges:** J1's own **Task 7** — `routes/upload.js` PDF glue (fork branch AFTER his merge, `npm install` first since a dep landed). Plan has full task+code.
-3. **ADR-011 reference frontend** for Mugi — after #1 fully lands.
+### EXACT NEXT ACTIONS for J1 — build the reference frontend + human-QA + security hardening
+**Read `docs/plans/2026-07-02-reference-frontend-qa-security.md` — it is the full plan (P5 Frontend + P6 Hardening).** Owner wants: a **PC-only reference frontend** surfacing EVERY feature (for Mugi to see scope + for humans to click-test everything), a **serious fool-proof human-QA checklist**, and a **thorough cybersecurity pass** (sensitive financial data). Execute via **subagent-driven-development** (fresh implementer per task + two-stage review), Task 0 = short brainstorm with Owner on visual scope (Finexy-style draft = look-and-feel ref only, not literal).
+- **Two real security findings already identified — fix them in the hardening task:** (1) **`GET /receipt/:fileId` is UNAUTHENTICATED** → sensitive receipt images leak to anyone with a fileId (gate behind `checkDash`/signed URL — treat as Critical). (2) **`checkDash` is OPTIONAL** (no-op if `DASHBOARD_TOKEN` unset) → make prod fail-closed. Also: tighten `Access-Control-Allow-Origin: *`, add CSP+security headers, add rate limiting, and (biggest new surface) **strict output-escaping of untrusted OCR/`ai_raw`/agent text in the DOM** (stored-XSS).
+- **Telegram bot human-testing = PARALLEL track, Barat's** — coordinate a shared QA data set; not part of this plan.
+- After this lands: run `/security-review` (SOP §7.5) + an independent security-QA subagent before the P6 gate.
 
 ### Decisions locked (2026-07-02)
-- ADR-014: `@hyzyla/pdfium` (WASM, MIT/BSD, zero-dep) for PDF rasterization; MuPDF rejected (AGPL); PNG encoded via `node:zlib` (NOT `sharp` — vendor's example uses sharp, we rejected it to keep exactly 1 added dep).
-- Business Excel stays PARKED; jszip ADR-013 stands.
+- ADR-014: `@hyzyla/pdfium` (WASM, MIT, zero-dep) for PDF rasterization; PNG via `node:zlib` (no `sharp`).
+- Business Excel PARKED; jszip ADR-013 stands. Reference frontend = PC-only for now (mobile parked).
 - One fresh session per feature; HANDOFF contract designed for exactly this.
 
 ### GOTCHAs (carry forward)
