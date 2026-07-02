@@ -2,13 +2,13 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P4 — Features.** Merged to `main`: #12 template engine + `/api/templates` route, **#6 categorization**, **#5 anomaly + ADR-010**, #10 currency, **#4 OCR + #11 confidence**, **#8 reports**, **#2 Excel export (PR #19, ADR-012 exceljs)**, **ingestion wiring (PR #22)**, **#9 dashboard agent Phase 1 (PR #25 — read-only constrained tool-calling)**, **`groqChatTools()` (PR #26 — un-darkens #9's live path)**. `npm test` on main = **192 passing** (run `npm install` on a fresh clone — a stale `node_modules` missing `exceljs` was mistaken for a code bug once, see GOTCHA below). **PR #27 (housekeeping + ADR-013) MERGED** (`a13ba6d`, full self-review protocol). Open: #7 mass-upload PR (this branch) pending final Tier-2 QA.
+**P4 — Features (nearly complete).** Merged to `main`: #12 template engine, #6 categorization, #5 anomaly (ADR-010), #10 currency, #4 OCR + #11 confidence, #8 reports, #2 Excel (ADR-012), ingestion wiring (#22), **#9 dashboard agent Phase 1 (#25)**, **`groqChatTools()` (#26)**, **#7 MASS UPLOAD — both surfaces**: `runBatch` + `POST /api/upload` (#28), Barat's `extractReceipts()` (#29), Barat's **Telegram multi-photo adapter (#32)**. `npm test` on main = **273 passing** (`npm install` on a fresh clone — a missing `exceljs` was mistaken for a code bug once, see GOTCHA). Open: `chore/jeevan-j1-session-end` (this session's HANDOFF/STATUS refresh + 1 cherry-picked telegram-QA test, 274) — Owner to merge. **Only remaining backend feature: #1 PDF** (blocked on a joint rasterization brainstorm with the Owner — planned as a fresh session).
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
 
 ## Sprint goal (current)
-**#7 mass upload BUILT + QA'd** on `feature/jeevan-p4-massupload` (240/240 tests): `lib/massupload.js` `runBatch` orchestrator + `routes/upload.js` `POST /api/upload` (503 dark-path until Barat's `extractReceipts` merges — lifts on restart). Two-stage spec + code-quality review per task (1 Critical found+fixed Task 1) + final independent Tier-2 QA = APPROVE (1 Minor fixed, +28 adversarial regressions). Next: PR → merge; open + QA Barat's `feature/barat-p4-mass-ocr`; then #1 PDF (joint rasterization brainstorm with Owner), then the ADR-011 reference frontend for Mugi.
+**#7 mass upload COMPLETE + MERGED on both surfaces** (dashboard `POST /api/upload` #28 + Telegram multi-photo #32, both Tier-2-QA'd; extractReceipts #29). main = 273. Remaining: (1) merge the `chore/jeevan-j1-session-end` housekeeping PR; (2) **#1 PDF ingestion** — the last backend feature, blocked on a joint rasterization brainstorm with the Owner (**fresh session** per the one-session-per-feature workflow decision); (3) ADR-011 reference frontend for Mugi.
 
 ## Who's on what
 | Person | Claude | Current task | State |

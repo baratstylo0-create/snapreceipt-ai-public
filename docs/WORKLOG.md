@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-02 · Claude-J1 (for Jeevan) · chore/jeevan-j1-session-end (session wrap)
+- **Files:** `tests/bot.batch.test.js` (cherry-picked +1 QA test), `docs/HANDOFF.md` (top block refresh), `docs/STATUS.md`, this WORKLOG entry.
+- **What changed:** Session-wrap after re-syncing from a stale-context handoff (a prior session had already merged #27/#28/#29; my in-context memory was behind — re-established from git/gh, not memory).
+  1. **Opened + Tier-2-QA'd + merged PR #32** (Barat's Telegram multi-photo adapter, `lib/bot.js`). Fresh independent QA verdict = **APPROVE (clean)**: media-group buffering keyed by `media_group_id` with correct per-photo debounce re-arm + isolated concurrent groups + clean timer/Map teardown; safe 11th-photo clamp; never-throws holds (every `fileUrl`/`runBatch` await guarded); **`failed[].reason` non-leak confirmed** (summary is counts-only; planted-secret regression test is genuine); single-photo path is a pure refactor (unchanged behaviour). Merged (`0e48033`). **#7 mass upload is now complete on BOTH surfaces** (dashboard #28 + Telegram #32). QA's 1 hardening test (download-rejection safety) **cherry-picked here** rather than pushed to Barat's branch (SOP §4.4). `main` = 273; this branch = **274**.
+  2. **Refreshed HANDOFF top block + STATUS** to current reality (#28/#29/#32 merged; #7 done; #1 PDF is the only remaining backend item).
+- **Owner decisions this session:** #1 PDF ingestion to be done as a **FRESH session** (budget: one session per feature — this session ran #9 + #7 end-to-end + heavy review cycles). Business Excel stays PARKED; jszip ADR-013 stands.
+- **What's next:** merge this housekeeping PR → then a fresh session drives the **#1 PDF rasterization brainstorm with the Owner** (Barat holding, don't start solo) → then ADR-011 reference frontend for Mugi.
+- **Assumptions:** none new.
+
 ## 2026-07-02 · Claude-B1/B2 (for Barat) · feature/barat-p4-telegram-multiphoto (IMPLEMENTED)
 - **Files:** `lib/bot.js` (media-group adapter), `tests/bot.batch.test.js` (new, 7 tests), `docs/ARCHITECTURE.md` (§3.7 note updated: adapter now built), this WORKLOG. Merged `main` in first (runBatch #28 + extractReceipts #29 both landed; WORKLOG keep-both conflict resolved).
 - **What changed:** Built the Telegram multi-photo adapter (#7, Barat's lane) per the approved spec — the second consumer of J1's `runBatch()` (ARCHITECTURE §3.7), after his dashboard `routes/upload.js`. A Telegram media group arrives as N separate webhook updates sharing a `media_group_id`; `handleUpdate` now buffers photos per group in an in-memory Map, (re)arms a debounce (`MASS_GROUP_DEBOUNCE_MS`, default 2000ms; clamped to `MASS_MAX_IMAGES`, default 10), and on flush resolves each `file_id` → URL via `tgFileUrl` and calls `runBatch` **once**, replying with a single summary.
