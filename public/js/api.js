@@ -19,6 +19,26 @@
   function setToken(t) { _token = t || null; }
   function getToken() { return _token; }
 
+  // --- rate-limit visibility (reads Barat's RateLimit-* trio, PR #56) ---------
+  // The shared limiter emits RateLimit-Limit/Remaining/Reset on every response of a
+  // limited route (agent/upload/templates). We capture the latest here so the header
+  // "% used" meter can render + warn near the edge. Routes WITHOUT the limiter (reads:
+  // expenses/reports/excel) omit the headers, so we simply don't update — no false meter.
+  var _rate = null;               // { limit, remaining, reset, at } | null
+  var _rateSubs = [];
+  function readRateHeaders(res) {
+    if (!res || !res.headers || !res.headers.get) return;
+    var lim = res.headers.get('RateLimit-Limit');
+    var rem = res.headers.get('RateLimit-Remaining');
+    if (lim == null || rem == null) return; // route not behind the limiter — ignore
+    var limit = Number(lim), remaining = Number(rem), reset = Number(res.headers.get('RateLimit-Reset'));
+    if (!isFinite(limit) || !isFinite(remaining)) return;
+    _rate = { limit: limit, remaining: remaining, reset: isFinite(reset) ? reset : 0, at: Date.now() };
+    for (var i = 0; i < _rateSubs.length; i++) { try { _rateSubs[i](_rate); } catch (e) { /* a bad subscriber never breaks fetch */ } }
+  }
+  function getRateLimit() { return _rate; }
+  function onRateLimit(cb) { if (typeof cb === 'function') _rateSubs.push(cb); }
+
   // Fetch a same-origin /api path. opts is a standard fetch init; we layer on
   // Accept + optional Authorization and JSON body handling. Returns parsed JSON
   // (or text) on 2xx; throws { status, body } otherwise.
@@ -35,6 +55,7 @@
     }
 
     return fetch(path, init).then(function (res) {
+      readRateHeaders(res); // capture RateLimit-* on BOTH ok and 429 responses
       var ct = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
       var parse = ct.indexOf('application/json') !== -1 ? res.json() : res.text();
       return parse.then(function (body) {
@@ -57,6 +78,7 @@
     if (_token) headers.Authorization = 'Bearer ' + _token;
     var init = Object.assign({}, opts, { headers: headers });
     return fetch(path, init).then(function (res) {
+      readRateHeaders(res);
       if (!res.ok) {
         return res.text().then(function (body) { throw { status: res.status, body: body }; }, function () {
           throw { status: res.status, body: null };
@@ -66,5 +88,6 @@
     });
   }
 
-  return { apiFetch: apiFetch, fetchBlob: fetchBlob, setToken: setToken, getToken: getToken };
+  return { apiFetch: apiFetch, fetchBlob: fetchBlob, setToken: setToken, getToken: getToken,
+    getRateLimit: getRateLimit, onRateLimit: onRateLimit };
 });
