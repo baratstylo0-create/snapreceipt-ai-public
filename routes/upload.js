@@ -13,7 +13,12 @@ const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
 // cost-drainable without a limit. UPLOAD_RATE_MAX follows Barat's WEBHOOK_RATE_MAX naming
 // convention (lib/ratelimit.js, wired into routes/webhook.js). Reuses the same shared
 // limiter, no second implementation.
-const uploadLimiter = createRateLimiter({ max: Number(process.env.UPLOAD_RATE_MAX) || 20 });
+// Owner directive (lenient): this ceiling must NEVER trip a legit busy user/company — a
+// human peaks at maybe 5-10 upload batches/min, so 120/min is ~10x headroom. It is a
+// RUNAWAY backstop, not a throttle: the Groq key pool (ADR-016) is the cost backstop; this
+// only caps a bug-loop / malicious flood before it hammers every pooled key indefinitely.
+// Deliberately generous-but-present (not unlimited — a runaway drains the whole pool otherwise).
+const uploadLimiter = createRateLimiter({ max: Number(process.env.UPLOAD_RATE_MAX) || 120 });
 
 // #1 PDF: map lib/pdf's typed PdfError codes to an HTTP status + a FIXED client message.
 // The message NEVER interpolates the code or any library internals (SOP §7.2). TOO_LARGE
