@@ -4,7 +4,7 @@
  */
 'use strict';
 const express = require('express');
-const { cfg, assertConfig } = require('./lib/config');
+const { cfg, assertConfig, configSummary } = require('./lib/config');
 const { registerWebhook } = require('./lib/telegram');
 const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
@@ -58,7 +58,7 @@ if (process.argv.includes('--register-only')) {
   registerWebhook().then(() => process.exit(0));
 } else {
   app.listen(cfg.PORT, () => {
-    console.log('[receipt-saas] listening on :' + cfg.PORT + '  (account: ' + cfg.ACCOUNT_ID + ')');
+    console.log('[receipt-saas] listening on :' + cfg.PORT + '  (' + configSummary() + ')');
     setTimeout(registerWebhook, 1500);
   });
 }

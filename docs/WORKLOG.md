@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-03 · Claude-J1 (for Jeevan) · fix/jeevan-config-startup-visibility
+- **Files:** `lib/config.js` (new `configSummary()`), `server.js` (boot banner uses it), `tests/config-summary.test.js` (new, +3).
+- **What changed — root-caused the "all live receipts saved as USD" incident:** live-data check on Barat's shared Supabase (`xurnpvesgcybrnilxszf`, NOT the FrictionAI parent) showed every expense stored as USD despite `DEFAULT_CURRENCY=MYR`. Traced via `ai_raw`: OCR read the currencies correctly (Bonda MYR 183.65, etc.) — the pipeline was converting good MYR amounts *into* USD because the **running process's `cfg.DEFAULT_CURRENCY` was still USD**. `.env` was edited to MYR mid-session, but dotenv loads `.env` into `process.env` ONCE at startup, so the file edit never reached the running process (a row ingested AFTER the `.env` edit was still USD — proof). Not a code bug: current `.env` + a fresh process resolves MYR correctly (verified by booting the server).
+  - **Honest note on the fix:** the originally-proposed "live getter" (à la `AUTH_REQUIRED`) would NOT have prevented this — the stale value lives in `process.env` (dotenv-once), not the cfg snapshot, so a getter returns the same stale value. The effective mitigation is **visibility at boot**: `configSummary()` prints `account · currency · tax · auth` on every start, so a stale/misconfigured currency is seen immediately instead of discovered in the data later. Reads straight off `cfg` (no driftable second copy).
+- **Data remediation (done, live, Owner-approved):** recomputed the 3 real rows to MYR from their `ai_raw` ground truth (Bonda 45.76 USD→183.65 MYR, L.C. Vegetarian relabel 68.9 MYR, 99 Speed Mart 5.17 USD→21.1 MYR; cleared fx_rate/amount_original/currency_original). Soft-deleted 3 junk rows (M/S Cash + 2× Unknown $0 rejected). Live table now = 3 clean MYR rows.
+- **Tests: 764/764** (761 baseline after #64+#65 merges + 3 new). `.env` moved aside for the run per the standing gotcha.
+- **What's next:** ⚠️ **the live pipeline that's still ingesting (produced `99 Speed Mart` at 13:30 UTC, still USD) runs on Barat's machine/deploy with its own `.env` + stale USD snapshot — Barat must restart it** to pick up MYR. This repo's `.env` has no `BOT_TOKEN`, so J1 can't drive the live bot. Then: voucher/reference-number spec (Barat's lane), rotate the dashboard token from the chat log, Mugi's GitHub username.
+- **Assumptions:** MYR is the correct account currency (Malaysia-based Owner). L.C. Vegetarian had an empty OCR currency; treated as MYR (Malaysian receipt). M/S Cash treated as junk per the Owner's own batch-bug report.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-telegram-delete
 - **Files:** `lib/telegram.js` (new `tgAnswerCallback`, `callback_query` added to webhook `allowed_updates`), `lib/bot.js` (`handleDeleteIntent`, `handleCallbackQuery`, routed from `handleUpdate`), `tests/bot.delete.test.js` (new), `tests/telegram.test.js` (+2), this WORKLOG.
 - **What changed — Owner feedback during live use:** typing "Delete receipt" in the bot got the generic "Send me a photo…" fallback, which read as if the message was ignored. Two fixes:
