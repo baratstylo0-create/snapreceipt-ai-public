@@ -3,7 +3,42 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST-2 — #65 & #64 MERGED; MYR/USD currency incident root-caused + live data repaired)
+## ⚡ SESSION END — Claude-J2 (handoff to J1). READ THIS FIRST. (2026-07-03, LATEST-3 — Owner wants full personal-account E2E testing; images broken; voucher signed off)
+
+**main = e183181, 764 tests green.** `npm install` first. **GOTCHA: repo-root `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.** A local server may still be running on `:3001`.
+
+> **Attribution correction:** this whole 2026-07-03 session (the LATEST-2 & LATEST-3 blocks below, PR #69/#70/#71, and the matching `WORKLOG.md` entries) was run by **Claude-J2**, not J1 — those already-merged labels say "Claude-J1" but that's a mislabel, left as frozen append-only history. **J1 handles all merges** (PRs #70 voucher-spec, #71 this handoff, + Barat's incoming voucher build).
+
+### OWNER'S #1 GOAL — personal-account, end-to-end, everything connected + working TOP-TIER
+He wants to **TEST EVERY FEATURE** before M2 (B2B). **Mugi stays BLOCKED, M2 deferred** until Owner signs off personal is solid. Your job = make the full personal flow work + verify it: dashboard upload → OCR → save → list/filter → edit → category (18) → currency (MYR) → Excel export → AI agent chat → reports → review queue. Run the server, exercise each, fix what's broken.
+
+### TOP OPEN ITEM — receipt images don't display (Owner explicitly wants click-to-view working)
+- **Root cause:** `/receipt/:fileId` live-proxies Telegram using `BOT_TOKEN` (**empty** in `.env`); and **dashboard uploads store NO image at all** (`receipt_file_id` null — frontend only renders `if (r.receipt_file_id)`). `receipt_url` column exists but is **unused**.
+- **Owner chose the PROPER fix:** Supabase Storage — upload image at ingestion → store real URL in `receipt_url` → serve from Storage (fall back to Telegram proxy for old rows). **Click-to-view UI is ALREADY built** (`public/js/components/activity.js` `loadReceiptImage`, auth'd-blob fetch).
+- ⚠️ **COLLISION — DO NOT RACE BARAT:** the storage upload must hook the insert path (`lib/ocr.js` `assembleExpense` / `lib/supabase.js`) = **Barat's lane, and he's editing those RIGHT NOW for vouchers.** Write it as a **spec** (like voucher), sequence AFTER his voucher PR lands. Pure-Jeevan parts can be prepped: new `lib/storage.js`, `routes/upload.js` wiring, frontend. **No `receipts` bucket created yet** (plan it in the spec). Storage API confirmed reachable via service key.
+
+### Landed this session (main): PR #65, #64, #69
+- **#69 (me):** config boot banner (`configSummary()` → `account · currency · tax · auth` at startup). Honest fix for the currency incident (NOT a live-getter — that reads the same stale `process.env`).
+
+### Currency incident — DONE on our side; Barat must restart his pipeline
+Root cause: stale process (dotenv loads `.env` once at start; mid-session `.env`→MYR edit never reached the running process). **Data repaired** (3 real rows recomputed to MYR from `ai_raw`; 3 junk soft-deleted). ⚠️ **Barat's live pipeline still emits USD** (fresh `99 Speed Mart` row appeared mid-session) — **he must RESTART it** to pick up MYR.
+
+### Open PRs
+- **#70** — voucher/reference-number spec, **SIGNED OFF by Barat** (A/B/C as recommended; **prefix `RC-`** → `RC-2026-0041`). Barat is **BUILDING the code now** (schema.sql + insert path, Tier-2, he'll PR separately). Spec doc already updated to RC-. #70 itself can merge (Owner-authorize or independent review).
+
+### CORRECT Supabase project = `xurnpvesgcybrnilxszf` (Barat's, shared)
+MCP can't reach it — query via `.env` `SB_URL`/`SB_KEY` over PostgREST directly. The FrictionAI parent `fziaxuhonvrhqjulhcyu` is the WRONG db — don't confuse.
+
+### Other pending (non-blocking)
+- **Rotate `DASHBOARD_TOKEN`** (leaked into a chat log; it's the bearer gating every `/api/*` + `/receipt` route via `checkDash`).
+- **Barat's onboarding/chat-id-linking** (deep-link invites + DB table replacing `ALLOWED_CHAT_IDS`) — that's M2; let him **spec** it, but **build gated behind personal-first**.
+- Minor app cleanup: `visionEscalate` model tier is **dead config** (unwired + points at the same model as default) — delete or wire later, low priority. (Owner's "model switch" question was about Claude Code SOP §4.9 sessions, NOT the app — clarified, non-issue for the app.)
+
+### Merge authority
+Delegated to J1/J2 but the classifier **blocks self-authored merges** — Owner must name each PR, or do a full read-diff+test review of a teammate's PR first.
+
+---
+## ⚡ SESSION END — Claude-J1. (2026-07-03, LATEST-2 — #65 & #64 MERGED; MYR/USD currency incident root-caused + live data repaired)
 
 **main HEAD** = PR #64 merge (`8c0a96b`), **761 tests passing** on main. `npm install` first. **Gotcha unchanged: `.env` in repo root has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.**
 

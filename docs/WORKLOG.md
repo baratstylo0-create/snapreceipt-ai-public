@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-03 · Claude-J1 (for Jeevan) · docs/jeevan-voucher-spec
+- **Files:** `docs/specs/2026-07-03-voucher-reference-number-design.md` (new), this WORKLOG.
+- **What changed — Owner-requested spec:** design for a human-readable per-expense reference (`V-2026-0041`), separate from the DB UUID. Pending **Barat sign-off** (his `schema.sql` + insert path). Key CTO call: **generate DB-side (BEFORE INSERT trigger + atomic per-(account,year) counter via `ON CONFLICT DO UPDATE RETURNING`), NOT app-side `count(*)+1`** — the latter races, and post-#65 every batch path inserts near-simultaneously, so the race is live. Explicitly distinct from OCR'd `invoice_number` (voucher_no is system-generated, never in the FieldSpec). 4 open decisions flagged for sign-off (year basis, backfill, gaps-allowed vs gapless, prefix).
+- **What's next:** Barat reviews/signs off → builds schema; then thin display wiring (Excel #2 + routes/expenses = Jeevan, Telegram reply = Barat, dashboard = Mugi).
+- **Assumptions:** unique+ordered with gaps allowed is fine for v1 (no legal gapless requirement); `V-` prefix; per-year reset.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-voucher-reference-number (ADR-017)
 - **Files:** `db/2026-07-03-voucher-reference-number.sql` (new), `schema.sql` (folded in, structure only — no backfill loop, matching the file's existing convention), `lib/supabase.js` (`sbInsertReturning`), `lib/ocr.js` (`assembleExpense` echoes `voucher_no`; new `refLine()` helper + export), `lib/bot.js` (batch breakdown shows the ref), `tests/supabase.insertreturning.test.js` (new), `tests/ingest.test.js` (+3), `tests/ocr.nonreceipt.test.js` (+4), `tests/bot.batch.test.js` (+2).
 - **What changed — Barat's half of ADR-017 (schema.sql + insert path), per PR #70's ownership split, after Owner sign-off:**
