@@ -158,6 +158,16 @@
       .map(str).join(' ').toLowerCase();
   }
 
+  // Rows the ingestion pipeline saved but couldn't confidently categorize
+  // (status 'awaiting_category', category sentinel '__pending__') — the DASHBOARD
+  // parity of the Telegram category picker (#74): the bot asks via buttons, the
+  // dashboard surfaces them here for a click-to-pick. Pure; tolerates junk -> [].
+  var AWAITING_CATEGORY = 'awaiting_category';
+  function awaitingCategoryRows(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(function (r) { return r && r.status === AWAITING_CATEGORY; });
+  }
+
   // expense_date is free-text (OCR-sourced); only treat it as a comparable ISO-ish
   // date (YYYY-MM-DD prefix) for range filtering. Anything else (garbage, empty,
   // null) is "not a date we can range-compare" and is excluded from range filters
@@ -281,6 +291,18 @@
     var span = el('span', 'act-pill act-pill--' + categoryColor(category));
     Escape.setText(span, str(category) || 'Others');
     return span;
+  }
+
+  // The category cell for a table row / card. An awaiting-category row shows a distinct
+  // "Awaiting category" chip instead of the raw '__pending__' sentinel — clearer, and it
+  // never leaks the internal sentinel into the UI. (The picker below resolves it.)
+  function categoryCell(row) {
+    if (row && row.status === 'awaiting_category') {
+      var chip = el('span', 'act-pill act-pill--pending');
+      Escape.setText(chip, 'Awaiting category');
+      return chip;
+    }
+    return pill(row && row.category);
   }
 
   // Build the small badge chips for a row (anomaly / low-confidence / converted).
@@ -470,7 +492,7 @@
       tr.appendChild(amt);
 
       var cat = el('td', 'act-td');
-      cat.appendChild(pill(r.category));
+      cat.appendChild(categoryCell(r));
       tr.appendChild(cat);
 
       tr.appendChild(textCell('td', 'act-td act-td--status', r.status));
@@ -506,7 +528,7 @@
 
     var head = el('div', 'act-card-head');
     head.appendChild(textCell('span', 'act-card-merchant', r.merchant));
-    head.appendChild(pill(r.category));
+    head.appendChild(categoryCell(r));
     body.appendChild(head);
 
     body.appendChild(badgeChips(r));
@@ -716,6 +738,32 @@
     return card;
   }
 
+  // ---- render: awaiting-category picker (dashboard parity of the bot's #74 picker) ----
+  // A row the pipeline saved but couldn't confidently categorize. The bot asks via inline
+  // buttons; on the dashboard the user picks from a dropdown and we resolve via the SAME
+  // PATCH /api/expenses/:id the edit drawer uses (category + status:'saved'), which is
+  // already checkDash-authed + account-scoped — the dashboard equivalent of the bot's
+  // confirm-time ownership check. All untrusted text (merchant) via Escape.setText.
+  function buildAwaitingItem(rowObj, categories, handlers) {
+    var card = el('div', 'act-await-item');
+    card.appendChild(textCell('span', 'act-await-merchant', rowObj.merchant));
+    var amt = el('span', 'act-await-amount');
+    Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
+    card.appendChild(amt);
+    card.appendChild(textCell('p', 'act-await-note muted', 'Pick a category for this receipt:'));
+
+    var actions = el('div', 'act-await-actions');
+    var select = el('select', 'act-await-select');
+    var cats = Array.isArray(categories) && categories.length ? categories : DEFAULT_CATEGORIES;
+    cats.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); select.appendChild(o); });
+    var save = el('button', 'act-await-save'); save.type = 'button'; Escape.setText(save, 'Save category');
+    var st = el('span', 'act-await-msg muted');
+    save.addEventListener('click', function () { handlers.onPick(rowObj, select.value, card, st, save); });
+    actions.appendChild(select); actions.appendChild(save); actions.appendChild(st);
+    card.appendChild(actions);
+    return card;
+  }
+
   // ---- mount --------------------------------------------------------------
 
   // Guarded sessionStorage accessors for the table/cards view preference — same
@@ -742,12 +790,18 @@
     var rootEl = el('div', 'act-root');
     section.appendChild(rootEl);
 
-    // Sub-mounts: table area, drawer host, review area.
+    // Sub-mounts: table area, drawer host, awaiting-category picker, review area.
     var tableArea = el('div', 'act-table-area');
     var drawerHost = el('div', 'act-drawer-host');
-    var reviewArea = el('div', 'act-review-area');
     rootEl.appendChild(tableArea);
     rootEl.appendChild(drawerHost);
+    // Awaiting-category picker (dashboard parity of the bot #74 picker). Heading + area are
+    // hidden entirely when nothing is pending (an exception state, not a standing queue).
+    var awaitHead = textCell('h3', 'act-await-title', 'Needs a category');
+    var awaitArea = el('div', 'act-await-area');
+    rootEl.appendChild(awaitHead);
+    rootEl.appendChild(awaitArea);
+    var reviewArea = el('div', 'act-review-area');
     var reviewHead = textCell('h3', 'act-review-title', 'Review queue');
     rootEl.appendChild(reviewHead);
     rootEl.appendChild(reviewArea);
@@ -773,6 +827,7 @@
       if (state.error) { tableArea.appendChild(msg('act-error', 'Could not load your expenses. Please try again shortly.')); return; }
       tableArea.appendChild(buildToolbar(state, onChange));
       tableArea.appendChild(buildViewToggle(state, onChange));
+      renderAwaiting(); // independent of table filters/pagination — reflects ALL pending rows
       var pageData = filterSortPage(state.rows, state);
       if (pageData.total === 0) {
         tableArea.appendChild(msg('act-empty muted', state.rows.length ? 'No expenses match your filters.' : 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
@@ -825,6 +880,33 @@
             .catch(function () { Escape.setText(statusEl, 'Delete failed. Please try again.'); });
         },
       }, { categories: state.categories, fieldSpec: state.fieldSpec }));
+    }
+
+    // Awaiting-category picker: derived live from the loaded expenses (no extra fetch).
+    // Hidden entirely when nothing is pending. Resolves via the same PATCH the drawer uses.
+    function renderAwaiting() {
+      clear(awaitArea);
+      var rows = awaitingCategoryRows(state.rows);
+      var show = rows.length > 0;
+      awaitHead.style.display = show ? '' : 'none';
+      awaitArea.style.display = show ? '' : 'none';
+      if (!show) return;
+      rows.forEach(function (r) {
+        awaitArea.appendChild(buildAwaitingItem(r, state.categories, {
+          onPick: function (rowObj, category, card, st, saveBtn) {
+            if (!category) { Escape.setText(st, 'Pick a category first.'); return; }
+            saveBtn.disabled = true;
+            Escape.setText(st, 'Saving…');
+            apiFetch('/api/expenses/' + encodeURIComponent(rowObj.id), { method: 'PATCH', body: { category: category, status: 'saved' } })
+              .then(function (updated) {
+                var idx = state.rows.findIndex(function (x) { return x.id === rowObj.id; });
+                if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], { category: category, status: 'saved' }, updated && typeof updated === 'object' ? updated : {});
+                renderTable(); // re-renders the table AND (via its call) this picker
+              })
+              .catch(function () { saveBtn.disabled = false; Escape.setText(st, 'Save failed. Please try again.'); });
+          },
+        }));
+      });
     }
 
     function renderReview() {
@@ -898,6 +980,7 @@
     categoryColor: categoryColor,
     resolveCategories: resolveCategories,
     labelFor: labelFor,
+    awaitingCategoryRows: awaitingCategoryRows,
     patchBody: patchBody,
     receiptPath: receiptPath,
     normaliseViewMode: normaliseViewMode,

@@ -565,6 +565,30 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-receipt-link { color: var(--accent); font-size: 13px; }
 
 /* --- Activity: review queue ---------------------------------------------- */
+/* Awaiting-category picker (dashboard parity of the bot #74 picker) — amber accent to
+   read as "action needed, not an error" (the red review queue is for anomalies). */
+.act-await-title { margin: 28px 0 10px; font-size: 16px; }
+.act-await-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid #d29922;
+  border-radius: var(--radius);
+}
+.act-await-merchant { font-weight: 600; }
+.act-await-amount { font-variant-numeric: tabular-nums; text-align: right; }
+.act-await-note { grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.act-await-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.act-await-select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--txt); }
+.act-await-save { padding: 6px 14px; background: #d29922; color: #1c1300; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.act-await-save:disabled { opacity: .6; cursor: default; }
+.act-pill--pending { background: #d29922; color: #1c1300; }
+
 .act-review-title { margin: 28px 0 10px; font-size: 16px; }
 .act-review-item {
   display: grid;
