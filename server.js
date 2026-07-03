@@ -7,6 +7,7 @@ const express = require('express');
 const { cfg, assertConfig } = require('./lib/config');
 const { registerWebhook } = require('./lib/telegram');
 const securityHeaders = require('./lib/security-headers');
+const corsPreflight = require('./lib/cors-preflight');
 
 const mountWebhook = require('./routes/webhook');
 const mountExpenses = require('./routes/expenses');
@@ -28,6 +29,9 @@ app.set('trust proxy', true);
 // strict no-inline CSP that the external-only frontend (css/app.css + js/*.js)
 // is built to satisfy. See lib/security-headers.js.
 app.use(securityHeaders);
+// CORS preflight (issue #53) — answers OPTIONS on /api/* + /receipt before any route/auth
+// runs, so a cross-origin dashboard deploy (DASHBOARD_ORIGIN set) actually works.
+app.use(corsPreflight);
 mountWebhook(app);
 mountExpenses(app);
 mountReceipt(app);
