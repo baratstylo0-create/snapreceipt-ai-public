@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-category-picker-and-pdf-fix (follow-up, same open PR #74)
+- **Files:** `lib/telegram.js` (new `tgEditMessage`), `lib/bot.js` (`handleCallbackQuery`'s catpick branch + `tryResolveRemark` now edit in place; new module-level `pendingRemarkMessages` Map), `tests/telegram.test.js` (+3), `tests/bot.categorypicker.test.js` (+3), `tests/bot.categorypicker.remark.test.js` (+2).
+- **What changed — Owner feedback on yesterday's category-picker (PR #74, not yet merged):** the picker prompt used to stay in the chat forever with its buttons, and a SEPARATE new message was sent on confirm — leaving a wall of stale button messages if you scroll back. Now the SAME message is edited in place instead:
+  - New `tgEditMessage(chatId, messageId, text)` in `lib/telegram.js` — calls `editMessageText`, always explicitly clears the inline keyboard (`reply_markup:{inline_keyboard:[]}` — Telegram does NOT drop an existing keyboard on its own), same Markdown-rejected-retry-as-plain-text safety net and never-throws contract as `tgSend`.
+  - Tapping a real category: the prompt message is edited straight to "✅ Saved as X" — no new message.
+  - Tapping "Others": the prompt message is edited to "please type a note" (buttons cleared) instead of sending a second message. Since the remark text arrives in a LATER, separate webhook update with no access to that message's id, a best-effort in-memory `pendingRemarkMessages` Map (expenseId -> {chatId, messageId}, same v1 caveat as the existing `groups` media-group buffer) remembers it. `tryResolveRemark` edits that same message into its final "Saved as Others" state once the note arrives, or falls back to sending a fresh message if the mapping is missing (e.g. a bot restart in between) — a cosmetic-only degrade; the expense row itself is always saved regardless.
+  - **Every touched dep is injectable** (`tgEditMessage`, `pendingRemarkMessages`) for hermetic tests, matching the rest of the file's convention.
+- **Tests: 805/805** (+8: `tgEditMessage` unit tests incl. its own Markdown-retry safety net; catpick edit-in-place for both a real category and "Others"; the no-message_id defensive fallback; `tryResolveRemark`'s edit-vs-fallback-send paths).
+- **What's next:** still part of the open, unmerged PR #74 — pushed as an additional commit rather than a new PR. Restarting the local bot for Barat's live re-test.
+- **Assumptions:** none new beyond what #74 already documented; `pendingRemarkMessages` shares the exact same "in-memory, single-process, best-effort" posture already accepted for `groups`.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-category-picker-and-pdf-fix
 - **Files:** `lib/bot.js` (PDF summary parity, batch/single category-picker wiring, `catpick:` callback branch, `tryResolveRemark`), `lib/ocr.js` (`assembleExpense`'s uncertain-category branch, `buildCategoryKeyboard`/`categoryPromptText`/`PENDING_CATEGORY`), `tests/bot.pdf.test.js` (+2), `tests/ingest.test.js` (+4), `tests/ocr.categorypicker.test.js` (new), `tests/bot.categorypicker.test.js` (new), `tests/bot.categorypicker.remark.test.js` (new), `tests/bot.batch.test.js` (+1), `tests/bot.delete.test.js` (2 tests hardened to stay hermetic against the new remark check).
 - **What changed — two Owner requests:**

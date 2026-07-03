@@ -13,19 +13,25 @@ const { CATEGORIES } = require('../lib/categorize');
 
 function baseDeps(over = {}) {
   const sent = [];
+  const edited = [];
   const answered = [];
   const updateCalls = [];
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
+    tgEditMessage: async (chatId, messageId, text) => { edited.push({ chatId, messageId, text }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
     sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
+    pendingRemarkMessages: new Map(), // fresh per test — the real module-level Map is shared/global
     ...over,
   };
-  return { deps, sent, answered, updateCalls };
+  return { deps, sent, edited, answered, updateCalls };
 }
 
 const PENDING_ROW = { id: 'exp-9', merchant: 'Bonda KL', amount: 183.65, currency: 'MYR', status: 'awaiting_category', rep_chat_id: '100' };
+// Every real Telegram button-tap update carries the ORIGINAL message (message_id) — tests
+// that want to exercise the new edit-in-place path use this instead of a bare `{chat:{id}}`.
+const withMessageId = (chatId, messageId) => ({ chat: { id: chatId }, message_id: messageId });
 
 test('tapping a real category: row updated to that category + status saved, confirmation sent', async () => {
   const idx = CATEGORIES.indexOf('Groceries');
@@ -111,4 +117,39 @@ test('a catpick callback never matches the del: branch and vice versa (cross-fea
   const { deps: d2, sent } = baseDeps({ sbSelect: async () => [{ id: 'exp-1', rep_chat_id: '100' }] });
   await handleCallbackQuery({ id: 'x2', data: 'del:exp-1', message: { chat: { id: 100 } } }, d2);
   assert.ok(!sent[0].text.includes('category'), 'del: was handled by the delete branch, not catpick');
+});
+
+// --- Edit-in-place (Owner request 2026-07-04): when the tapped update carries the
+// original message_id (as every real Telegram button tap does), the prompt is EDITED
+// into its final state — buttons cleared, text becomes the confirmation — instead of
+// sending a brand-new message, so the chat doesn't accumulate stale button messages. ---
+
+test('tapping a real category WITH a message_id: the ORIGINAL message is edited, no new message sent', async () => {
+  const idx = CATEGORIES.indexOf('Groceries');
+  const { deps, sent, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cbE1', data: 'catpick:exp-9:' + idx, message: withMessageId(100, 555) }, deps);
+  assert.strictEqual(sent.length, 0, 'no new message — the original is edited instead');
+  assert.strictEqual(edited.length, 1);
+  assert.strictEqual(edited[0].chatId, 100);
+  assert.strictEqual(edited[0].messageId, 555);
+  assert.match(edited[0].text, /Groceries/);
+});
+
+test('tapping "Others" WITH a message_id: the prompt is edited in place AND remembered for later', async () => {
+  const { deps, sent, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cbE2', data: 'catpick:exp-9:others', message: withMessageId(100, 556) }, deps);
+  assert.strictEqual(sent.length, 0);
+  assert.strictEqual(edited.length, 1);
+  assert.strictEqual(edited[0].messageId, 556);
+  assert.match(edited[0].text, /type a short note/i);
+  assert.deepStrictEqual(deps.pendingRemarkMessages.get('exp-9'), { chatId: 100, messageId: 556 });
+});
+
+test('a catpick callback with NO message_id (defensive fallback) still sends a normal new message, no crash', async () => {
+  const idx = CATEGORIES.indexOf('Groceries');
+  const { deps, sent, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cbE3', data: 'catpick:exp-9:' + idx, message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(edited.length, 0);
+  assert.strictEqual(sent.length, 1);
+  assert.match(sent[0].text, /Groceries/);
 });
