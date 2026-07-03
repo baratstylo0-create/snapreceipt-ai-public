@@ -37,6 +37,7 @@
         if (name === 'Templates') return require('./components/templates');
         if (name === 'Reports') return require('./components/reports');
         if (name === 'Agent') return require('./components/agent');
+        if (name === 'RateMeter') return require('./components/ratemeter');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -188,6 +189,12 @@
     var nav = Nav.buildNav({ onSelect: select, onToggleTheme: toggleTheme });
     if (header && nav) { header.textContent = ''; header.appendChild(nav.el); }
 
+    // Rate-limit "% used" meter — a header chip that reads Barat's RateLimit-* trip
+    // (via Api.onRateLimit) and warns near the edge. Hidden until the first limited
+    // response arrives. Optional (older cached bundles may lack it) so it never blocks boot.
+    var RateMeter = deps.RateMeter;
+    if (header && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(header, deps);
+
     var instances = mount ? buildViews(Nav, mount, deps) : {};
 
     function select(id) {
@@ -209,6 +216,7 @@
       Escape: dep('Escape'), Api: dep('Api'), AuthGate: dep('AuthGate'), Nav: dep('Nav'),
       Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
+      RateMeter: dep('RateMeter'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
