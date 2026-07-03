@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { tgSend } = require('../lib/telegram');
+const { tgSend, tgAnswerCallback } = require('../lib/telegram');
 
 // Stub global.fetch (tgSend -> hreq -> fetch). Each call returns the next queued
 // Telegram API body; records the request body sent so we can assert parse_mode.
@@ -59,5 +59,23 @@ test('tgSend never throws on a network error (fetch rejects)', async () => {
   global.fetch = async () => { throw new Error('ECONNRESET'); };
   try {
     await assert.doesNotReject(() => tgSend(1, 'anything'));
+  } finally { global.fetch = realFetch; }
+});
+
+test('tgAnswerCallback posts callback_query_id + opts to answerCallbackQuery', async () => {
+  const s = stubTelegram([{ ok: true }]);
+  try {
+    await tgAnswerCallback('cbid1', { text: 'Deleted' });
+    assert.strictEqual(s.calls.length, 1);
+    assert.strictEqual(s.calls[0].callback_query_id, 'cbid1');
+    assert.strictEqual(s.calls[0].text, 'Deleted');
+  } finally { s.restore(); }
+});
+
+test('tgAnswerCallback never throws on a network error (fetch rejects)', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('ECONNRESET'); };
+  try {
+    await assert.doesNotReject(() => tgAnswerCallback('cbid2'));
   } finally { global.fetch = realFetch; }
 });

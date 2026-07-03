@@ -53,3 +53,27 @@ test('chat id type-agnostic: numeric chat id matches its string form in the allo
   await handleUpdate(photo(1979799104), deps); // numeric id, string allowlist entry
   assert.deepStrictEqual(ran, ['photo:1979799104']);
 });
+
+// SECURITY: the allowlist gate must cover callback_query updates (inline-keyboard button
+// taps, e.g. the delete confirm/cancel buttons) exactly like message updates — a stranger
+// must not be able to act on the bot just because they got a button in front of them.
+test('allowlist set: a callback_query from a NON-allowed chat is blocked, handleCallbackQuery never runs', async () => {
+  let callbackRan = false;
+  const acked = [];
+  const deps = {
+    allowedChatIds: ['1376793145'],
+    tgSend: async () => { throw new Error('must not reply to a stranger callback'); },
+    tgAnswerCallback: async (id) => { acked.push(id); },
+    handleCallbackQuery: async () => { callbackRan = true; },
+  };
+  await handleUpdate({ callback_query: { id: 'cbS', data: 'del:x', message: { chat: { id: 999999 } } } }, deps);
+  assert.strictEqual(callbackRan, false, 'a stranger\'s button tap must never reach handleCallbackQuery');
+  assert.deepStrictEqual(acked, ['cbS'], 'the button must still be acked so it does not spin forever');
+});
+
+test('allowlist set: a callback_query from an ALLOWED chat reaches handleCallbackQuery normally', async () => {
+  let seen = null;
+  const deps = { allowedChatIds: ['1979799104'], handleCallbackQuery: async (cq) => { seen = cq; } };
+  await handleUpdate({ callback_query: { id: 'cbA', data: 'del:x', message: { chat: { id: 1979799104 } } } }, deps);
+  assert.strictEqual(seen && seen.id, 'cbA');
+});
