@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-03 · Claude-J1 (for Jeevan) · docs/jeevan-mugi-frontend-onboarding
+- **Files:** `docs/STATUS.md` (rewritten to current reality), `docs/roles/MUGI.md` (rewritten for the modular frontend + new workflow), this WORKLOG.
+- **Why:** Owner is bringing Mugi onto the production frontend and wants the repo self-explanatory so Mugi's Claude doesn't drift. Audited what Mugi needs — the substance is all there (PROJECT_BRIEF = main report, ARCHITECTURE §3 = frozen API contract, a COMPLETE working reference frontend in `public/`, the reference-frontend plan, QA plans). But two docs the startup ritual FORCES a fresh Claude to read were badly stale and would cause exactly the drift the Owner is worried about:
+  - **STATUS.md** claimed the frontend was unmerged on a branch, "522 tests", "Task H pending", Mugi "parked" — reality is 775 tests on `main`, everything merged, personal M1 live-E2E-verified. Rewrote to current state (M1 feature-complete + verified; Mugi starting frontend; voucher DB migration + receipt-image storage + `M/S Cash` data question as the live open items).
+  - **MUGI.md** described the frontend as a single `public/index.html` — it's actually a modular no-build app (`public/js/components/*`, shipped in the reference-frontend effort). Rewrote to: where the real files are, the current full `/api/*` endpoint inventory (incl. `/api/config`, `/api/review`, `/api/excel`, `/receipt/:fileId` — not in the old list), the Owner's new workflow (Mugi delivers a design/concept → Jeevan's team adapts our source to it against the frozen contract), the receipt-image caveat, and the escape/XSS rules.
+- **What's next:** Mugi's Claude scans repo (startup chain) → studies `public/` reference frontend → produces production design/concept. Jeevan adds Mugi as GH collaborator once he has the username. Non-doc open items unchanged (voucher live migration, receipt-image spec).
+- **Assumptions:** Mugi's deliverable is primarily a design/concept (per Owner), with the team integrating — so MUGI.md frames `public/` as reference + starting point, not a file he necessarily rewrites in place. STATUS/MUGI/WORKLOG are shared governance docs (not lane-owned code), safe for J1 to update.
+
 ## 2026-07-03 · Claude-J1 (for Jeevan) · fix/jeevan-e2e-edit-and-agent-currency
 - **Files:** `public/js/components/activity.js`, `lib/agent.js`, this WORKLOG.
 - **What changed — 2 real bugs found doing Owner's #1-goal E2E walkthrough (dashboard upload → OCR → save → list/filter → edit → category → currency → Excel → agent chat → reports → review queue), live against the real Supabase (`xurnpvesgcybrnilxszf`) + Groq:**
