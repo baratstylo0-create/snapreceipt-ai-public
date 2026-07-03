@@ -7,6 +7,8 @@
 
 **main = e183181, 764 tests green.** `npm install` first. **GOTCHA: repo-root `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.** A local server may still be running on `:3001`.
 
+> **Attribution correction:** this whole 2026-07-03 session (the LATEST-2 & LATEST-3 blocks below, PR #69/#70/#71, and the matching `WORKLOG.md` entries) was run by **Claude-J2**, not J1 — those already-merged labels say "Claude-J1" but that's a mislabel, left as frozen append-only history. **J1 handles all merges** (PRs #70 voucher-spec, #71 this handoff, + Barat's incoming voucher build).
+
 ### OWNER'S #1 GOAL — personal-account, end-to-end, everything connected + working TOP-TIER
 He wants to **TEST EVERY FEATURE** before M2 (B2B). **Mugi stays BLOCKED, M2 deferred** until Owner signs off personal is solid. Your job = make the full personal flow work + verify it: dashboard upload → OCR → save → list/filter → edit → category (18) → currency (MYR) → Excel export → AI agent chat → reports → review queue. Run the server, exercise each, fix what's broken.
 
