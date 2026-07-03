@@ -595,6 +595,7 @@
       } else {
         input = el('input', 'act-field-input');
         input.type = type || 'text';
+        if (type === 'number') input.step = 'any'; // amounts have cents; default step=1 rejects e.g. 21.20
         input.value = str(rowObj[key]);
       }
       input.addEventListener('input', function () { edited[key] = input.value; });
