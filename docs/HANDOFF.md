@@ -3,7 +3,7 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST-3 — Owner wants full personal-account E2E testing; images broken; voucher signed off)
+## ⚡ SESSION END — Claude-J2 (handoff to J1). READ THIS FIRST. (2026-07-03, LATEST-3 — Owner wants full personal-account E2E testing; images broken; voucher signed off)
 
 **main = e183181, 764 tests green.** `npm install` first. **GOTCHA: repo-root `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.** A local server may still be running on `:3001`.
 
