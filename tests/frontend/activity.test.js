@@ -14,6 +14,7 @@ const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
+  resolveCategories, labelFor,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -163,17 +164,198 @@ test('badgesFor is defensive against null/garbage rows', () => {
   assert.deepStrictEqual(badgesFor({}), []);
 });
 
-// --- categoryColor --------------------------------------------------------
+// --- categoryColor ----------------------------------------------------------
+// Deterministic palette-index colour assignment (dynamic-categories fix): with
+// 18+ real chart-of-accounts categories (lib/categorize.js CATEGORIES), a
+// hardcoded name->class map doesn't scale and drifts (the bug this branch
+// fixes). categoryColor now hashes ANY category string to one of a fixed
+// palette of class suffixes ('c0'..'c9'); only empty/null/'Others' get the
+// dedicated neutral 'others' bucket — an arbitrary unmatched real category
+// (e.g. "Mystery") gets its own stable palette slot, NOT silently merged into
+// Others (that silent-merge was the old, stale 5-bucket behaviour).
 
-test('categoryColor maps the known categories to stable class suffixes', () => {
-  ['Food', 'Petrol', 'Software', 'Inventory', 'Others'].forEach((c) => {
-    assert.strictEqual(typeof categoryColor(c), 'string');
-    assert.ok(categoryColor(c).length > 0);
+test('categoryColor: same category string always maps to the same colour', () => {
+  ['Meals & Entertainment', 'Groceries', 'Fuel & Auto', 'Software & Subscriptions', 'Random Category']
+    .forEach((c) => {
+      const a = categoryColor(c);
+      const b = categoryColor(c);
+      assert.strictEqual(a, b);
+      assert.strictEqual(typeof a, 'string');
+      assert.ok(a.length > 0);
+    });
+});
+
+test('categoryColor: is case-insensitive / trims whitespace for the SAME identity', () => {
+  assert.strictEqual(categoryColor('Groceries'), categoryColor('groceries'));
+  assert.strictEqual(categoryColor('Groceries'), categoryColor('  Groceries  '));
+  assert.strictEqual(categoryColor('Groceries'), categoryColor('GROCERIES'));
+});
+
+test('categoryColor: different strings are spread across the palette (not all one colour)', () => {
+  const categories = [
+    'Meals & Entertainment', 'Groceries', 'Fuel & Auto', 'Travel', 'Lodging',
+    'Software & Subscriptions', 'Office Supplies', 'Utilities', 'Rent & Lease',
+    'Professional Services', 'Marketing & Advertising', 'Inventory & COGS',
+    'Equipment & Hardware', 'Shipping & Postage', 'Bank & Fees', 'Healthcare',
+    'Education & Training',
+  ];
+  const colors = new Set(categories.map((c) => categoryColor(c)));
+  // Not a strict pigeonhole (hash collisions are fine) but it must not collapse
+  // to a single bucket for 17 distinct real category names.
+  assert.ok(colors.size > 3, 'expected categories to spread across multiple palette slots, got ' + colors.size);
+});
+
+test('categoryColor: empty / "Others" / undefined fall back to the neutral "others" bucket', () => {
+  assert.strictEqual(categoryColor(null), 'others');
+  assert.strictEqual(categoryColor(undefined), 'others');
+  assert.strictEqual(categoryColor(''), 'others');
+  assert.strictEqual(categoryColor('   '), 'others');
+  assert.strictEqual(categoryColor('Others'), 'others');
+  assert.strictEqual(categoryColor('others'), 'others');
+  assert.strictEqual(categoryColor('OTHERS'), 'others');
+});
+
+test('categoryColor: a real, unmatched category gets its OWN slot, not silently merged into Others', () => {
+  // This is the exact behaviour the old hardcoded 5-bucket categoryColor got
+  // wrong (any unknown category silently became "Others" grey).
+  assert.notStrictEqual(categoryColor('Mystery Category'), categoryColor('Others'));
+});
+
+test('categoryColor: never throws on weird input', () => {
+  [123, true, false, {}, [], NaN, Symbol('x'), function () {}].forEach((v) => {
+    assert.doesNotThrow(() => categoryColor(v));
+    assert.strictEqual(typeof categoryColor(v), 'string');
   });
-  // Case-insensitive, and unknowns fall back to the Others bucket.
-  assert.strictEqual(categoryColor('food'), categoryColor('Food'));
-  assert.strictEqual(categoryColor('Mystery'), categoryColor('Others'));
-  assert.strictEqual(categoryColor(null), categoryColor('Others'));
+});
+
+test('categoryColor: returned class suffix is always drawn from a small fixed palette', () => {
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) seen.add(categoryColor('Category #' + i));
+  seen.forEach((s) => assert.ok(/^(c\d+|others)$/.test(s), 'unexpected class suffix: ' + s));
+  // The palette is small and fixed (~8-10 colours) so 200 distinct names must
+  // collapse into a small set of slots, not 200 unique classes.
+  assert.ok(seen.size <= 12, 'expected a small fixed palette, got ' + seen.size + ' distinct classes');
+});
+
+// --- resolveCategories -------------------------------------------------------
+// Builds the live category list the filter dropdown / edit-drawer dropdown use,
+// from a /api/config-shaped response ({ categories: [...] }). Falls back to a
+// small safe default when the config hasn't resolved yet / is malformed, so the
+// dropdown is never empty and the app never throws.
+
+test('resolveCategories: returns the real category list from a live /api/config-shaped object', () => {
+  const REAL_18 = [
+    'Meals & Entertainment', 'Groceries', 'Fuel & Auto', 'Travel', 'Lodging',
+    'Software & Subscriptions', 'Office Supplies', 'Utilities', 'Rent & Lease',
+    'Professional Services', 'Marketing & Advertising', 'Inventory & COGS',
+    'Equipment & Hardware', 'Shipping & Postage', 'Bank & Fees', 'Healthcare',
+    'Education & Training', 'Others',
+  ];
+  const cfg = { auth_required: false, default_currency: 'USD', categories: REAL_18 };
+  const out = resolveCategories(cfg);
+  assert.deepStrictEqual(out, REAL_18);
+  assert.strictEqual(out.length, 18);
+  // Not the old stale 5-name stub.
+  assert.ok(out.includes('Meals & Entertainment'));
+  assert.ok(!Object.is(out, ['Food', 'Petrol', 'Software', 'Inventory', 'Others']));
+});
+
+test('resolveCategories: config not yet resolved (undefined/null) falls back to a safe default list', () => {
+  assert.deepStrictEqual(resolveCategories(undefined), ['Others']);
+  assert.deepStrictEqual(resolveCategories(null), ['Others']);
+  assert.doesNotThrow(() => resolveCategories());
+});
+
+test('resolveCategories: malformed categories field (missing / not an array / empty) falls back safely', () => {
+  assert.deepStrictEqual(resolveCategories({}), ['Others']);
+  assert.deepStrictEqual(resolveCategories({ categories: null }), ['Others']);
+  assert.deepStrictEqual(resolveCategories({ categories: 'not-an-array' }), ['Others']);
+  assert.deepStrictEqual(resolveCategories({ categories: [] }), ['Others']);
+  assert.deepStrictEqual(resolveCategories({ categories: 123 }), ['Others']);
+});
+
+test('resolveCategories: never throws on hostile/garbage input', () => {
+  [null, undefined, 123, 'x', [], { categories: [1, 2, {}] }, { categories: [null, undefined] }].forEach((v) => {
+    assert.doesNotThrow(() => resolveCategories(v));
+  });
+});
+
+// --- labelFor (FieldSpec-aware labels) --------------------------------------
+// labelFor(key, fieldSpec, fallback) looks up the customer's own field label
+// from their FieldSpec (GET /api/templates -> { columns:[{key,label,...}] })
+// and falls back to the hardcoded English label when the key isn't present or
+// the FieldSpec is missing/malformed. Pure, never throws.
+
+function fieldSpec(columns) {
+  return { account_id: 'default', columns: columns, updated_at: '2026-07-01T00:00:00Z' };
+}
+
+test('labelFor: returns the customer\'s own label when the key exists in their FieldSpec', () => {
+  const spec = fieldSpec([{ key: 'merchant', label: 'Vendor', type: 'text', required: true }]);
+  assert.strictEqual(labelFor('merchant', spec, 'Merchant'), 'Vendor');
+});
+
+test('labelFor: falls back to the hardcoded label when the key is absent from the FieldSpec', () => {
+  const spec = fieldSpec([{ key: 'amount', label: 'Total', type: 'number', required: true }]);
+  assert.strictEqual(labelFor('merchant', spec, 'Merchant'), 'Merchant');
+});
+
+test('labelFor: falls back when fieldSpec is null/undefined/malformed', () => {
+  assert.strictEqual(labelFor('merchant', null, 'Merchant'), 'Merchant');
+  assert.strictEqual(labelFor('merchant', undefined, 'Merchant'), 'Merchant');
+  assert.strictEqual(labelFor('merchant', {}, 'Merchant'), 'Merchant');
+  assert.strictEqual(labelFor('merchant', 'garbage', 'Merchant'), 'Merchant');
+  assert.strictEqual(labelFor('merchant', 123, 'Merchant'), 'Merchant');
+});
+
+test('labelFor: falls back when fieldSpec.columns is missing or not an array', () => {
+  assert.strictEqual(labelFor('merchant', { account_id: 'x' }, 'Merchant'), 'Merchant');
+  assert.strictEqual(labelFor('merchant', { columns: 'not-an-array' }, 'Merchant'), 'Merchant');
+  assert.strictEqual(labelFor('merchant', { columns: null }, 'Merchant'), 'Merchant');
+});
+
+test('labelFor: falls back when the matching column has no usable label', () => {
+  const spec = fieldSpec([{ key: 'merchant', label: '', type: 'text' }]);
+  assert.strictEqual(labelFor('merchant', spec, 'Merchant'), 'Merchant');
+  const spec2 = fieldSpec([{ key: 'merchant', label: null, type: 'text' }]);
+  assert.strictEqual(labelFor('merchant', spec2, 'Merchant'), 'Merchant');
+  const spec3 = fieldSpec([{ key: 'merchant' }]);
+  assert.strictEqual(labelFor('merchant', spec3, 'Merchant'), 'Merchant');
+});
+
+test('labelFor: never throws on hostile/garbage columns entries', () => {
+  const spec = fieldSpec([null, undefined, 123, 'x', {}, { key: null, label: 'y' }]);
+  assert.doesNotThrow(() => labelFor('merchant', spec, 'Merchant'));
+  assert.strictEqual(labelFor('merchant', spec, 'Merchant'), 'Merchant');
+});
+
+test('labelFor: a hostile customer-supplied label is returned as-is (raw) — rendering, not this function, must escape it', () => {
+  const spec = fieldSpec([{ key: 'merchant', label: '<script>alert(1)</script>', type: 'text' }]);
+  assert.strictEqual(labelFor('merchant', spec, 'Merchant'), '<script>alert(1)</script>');
+});
+
+test('labelFor: a hostile FieldSpec label used as a header is inert once escaped at render time (mirrors the file\'s XSS bar)', () => {
+  const spec = fieldSpec([{ key: 'merchant', label: '<img src=x onerror=alert(1)>', type: 'text' }]);
+  const label = labelFor('merchant', spec, 'Merchant');
+  const escaped = Escape.safeText(label);
+  assert.ok(escaped.indexOf('<img') === -1, 'raw <img> must not survive escaping');
+  assert.ok(escaped.indexOf('onerror') !== -1 && escaped.indexOf('<') === -1);
+});
+
+test('labelFor: works for every known table column key', () => {
+  const spec = fieldSpec([
+    { key: 'merchant', label: 'Vendor' },
+    { key: 'expense_date', label: 'Txn Date' },
+    { key: 'amount', label: 'Total Due' },
+    { key: 'category', label: 'Bucket' },
+  ]);
+  assert.strictEqual(labelFor('merchant', spec, 'Merchant'), 'Vendor');
+  assert.strictEqual(labelFor('expense_date', spec, 'Date'), 'Txn Date');
+  assert.strictEqual(labelFor('amount', spec, 'Amount'), 'Total Due');
+  assert.strictEqual(labelFor('category', spec, 'Category'), 'Bucket');
+  // status is a system concept never present in a customer FieldSpec — always
+  // the hardcoded fallback regardless of what's in columns.
+  assert.strictEqual(labelFor('status', spec, 'Status'), 'Status');
 });
 
 // --- patchBody ------------------------------------------------------------

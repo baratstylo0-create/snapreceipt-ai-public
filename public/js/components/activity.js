@@ -28,7 +28,14 @@
   // account_id is DELIBERATELY absent — the server scopes it; the client must
   // never send it.
   var EDITABLE = ['merchant', 'expense_date', 'amount', 'currency', 'category', 'status', 'remark'];
-  var KNOWN_CATEGORIES = ['Food', 'Petrol', 'Software', 'Inventory', 'Others'];
+
+  // DYNAMIC CATEGORIES (bug fix): the category list is no longer a hardcoded,
+  // driftable 5-name stub — it now comes live from GET /api/config's
+  // `categories` field (sourced from lib/categorize.js's real ~18-category
+  // chart of accounts). DEFAULT_CATEGORIES is ONLY the safe fallback used
+  // before that config has resolved, or if it comes back malformed — never the
+  // list actually shown once config is available. See resolveCategories().
+  var DEFAULT_CATEGORIES = ['Others'];
   var DEFAULT_PAGE_SIZE = 20;
 
   // ---- pure helpers -------------------------------------------------------
@@ -44,13 +51,73 @@
 
   function str(v) { return v === null || v === undefined ? '' : String(v); }
 
-  // Category name -> a stable, lowercase class suffix. Case-insensitive; unknown
-  // categories (incl. null) bucket into "others". Used by render to pick a pill
-  // colour class (.act-pill--food etc). Never returns markup.
+  // Fixed palette size for the deterministic category-colour hash below. Matches
+  // the .act-pill--c0 .. .act-pill--c9 classes in app.css.
+  var PALETTE_SIZE = 10;
+
+  // Small, stable string hash (djb2-ish). Pure, deterministic, never throws —
+  // coerces any input to a string first via str().
+  function hashString(s) {
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) {
+      h = ((h << 5) + h + s.charCodeAt(i)) | 0; // h*33 + c, kept in 32-bit range
+    }
+    return Math.abs(h);
+  }
+
+  // Category name -> a stable class suffix ('c0'..'c9', or 'others' for the
+  // neutral grey bucket). Replaces the old hardcoded 5-name map (the bug this
+  // branch fixes): with 18+ real chart-of-accounts categories, a name->class
+  // table doesn't scale and drifts. Instead every category string hashes
+  // deterministically to one of a fixed palette of ~10 colours, so ANY real
+  // category gets a consistent, visually distinct pill without a hardcoded
+  // per-name mapping. Only empty/null/undefined/"Others" (case-insensitive)
+  // map to the dedicated neutral 'others' grey — an arbitrary unmatched
+  // category gets its own palette slot, not silently merged into Others.
+  // Case-insensitive/whitespace-insensitive so 'Food' and '  food  ' agree.
+  // Never returns markup; never throws on weird input (numbers, objects, etc).
   function categoryColor(name) {
     var key = str(name).trim().toLowerCase();
-    var known = { food: 'food', petrol: 'petrol', software: 'software', inventory: 'inventory', others: 'others' };
-    return known[key] || 'others';
+    if (key === '' || key === 'others') return 'others';
+    return 'c' + (hashString(key) % PALETTE_SIZE);
+  }
+
+  // Build the live category list for the filter/edit dropdowns from a
+  // /api/config-shaped object ({ categories: [...] }, see routes/expenses.js).
+  // Falls back to a small hardcoded safe default (DEFAULT_CATEGORIES) when the
+  // config hasn't resolved yet (undefined/null), or comes back malformed
+  // (categories missing / not an array / empty / non-string entries) — the
+  // dropdown must never be empty and this must never throw.
+  function resolveCategories(config, fallback) {
+    var fb = Array.isArray(fallback) && fallback.length ? fallback : DEFAULT_CATEGORIES;
+    if (!config || typeof config !== 'object') return fb;
+    var cats = config.categories;
+    if (!Array.isArray(cats) || !cats.length) return fb;
+    var clean = cats.filter(function (c) { return typeof c === 'string' && c.trim() !== ''; });
+    return clean.length ? clean : fb;
+  }
+
+  // FieldSpec-aware label lookup: key -> the customer's own field label from
+  // GET /api/templates ({ columns:[{key,label,...}] }), falling back to the
+  // hardcoded English label when the key isn't present in their FieldSpec, or
+  // the FieldSpec/columns is missing/malformed. Pure — does NOT escape; the
+  // caller must route the result through Escape.setText/safeText at render
+  // time (a FieldSpec label is customer-supplied, untrusted text). Never
+  // throws on garbage input.
+  function labelFor(key, fieldSpec, fallback) {
+    var fb = fallback === undefined ? '' : fallback;
+    if (!fieldSpec || typeof fieldSpec !== 'object') return fb;
+    var columns = fieldSpec.columns;
+    if (!Array.isArray(columns)) return fb;
+    for (var i = 0; i < columns.length; i++) {
+      var col = columns[i];
+      if (col && typeof col === 'object' && col.key === key) {
+        var label = col.label;
+        if (typeof label === 'string' && label !== '') return label;
+        return fb;
+      }
+    }
+    return fb;
   }
 
   // Row -> list of badge descriptors (raw data; render escapes). Kinds:
@@ -290,7 +357,8 @@
     var catSel = el('select', 'act-filter act-filter--category');
     catSel.setAttribute('aria-label', 'Filter by category');
     var allOpt = el('option'); allOpt.value = 'all'; Escape.setText(allOpt, 'All categories'); catSel.appendChild(allOpt);
-    KNOWN_CATEGORIES.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); catSel.appendChild(o); });
+    var toolbarCategories = Array.isArray(state.categories) ? state.categories : DEFAULT_CATEGORIES;
+    toolbarCategories.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); catSel.appendChild(o); });
     catSel.value = state.filterCategory || 'all';
     catSel.addEventListener('change', function () { onChange({ filterCategory: catSel.value, page: 1 }); });
     bar.appendChild(catSel);
@@ -356,15 +424,31 @@
     return th;
   }
 
+  // FieldSpec-aware labels for the table's known column keys (merchant,
+  // expense_date, amount, category) — customer's own label when present in
+  // their FieldSpec, else the current hardcoded English fallback. `status` is
+  // a system concept, never part of any customer FieldSpec, so it is NOT
+  // looked up here — always the hardcoded label.
+  function columnLabels(fieldSpec) {
+    return {
+      merchant: labelFor('merchant', fieldSpec, 'Merchant'),
+      expense_date: labelFor('expense_date', fieldSpec, 'Date'),
+      amount: labelFor('amount', fieldSpec, 'Amount'),
+      category: labelFor('category', fieldSpec, 'Category'),
+      status: 'Status',
+    };
+  }
+
   function buildTable(page, state, handlers) {
+    var labels = columnLabels(state.fieldSpec);
     var table = el('table', 'act-table');
     var thead = el('thead');
     var htr = el('tr');
-    htr.appendChild(textCell('th', 'act-th', 'Merchant'));
-    htr.appendChild(sortableTh('Date', 'date', state, handlers.onChange));
-    htr.appendChild(sortableTh('Amount', 'amount', state, handlers.onChange));
-    htr.appendChild(textCell('th', 'act-th', 'Category'));
-    htr.appendChild(textCell('th', 'act-th', 'Status'));
+    htr.appendChild(textCell('th', 'act-th', labels.merchant));
+    htr.appendChild(sortableTh(labels.expense_date, 'date', state, handlers.onChange));
+    htr.appendChild(sortableTh(labels.amount, 'amount', state, handlers.onChange));
+    htr.appendChild(textCell('th', 'act-th', labels.category));
+    htr.appendChild(textCell('th', 'act-th', labels.status));
     thead.appendChild(htr);
     table.appendChild(thead);
 
@@ -477,7 +561,12 @@
 
   // ---- render: detail drawer ---------------------------------------------
 
-  function buildDrawer(rowObj, handlers) {
+  function buildDrawer(rowObj, handlers, drawerOpts) {
+    drawerOpts = drawerOpts || {};
+    var categories = Array.isArray(drawerOpts.categories) ? drawerOpts.categories : DEFAULT_CATEGORIES;
+    var fieldSpec = drawerOpts.fieldSpec;
+    var labels = columnLabels(fieldSpec);
+
     var drawer = el('aside', 'act-drawer');
     drawer.setAttribute('role', 'dialog');
     drawer.setAttribute('aria-label', 'Expense detail');
@@ -501,7 +590,7 @@
       var input;
       if (key === 'category') {
         input = el('select', 'act-field-input');
-        KNOWN_CATEGORIES.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); input.appendChild(o); });
+        categories.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); input.appendChild(o); });
         input.value = str(rowObj[key]) || 'Others';
       } else {
         input = el('input', 'act-field-input');
@@ -514,12 +603,12 @@
       return wrap;
     }
 
-    form.appendChild(field('merchant', 'Merchant'));
-    form.appendChild(field('expense_date', 'Date'));
-    form.appendChild(field('amount', 'Amount', 'number'));
+    form.appendChild(field('merchant', labels.merchant));
+    form.appendChild(field('expense_date', labels.expense_date));
+    form.appendChild(field('amount', labels.amount, 'number'));
     form.appendChild(field('currency', 'Currency'));
-    form.appendChild(field('category', 'Category'));
-    form.appendChild(field('status', 'Status'));
+    form.appendChild(field('category', labels.category));
+    form.appendChild(field('status', labels.status));
     form.appendChild(field('remark', 'Remark'));
 
     var actions = el('div', 'act-drawer-actions');
@@ -650,11 +739,18 @@
     rootEl.appendChild(reviewHead);
     rootEl.appendChild(reviewArea);
 
+    // DYNAMIC CATEGORIES: reuse the config already fetched at boot (app.js's
+    // deps.config, set once GET /api/config resolves) rather than issuing a
+    // second, redundant /api/config call here. If boot's fetch hasn't resolved
+    // yet (or failed) opts.config is absent/undefined and resolveCategories
+    // falls back to DEFAULT_CATEGORIES — never an empty dropdown, never a throw.
     var state = {
       loaded: false, loading: false, rows: [],
       search: '', filterStatus: 'all', filterCategory: 'all', dateFrom: '', dateTo: '',
       sortBy: 'date', sortDir: 'desc', page: 1, pageSize: DEFAULT_PAGE_SIZE,
       viewMode: getStoredViewMode(storageRoot),
+      categories: resolveCategories(opts.config),
+      fieldSpec: null,
     };
     var reviewState = { loading: false, loaded: false, rows: [] };
 
@@ -715,7 +811,7 @@
             })
             .catch(function () { Escape.setText(statusEl, 'Delete failed. Please try again.'); });
         },
-      }));
+      }, { categories: state.categories, fieldSpec: state.fieldSpec }));
     }
 
     function renderReview() {
@@ -751,6 +847,21 @@
       }).catch(function () { reviewState.loading = false; reviewState.error = true; renderReview(); });
     }
 
+    // FieldSpec-aware labels (Task: dynamic categories + FieldSpec labels): fetch
+    // the account's current field template the same way templates.js does
+    // (Api.apiFetch('/api/templates'), always-200 per lib/templates.js). On
+    // success, build the key->label lookup used by columnLabels()/buildDrawer.
+    // On failure, state.fieldSpec stays null and labelFor's fallback (the
+    // current hardcoded English labels) is used everywhere — never a throw,
+    // never a blocked render.
+    function loadFieldSpec() {
+      if (!apiFetch) return;
+      apiFetch('/api/templates').then(function (spec) {
+        state.fieldSpec = spec && typeof spec === 'object' ? spec : null;
+        renderTable();
+      }).catch(function () { /* keep state.fieldSpec null -> fallback labels */ });
+    }
+
     function load(force) {
       if ((state.loading || state.loaded) && !force) { return; }
       if (!apiFetch) return;
@@ -761,6 +872,7 @@
         renderTable();
       }).catch(function () { state.loading = false; state.error = true; renderTable(); });
       loadReview();
+      loadFieldSpec();
     }
 
     return { el: rootEl, load: load };
@@ -771,6 +883,8 @@
     filterSortPage: filterSortPage,
     badgesFor: badgesFor,
     categoryColor: categoryColor,
+    resolveCategories: resolveCategories,
+    labelFor: labelFor,
     patchBody: patchBody,
     receiptPath: receiptPath,
     normaliseViewMode: normaliseViewMode,
