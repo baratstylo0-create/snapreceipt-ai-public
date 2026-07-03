@@ -187,6 +187,32 @@ it with a debug loop. Playbooks: `docs/roles/QA.md`, `docs/roles/DEBUG.md`.
   Stacking QA on trivial changes is process-for-its-own-sake and is itself a gate failure.
 - These are **on-demand roles, not standing processes** — ephemeral subagents, dispatched per need.
 
+### 4.9 Model selection — Opus drives, Sonnet executes
+**The judgment call stays on the driving session; well-scoped execution goes to a cheaper model.**
+Applies to J1/J2 and any Claude dispatching subagents (via the Agent tool's `model` parameter).
+
+- **The driving session (the one talking to the Owner/team) runs Opus.** This is where the expensive
+  thinking happens: architecture calls, spotting a bug from a screenshot or a stray log line, deciding
+  what's in/out of scope, reviewing a teammate's PR, writing specs. Don't downgrade this to save
+  cost — the bugs it catches (e.g. a stale hardcoded value silently drifting from its real source of
+  truth, or a documented contract that was never actually implemented) are worth far more than the
+  token savings. Two real examples this project already hit this way: the dashboard's category list
+  silently drifting from the real categorizer's list, and a batch-upload path whose own spec said it
+  inserted a row but never did — both found by careful reading in the driving session, not by a
+  subagent executing a pre-written spec.
+- **Implementation subagents dispatched for a precisely-scoped task run on Sonnet** (`model: "sonnet"`
+  in the Agent tool call). "Precisely scoped" means: exact files named, requirements enumerated, test
+  cases specified — the driving session already did the judgment work; the subagent is executing a
+  plan, not discovering one. Sonnet is fast, materially cheaper, and fully capable at this level once
+  the prompt is that tight (this is the same "least powerful model that can handle the role" principle
+  `superpowers:subagent-driven-development` already states — this section makes it the project default).
+- **QA/adversarial-review subagents (§4.8) stay on Opus (or the driving session's model).** Hunting for
+  edge cases and exploits is itself a judgment task, not an execution task — don't downgrade it.
+- **The test, in one line:** if the subagent's job is "build exactly this, as specified" → Sonnet. If
+  its job is "figure out what's wrong / what's missing / whether this is safe" → Opus.
+- This governs subagents only — it does not control what model the Owner runs the driving session on
+  (that's their `/model` choice); it's guidance for what J1/J2 pick when *they* dispatch work.
+
 ---
 
 ## 5. The phase model (ordered, gated — mirrors the 16-layer stack)
@@ -303,7 +329,8 @@ Kept in `docs/` and updated **as work happens**, not at the end:
 ## 10. Quick "do / don't" card for every Claude Code
 
 **DO:** read the 6 startup docs → claim one task → branch → small commits → validate all input
-→ write tests → update WORKLOG every push → open a PR → ask when unsure.
+→ write tests → update WORKLOG every push → open a PR → ask when unsure → dispatch well-scoped
+implementation subagents on Sonnet, keep judgment/review work on Opus (§4.9).
 
 **DON'T:** push to `main` or merge your own PR (Claudes never merge to `main`; only Owner/Deputy
 merge approved PRs) → skip a phase/gate → start coding before the Brief is complete → add
