@@ -19,6 +19,7 @@ const assert = require('node:assert');
 const Templates = require('../../public/js/components/templates');
 const Escape = require('../../public/js/escape');
 const { buildImportBody, summarizeFieldSpec, errorMessage } = Templates;
+const { buildCsvHeader, namedFields, canSaveBuilder } = Templates;
 
 // --- buildImportBody -------------------------------------------------------
 
@@ -185,4 +186,146 @@ test('a hostile body.error is inert once routed through Escape.safeText (defense
   assert.strictEqual(msg, hostile); // errorMessage itself does not mutate/escape
   const safe = Escape.safeText(msg);
   assert.doesNotMatch(safe, /<script>/);
+});
+
+// --- visual field builder (Task E, additive) --------------------------------
+// Lets a customer with no CSV know-how build the field list visually: a list of
+// {name, type, required} rows -> a CSV header row -> the SAME POST /api/templates
+// path the paste/upload flow already uses (buildImportBody). Read from
+// lib/templates.js's parseTemplate: a header-only CSV can only carry field
+// NAMES — type/required on the resulting FieldSpec column come from parseTemplate's
+// CANON dictionary match (or default text/not-required for unrecognised names),
+// never from anything the client sends. So type/required here are UI intent only;
+// they do not reliably round-trip. buildCsvHeader only ever emits names.
+
+// --- namedFields (pure filter: drop blank/garbage rows) --------------------
+
+test('namedFields: keeps rows with a non-blank name, drops blank/whitespace-only names', () => {
+  const rows = [
+    { name: 'Vendor', type: 'text', required: true },
+    { name: '', type: 'text', required: false },
+    { name: '   ', type: 'text', required: false },
+    { name: 'Total', type: 'currency', required: true },
+  ];
+  const kept = namedFields(rows);
+  assert.deepStrictEqual(kept.map(r => r.name), ['Vendor', 'Total']);
+});
+
+test('namedFields: never throws on garbage input (non-array, null entries, non-string name)', () => {
+  assert.doesNotThrow(() => namedFields(null));
+  assert.doesNotThrow(() => namedFields(undefined));
+  assert.doesNotThrow(() => namedFields('garbage'));
+  assert.doesNotThrow(() => namedFields(42));
+  assert.deepStrictEqual(namedFields(null), []);
+  assert.deepStrictEqual(namedFields(undefined), []);
+  assert.deepStrictEqual(namedFields('garbage'), []);
+  const kept = namedFields([null, undefined, 42, 'x', { name: 42 }, { name: null }, { name: 'OK' }]);
+  assert.deepStrictEqual(kept.map(r => r.name), ['OK']);
+});
+
+// --- buildCsvHeader ----------------------------------------------------------
+
+test('buildCsvHeader: plain names -> comma-joined header row', () => {
+  assert.strictEqual(
+    buildCsvHeader([{ name: 'Vendor' }, { name: 'Total' }, { name: 'Project Code' }]),
+    'Vendor,Total,Project Code'
+  );
+});
+
+test('buildCsvHeader: skips blank-name rows', () => {
+  assert.strictEqual(
+    buildCsvHeader([{ name: 'Vendor' }, { name: '' }, { name: '   ' }, { name: 'Total' }]),
+    'Vendor,Total'
+  );
+});
+
+test('buildCsvHeader: a name containing a comma is quoted', () => {
+  assert.strictEqual(buildCsvHeader([{ name: 'Last, First' }]), '"Last, First"');
+});
+
+test('buildCsvHeader: a name containing a double quote is quoted and internal quotes doubled', () => {
+  assert.strictEqual(buildCsvHeader([{ name: 'Say "Hi"' }]), '"Say ""Hi"""');
+});
+
+test('buildCsvHeader: a name containing a newline is quoted', () => {
+  assert.strictEqual(buildCsvHeader([{ name: 'Line1\nLine2' }]), '"Line1\nLine2"');
+});
+
+test('buildCsvHeader: mixed plain + quoted names', () => {
+  assert.strictEqual(
+    buildCsvHeader([{ name: 'Vendor' }, { name: 'Amount, Total' }, { name: 'Notes' }]),
+    'Vendor,"Amount, Total",Notes'
+  );
+});
+
+test('buildCsvHeader: empty list -> empty string (defined sentinel: "" means nothing to save)', () => {
+  assert.strictEqual(buildCsvHeader([]), '');
+  assert.strictEqual(buildCsvHeader([{ name: '' }]), '');
+});
+
+test('buildCsvHeader: never throws on garbage input (non-array, null entries, non-string name)', () => {
+  assert.doesNotThrow(() => buildCsvHeader(null));
+  assert.doesNotThrow(() => buildCsvHeader(undefined));
+  assert.doesNotThrow(() => buildCsvHeader('garbage'));
+  assert.doesNotThrow(() => buildCsvHeader(42));
+  assert.doesNotThrow(() => buildCsvHeader([null, undefined, 42, { name: 42 }, {}]));
+  assert.strictEqual(buildCsvHeader(null), '');
+  assert.strictEqual(buildCsvHeader(undefined), '');
+  assert.strictEqual(buildCsvHeader('garbage'), '');
+});
+
+test('buildCsvHeader: a hostile field name is carried through as plain CSV text (not HTML) — ' +
+  'escaping is the render layer\'s job, not the CSV builder\'s', () => {
+  const hostile = '<script>alert(1)</script>';
+  assert.strictEqual(buildCsvHeader([{ name: hostile }]), hostile);
+});
+
+// --- canSaveBuilder (pure validation: at least one named field to enable Save) ---
+
+test('canSaveBuilder: false for an empty list', () => {
+  assert.strictEqual(canSaveBuilder([]), false);
+});
+
+test('canSaveBuilder: false when every row has a blank name', () => {
+  assert.strictEqual(canSaveBuilder([{ name: '' }, { name: '   ' }]), false);
+});
+
+test('canSaveBuilder: true when at least one row has a non-blank name', () => {
+  assert.strictEqual(canSaveBuilder([{ name: '' }, { name: 'Vendor' }]), true);
+});
+
+test('canSaveBuilder: never throws on garbage input', () => {
+  assert.doesNotThrow(() => canSaveBuilder(null));
+  assert.doesNotThrow(() => canSaveBuilder(undefined));
+  assert.doesNotThrow(() => canSaveBuilder('garbage'));
+  assert.strictEqual(canSaveBuilder(null), false);
+  assert.strictEqual(canSaveBuilder(undefined), false);
+});
+
+// --- builder -> buildImportBody integration (same POST path as paste/upload) ---
+
+test('buildCsvHeader output feeds buildImportBody exactly like pasted CSV text', () => {
+  const header = buildCsvHeader([{ name: 'Vendor' }, { name: 'Total' }]);
+  const built = buildImportBody(header, 'my-template');
+  assert.strictEqual(built.ok, true);
+  assert.strictEqual(built.csv, 'Vendor,Total');
+  assert.strictEqual(built.name, 'my-template');
+});
+
+test('an empty builder header (no named fields) -> buildImportBody reports {ok:false, reason:"empty"}, matching the paste-empty-textarea case', () => {
+  const header = buildCsvHeader([{ name: '' }, { name: '   ' }]);
+  assert.deepStrictEqual(buildImportBody(header, 'x'), { ok: false, reason: 'empty' });
+});
+
+test('a hostile field name survives buildCsvHeader -> buildImportBody as inert plain text, and is neutralised at render time via Escape.safeText (mirrors the FieldSpec-echo XSS pattern)', () => {
+  const hostile = '<script>alert(1)</script>';
+  const header = buildCsvHeader([{ name: hostile }]);
+  const built = buildImportBody(header, 'default');
+  assert.strictEqual(built.ok, true);
+  assert.strictEqual(built.csv, hostile);
+  // Mirrors how the saved FieldSpec would later be echoed back through renderFieldSpecTable,
+  // which routes every column label through Escape.setText — never innerHTML.
+  const safe = Escape.safeText(built.csv);
+  assert.doesNotMatch(safe, /<script>/);
+  assert.strictEqual(safe, '&lt;script&gt;alert(1)&lt;/script&gt;');
 });

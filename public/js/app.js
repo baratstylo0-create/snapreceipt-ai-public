@@ -227,6 +227,10 @@
     if (stored) deps.Api.setToken(stored);
 
     deps.Api.apiFetch('/api/config').then(function (cfg) {
+      // Share the already-fetched config (incl. `categories`) with mounted view
+      // components — e.g. activity.js's category dropdowns/pill colours — so
+      // they don't issue a second, redundant /api/config call at boot.
+      deps.config = cfg;
       var decision = deps.AuthGate.authState({
         authRequired: cfg && cfg.auth_required,
         storedToken: getStoredToken(),

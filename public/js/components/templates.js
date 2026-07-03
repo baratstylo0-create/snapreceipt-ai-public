@@ -78,6 +78,55 @@
     };
   }
 
+  // ---- visual field builder (additive) ------------------------------------
+  // Lets a customer with zero CSV knowledge build the field list visually:
+  // a list of {name, type, required} rows -> a CSV header row (buildCsvHeader)
+  // -> fed into the SAME buildImportBody/POST path the paste/upload flow uses.
+  //
+  // IMPORTANT, read from lib/templates.js's parseTemplate (Barat's file, READ
+  // ONLY): a CSV import is HEADER-ROW-ONLY — it can only carry field NAMES.
+  // type/required on the resulting FieldSpec column come from parseTemplate's
+  // CANON dictionary (matched against the normalised name) or default to
+  // text/not-required for an unrecognised name. The client's type-select and
+  // required-checkbox are NEVER read by the server. So buildCsvHeader only
+  // ever emits names — it does NOT and cannot encode type/required. The
+  // builder UI is honest about this (see the inline note rendered near the
+  // type/required controls).
+
+  var FIELD_TYPES = ['text', 'date', 'number', 'currency', 'category'];
+
+  // Keep only rows with a non-blank (after trim) string name. Tolerates
+  // null/garbage input and null/garbage entries — never throws.
+  function namedFields(fields) {
+    var list = Array.isArray(fields) ? fields : [];
+    return list.filter(function (f) {
+      return isPlainObject(f) && typeof f.name === 'string' && f.name.trim() !== '';
+    });
+  }
+
+  // CSV-escape a single field per ordinary CSV quoting rules: wrap in double
+  // quotes (doubling any internal quotes) if the value contains a comma,
+  // double quote, or newline; otherwise leave it bare.
+  function csvEscape(value) {
+    var v = str(value);
+    if (/[",\n\r]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }
+
+  // buildCsvHeader(fields) -> CSV header-row string built from field NAMES
+  // only (type/required are not carried — see note above). Skips blank-name
+  // rows. Empty result (no named fields) -> '' (defined sentinel: nothing to
+  // save). Never throws on garbage input.
+  function buildCsvHeader(fields) {
+    return namedFields(fields).map(function (f) { return csvEscape(f.name); }).join(',');
+  }
+
+  // Pure validation backing the "Save template" button: at least one row
+  // with a non-blank name is required. Never throws.
+  function canSaveBuilder(fields) {
+    return namedFields(fields).length > 0;
+  }
+
   // Map an HTTP status + parsed body to a display message.
   //   400: body.error IS shown verbatim when it is a string (server already
   //        sanitized it — this is the "reject-and-explain" the plan asks for).
@@ -175,6 +224,56 @@
 
   // ---- render layer --------------------------------------------------------
 
+  // Build one "field row" of the visual builder: name input, type select,
+  // required checkbox, remove button. Returns { el, getField(), setBusy(b) }.
+  function buildFieldRow(onRemove, initial) {
+    var seed = isPlainObject(initial) ? initial : {};
+    var row = el('div', 'tp-fb-row');
+
+    var nameInput = el('input', 'tp-fb-name');
+    nameInput.type = 'text';
+    nameInput.setAttribute('placeholder', 'Field name, e.g. Vendor');
+    nameInput.value = typeof seed.label === 'string' ? seed.label : (typeof seed.name === 'string' ? seed.name : '');
+    row.appendChild(nameInput);
+
+    var typeSelect = el('select', 'tp-fb-type');
+    FIELD_TYPES.forEach(function (t) {
+      var opt = el('option');
+      opt.value = t;
+      Escape.setText(opt, t);
+      typeSelect.appendChild(opt);
+    });
+    typeSelect.value = FIELD_TYPES.indexOf(seed.type) !== -1 ? seed.type : 'text';
+    row.appendChild(typeSelect);
+
+    var reqLabel = el('label', 'tp-fb-required');
+    var reqCheckbox = el('input');
+    reqCheckbox.type = 'checkbox';
+    reqCheckbox.checked = !!seed.required;
+    reqLabel.appendChild(reqCheckbox);
+    var reqText = el('span');
+    Escape.setText(reqText, 'Required');
+    reqLabel.appendChild(reqText);
+    row.appendChild(reqLabel);
+
+    var removeBtn = el('button', 'tp-fb-remove');
+    removeBtn.type = 'button';
+    Escape.setText(removeBtn, 'Remove');
+    removeBtn.addEventListener('click', function () { onRemove(rowApi); });
+    row.appendChild(removeBtn);
+
+    var rowApi = {
+      el: row,
+      getField: function () {
+        return { name: nameInput.value, type: typeSelect.value, required: reqCheckbox.checked };
+      },
+      setBusy: function (b) {
+        nameInput.disabled = b; typeSelect.disabled = b; reqCheckbox.disabled = b; removeBtn.disabled = b;
+      },
+    };
+    return rowApi;
+  }
+
   function mount(section, opts) {
     if (!hasDom() || !section) return null;
     opts = opts || {};
@@ -262,6 +361,7 @@
       specArea.appendChild(msg('tp-loading muted', 'Loading current template…'));
       return apiFetch('/api/templates').then(function (spec) {
         renderSpec(spec);
+        return spec;
       }).catch(function (err) {
         var status = err && typeof err === 'object' ? err.status : 0;
         var body = err && typeof err === 'object' ? err.body : null;
@@ -270,47 +370,162 @@
       });
     }
 
-    form.addEventListener('submit', function (ev) {
-      ev.preventDefault();
-      if (busy || !apiFetch) return;
-
-      var built = buildImportBody(textarea.value, nameInput.value);
+    // Shared submit path: both the "paste CSV" form and the visual builder
+    // call this with their own csv/name + status element + busy setter, so
+    // the fetch/error-handling logic is written exactly once (per the plan).
+    // onSuccess(spec) lets the builder additionally reset its rows.
+    function submitCsv(csv, name, statusTarget, setBusyFn, onSuccess) {
+      if (!apiFetch) return;
+      var built = buildImportBody(csv, name);
       if (!built.ok) {
-        Escape.setText(statusEl, 'Please paste or choose a CSV file before importing.');
+        Escape.setText(statusTarget, 'Please add at least one named field before saving.');
         return;
       }
-
-      setBusy(true);
-      Escape.setText(statusEl, 'Importing…');
+      setBusyFn(true);
+      Escape.setText(statusTarget, 'Saving…');
       apiFetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { csv: built.csv, name: built.name },
       }).then(function (spec) {
-        setBusy(false);
-        Escape.setText(statusEl, 'Template imported.');
+        setBusyFn(false);
+        Escape.setText(statusTarget, 'Template saved.');
         renderSpec(spec);
+        if (typeof onSuccess === 'function') onSuccess(spec);
       }).catch(function (err) {
-        setBusy(false);
+        setBusyFn(false);
         var status = err && typeof err === 'object' ? err.status : 0;
         var body = err && typeof err === 'object' ? err.body : null;
-        Escape.setText(statusEl, errorMessage(status, body, 'save'));
+        Escape.setText(statusTarget, errorMessage(status, body, 'save'));
       });
+    }
+
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (busy) return;
+      submitCsv(textarea.value, nameInput.value, statusEl, setBusy);
     });
 
+    // ---- visual field builder section (additive) ---------------------------
+    var builderWrap = el('div', 'tp-fb');
+
+    builderWrap.appendChild(msg('tp-fb-title', 'Or build your fields visually'));
+    builderWrap.appendChild(msg('tp-fb-sub muted',
+      'No CSV knowledge needed — add a row per field, then save. This builds the same CSV header the paste box above sends.'));
+    builderWrap.appendChild(msg('tp-fb-note muted',
+      'Note: Type and Required below are a preview of your intent for this form. The current save endpoint only stores field ' +
+      'names as a CSV header row — the server infers Type/Required from recognised names (e.g. "Date", "Amount") and defaults ' +
+      'everything else to text / not required. They are not guaranteed to be saved exactly as chosen here.'));
+
+    var rowsWrap = el('div', 'tp-fb-rows');
+    builderWrap.appendChild(rowsWrap);
+
+    var rows = [];
+
+    function removeRow(rowApi) {
+      var idx = rows.indexOf(rowApi);
+      if (idx === -1) return;
+      rows.splice(idx, 1);
+      rowsWrap.removeChild(rowApi.el);
+      refreshBuilderState();
+    }
+
+    function addRow(initial) {
+      var rowApi = buildFieldRow(removeRow, initial);
+      rows.push(rowApi);
+      rowsWrap.appendChild(rowApi.el);
+      refreshBuilderState();
+      return rowApi;
+    }
+
+    var addRowBtn = el('button', 'tp-fb-add');
+    addRowBtn.type = 'button';
+    Escape.setText(addRowBtn, 'Add field');
+    addRowBtn.addEventListener('click', function () {
+      addRow();
+      var last = rows[rows.length - 1];
+      if (last) { var input = last.el.querySelector('.tp-fb-name'); if (input) input.focus(); }
+    });
+    builderWrap.appendChild(addRowBtn);
+
+    var fbSaveBtn = el('button', 'tp-fb-save');
+    fbSaveBtn.type = 'button';
+    Escape.setText(fbSaveBtn, 'Save template');
+    builderWrap.appendChild(fbSaveBtn);
+
+    var fbStatusEl = msg('tp-status muted', '');
+    builderWrap.appendChild(fbStatusEl);
+
+    var fbBusy = false;
+    function setFbBusy(b) {
+      fbBusy = b;
+      fbSaveBtn.disabled = b || !canSaveBuilder(rows.map(function (r) { return r.getField(); }));
+      addRowBtn.disabled = b;
+      rows.forEach(function (r) { r.setBusy(b); });
+    }
+
+    function refreshBuilderState() {
+      var fields = rows.map(function (r) { return r.getField(); });
+      var can = canSaveBuilder(fields);
+      fbSaveBtn.disabled = fbBusy || !can;
+      if (!can) {
+        Escape.setText(fbStatusEl, rows.length ? 'Add at least one field with a name to save.' : 'Add a field to get started.');
+      } else if (!fbBusy) {
+        Escape.setText(fbStatusEl, '');
+      }
+    }
+
+    rowsWrap.addEventListener('input', refreshBuilderState);
+    rowsWrap.addEventListener('change', refreshBuilderState);
+    refreshBuilderState(); // start disabled: 0 rows yet (before addRow/load seeds one)
+
+    fbSaveBtn.addEventListener('click', function () {
+      if (fbBusy) return;
+      var fields = rows.map(function (r) { return r.getField(); });
+      if (!canSaveBuilder(fields)) {
+        Escape.setText(fbStatusEl, 'Add at least one field with a name to save.');
+        return;
+      }
+      var csv = buildCsvHeader(fields);
+      submitCsv(csv, nameInput.value, fbStatusEl, setFbBusy);
+    });
+
+    rootEl.appendChild(builderWrap);
+
+    // ---- lazy load ----------------------------------------------------------
     // Lazy-load on first view (mirrors overview.js's load-on-first-show pattern).
+    // Also seeds the builder from the current FieldSpec when one exists, so
+    // editing an existing template visually is possible (falls back to one
+    // empty row when there is nothing meaningful to seed from).
     var state = { loaded: false, loading: false };
+    function seedBuilder(spec) {
+      var vm = summarizeFieldSpec(spec);
+      if (vm.columns.length) {
+        vm.columns.forEach(function (c) {
+          var col = isPlainObject(c) ? c : {};
+          addRow({ label: str(col.label) || str(col.key), type: col.type, required: !!col.required });
+        });
+      } else {
+        addRow();
+      }
+    }
     function load() {
       if (state.loading || state.loaded || !apiFetch) return;
       state.loading = true;
       var p = loadCurrent();
       if (p && typeof p.then === 'function') {
-        p.then(function () { state.loading = false; state.loaded = true; })
-         .catch(function () { state.loading = false; }); // leave loaded=false so a revisit can retry
+        p.then(function (spec) {
+          state.loading = false; state.loaded = true;
+          seedBuilder(spec);
+        }).catch(function () { state.loading = false; }); // leave loaded=false so a revisit can retry
       } else {
         state.loading = false;
       }
     }
+
+    // No-apiFetch/no-DOM-load environments (e.g. some tests) still get one
+    // empty starter row so the builder is usable standalone.
+    if (!apiFetch) addRow();
 
     return { el: rootEl, load: load };
   }
@@ -320,6 +535,10 @@
     buildImportBody: buildImportBody,
     summarizeFieldSpec: summarizeFieldSpec,
     errorMessage: errorMessage,
+    namedFields: namedFields,
+    buildCsvHeader: buildCsvHeader,
+    canSaveBuilder: canSaveBuilder,
+    FIELD_TYPES: FIELD_TYPES,
     // render (browser)
     mount: mount,
   };
