@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-short-flag
+- **Files:** `lib/ocr.js` (`expenseFromPhoto` non-receipt reply text only).
+- **What changed — Owner preference during live QA:** the non-receipt reply (PR #54) was a long "I couldn't find a receipt… please send a clear photo with shop name + total". Owner asked for a **short flag** instead. Reply is now just `🚫 *Not a receipt — skipped.*`. Detection logic (`isEmptyReceipt`) + skip-the-insert behavior are **unchanged** — only the message wording.
+- **Tests: 663/663** (no change — the 9 `isEmptyReceipt` unit tests assert the decision, not the message string; no test referenced the old wording).
+- **What's next:** open PR → review → merge. Restarting the local test bot on this branch so Barat can confirm the new short reply live.
+- **Assumptions:** none new. A quick AI look is still required to know a photo isn't a receipt (can't pre-classify a selfie vs a receipt without looking) — "no need to analyse" is satisfied by not saving/processing further, and the reply is now a one-liner.
+
 ## 2026-07-03 · Claude-J2 (for Jeevan) · feature/jeevan-frontend-ratemeter (frontend "% used" rate-limit meter)
 - **Files:** `public/js/api.js` (capture RateLimit-* trio + getRateLimit/onRateLimit), `public/js/components/ratemeter.js` (new), `public/js/app.js` (mount chip in header), `public/index.html` (script tag), `public/css/app.css` (`.rm-*` chip), `tests/frontend/ratemeter.test.js` (new, 6), this WORKLOG.
 - **What changed:** the frontend half of the rate-limit UX (my lane) — consumes Barat's `RateLimit-Limit/Remaining/Reset` headers (PR #56, merged). `api.js`'s `apiFetch`+`fetchBlob` now read the trio on every response (ok AND 429), store the latest, and notify subscribers via `Api.onRateLimit`. A header chip (`ratemeter.js`, pure `rateModel` + render) shows "Rate N/limit" — quiet (muted) when there's headroom, turns amber at ≥70% used and orange at ≥90% with a "resets in Ns" hint (like Claude's usage bar). Hidden until the first limited response arrives (reads bypass the limiter, so no false meter). **663/663** (6 new pure-helper tests: usedPct math, ok/warn/critical thresholds, remaining clamp, reset floor, label). **Verified live in preview:** ok chip shows "Rate 59/60" after a `/api/templates` call; forced-critical renders orange + "7 of 120 left · resets in 32s".
