@@ -171,6 +171,27 @@ test('a normal receipt is actually inserted (insertExpense called with the built
   assert.strictEqual(inserted.amount, expense.amount);
 });
 
+// ADR-017: voucher_no is a DB-generated column (a trigger fills it in on insert, not
+// this code — see schema.sql). assembleExpense must echo it back from whatever
+// insertExpense returns, onto the `expense` object it hands back to the caller.
+test('ADR-017: voucher_no is echoed from the insert result onto the returned expense', async () => {
+  const { expense } = await assembleExpense(goodInput(), deps({
+    insertExpense: async () => ({ id: 'row1', voucher_no: 'RC-2026-0007' }),
+  }));
+  assert.strictEqual(expense.voucher_no, 'RC-2026-0007');
+});
+
+test('ADR-017: no voucher_no in the insert result -> expense.voucher_no stays unset (no crash)', async () => {
+  const { expense } = await assembleExpense(goodInput(), deps({
+    insertExpense: async () => {}, // mirrors today's every existing test fake / a pre-migration DB
+  }));
+  assert.ok(!('voucher_no' in expense), 'must not fabricate a voucher_no that was never assigned');
+});
+
+test('ADR-017: insertExpense returning null (sbInsertReturning\'s own safe-fallback shape) does not crash', async () => {
+  await assert.doesNotReject(() => assembleExpense(goodInput(), deps({ insertExpense: async () => null })));
+});
+
 // A photo the model couldn't read as a receipt at all (no merchant, no positive amount —
 // e.g. a selfie) must never be saved, from ANY caller, not just the single-photo path.
 test('a non-receipt (no merchant, no amount) is skipped: not inserted, no downstream work', async () => {

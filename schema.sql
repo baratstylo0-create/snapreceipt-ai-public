@@ -106,3 +106,55 @@ alter table category_corrections enable row level security;
 
 create index if not exists category_corrections_lookup
   on category_corrections (account_id, match_type, match_value);
+
+-- ============================================================================
+-- Migration M2-P4b: voucher / human-readable reference number (ADR-017)
+-- Barat · 2026-07-03 · folded in from db/2026-07-03-voucher-reference-number.sql
+-- Every expense gets a short, human-quotable reference like RC-2026-0041,
+-- distinct from the row's UUID. Generated DB-side (trigger + atomic per-
+-- (account,year) counter) so it's race-free across every insert path (single
+-- photo, Telegram album, PDF, dashboard mass-upload). See the dated file for
+-- full comments and the one-time backfill of pre-existing rows.
+-- ============================================================================
+alter table expenses add column if not exists voucher_no text;
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'expenses_voucher_uq') then
+    alter table expenses add constraint expenses_voucher_uq unique (account_id, voucher_no);
+  end if;
+end $$;
+
+create table if not exists voucher_counters (
+  account_id text not null,
+  year       int  not null,
+  last_seq   int  not null default 0,
+  primary key (account_id, year)
+);
+
+alter table voucher_counters enable row level security;
+-- service_role bypasses RLS; no anon policy -> anon denied.
+
+create or replace function next_voucher_seq(p_account text, p_year int)
+returns int language sql as $$
+  insert into voucher_counters (account_id, year, last_seq)
+  values (p_account, p_year, 1)
+  on conflict (account_id, year)
+  do update set last_seq = voucher_counters.last_seq + 1
+  returning last_seq;
+$$;
+
+create or replace function assign_voucher_no() returns trigger language plpgsql as $$
+declare y int; s int;
+begin
+  if new.voucher_no is null then
+    y := extract(year from coalesce(new.expense_date::date, current_date))::int;
+    s := next_voucher_seq(new.account_id, y);
+    new.voucher_no := 'RC-' || y::text || '-' || lpad(s::text, 4, '0');
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_assign_voucher_no on expenses;
+create trigger trg_assign_voucher_no before insert on expenses
+  for each row execute function assign_voucher_no();
