@@ -1,4 +1,5 @@
 'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
 const test = require('node:test');
 const assert = require('node:assert');
 const { handleUpdate, formatBatchSummary } = require('../lib/bot');
@@ -57,10 +58,46 @@ test('a media group (N updates, same media_group_id) → ONE runBatch call with 
   assert.strictEqual(runBatchCalls.length, 1, 'exactly one batch call for the group');
   assert.deepStrictEqual(runBatchCalls[0].images, ['https://tg/fileA', 'https://tg/fileB', 'https://tg/fileC']);
   assert.strictEqual(runBatchCalls[0].meta.fileId, null, 'option A: single meta, fileId null');
-  // Quiet mode: no "Reading…" ack — ONE reply, the summary.
-  assert.strictEqual(sent.length, 1);
-  assert.match(sent[0].text, /Batch processed/);
-  assert.ok(!sent.some(s => /Reading/.test(s.text)), 'no intermediate "Reading…" ack is sent');
+  // An immediate reassurance ack on the FIRST photo of the album, then ONE summary reply.
+  assert.strictEqual(sent.length, 2, 'a reassuring "reading…" ack + the final summary');
+  assert.match(sent[0].text, /reading them all now/i, 'the album gets an immediate ack so the chat is not silent');
+  assert.match(sent[1].text, /Batch processed/);
+});
+
+test('the album ack is sent ONCE per group (on the first photo), not per photo', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5 });
+  await handleUpdate(photoUpdate('grpAck', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpAck', 'f2'), deps);
+  await handleUpdate(photoUpdate('grpAck', 'f3'), deps);
+  const acks = sent.filter(s => /reading them all now/i.test(s.text));
+  assert.strictEqual(acks.length, 1, 'exactly one ack for the whole album, not one per photo');
+});
+
+test('a media group summary lists each saved receipt (details captured via the injected assembleExpense)', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    // A runBatch fake that behaves like the real one — it calls the injected assembleExpense
+    // per image, so flushGroup's capture wrapper records each saved receipt's details.
+    runBatch: async (images, fieldSpec, d) => {
+      let saved = 0;
+      for (let i = 0; i < images.length; i++) {
+        await d.assembleExpense({ ...d.meta, fields: { merchant: 'Shop' + i, amount: 10 + i } });
+        saved++;
+      }
+      return { images: images.length, receipts: images.length, saved, failed: [], flagged: [], truncated_images: [] };
+    },
+    assembleExpense: async ({ fields }) => ({ expense: { merchant: fields.merchant, amount: fields.amount, currency: 'MYR', category: 'Food' }, flagged: false }),
+  });
+  await handleUpdate(photoUpdate('grpDetail', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpDetail', 'f2'), deps);
+  await timers.runPending();
+  const summaryMsg = sent[sent.length - 1].text;
+  assert.match(summaryMsg, /Batch processed/);
+  assert.match(summaryMsg, /Shop0/, 'the summary lists the first saved receipt by merchant');
+  assert.match(summaryMsg, /Shop1/, 'and the second');
+  assert.match(summaryMsg, /Food/, 'with its category');
 });
 
 test('a single photo (no media_group_id) uses expenseFromPhoto — runBatch NOT called', async (t) => {
@@ -139,6 +176,22 @@ test('formatBatchSummary renders counts and NEVER surfaces failed[].reason (SOP 
   assert.match(text, /1 couldn't read/);
   assert.match(text, /more receipts than I could read/);
   assert.ok(!text.includes('SECRET_STACK_TRACE'), 'raw failure reason must never reach the user');
+});
+
+test('formatBatchSummary lists each saved receipt (merchant · amount · category) when given the saved list', () => {
+  const summary = { images: 2, receipts: 2, saved: 2, failed: [], flagged: [], truncated_images: [] };
+  const saved = [
+    { merchant: 'L.C. Vegetarian', amount: 36, currency: 'MYR', category: 'Food', flagged: false },
+    { merchant: 'Shell', amount: 86, currency: 'MYR', category: 'Petrol', flagged: true },
+  ];
+  const text = formatBatchSummary(summary, saved);
+  assert.match(text, /L\.C\. Vegetarian/, 'first merchant listed');
+  assert.match(text, /Shell/, 'second merchant listed');
+  assert.match(text, /Food/);
+  assert.match(text, /Petrol/);
+  assert.match(text, /⚠️/, 'the flagged receipt is marked for review');
+  // still counts-only compatible: passing no saved list renders exactly as before
+  assert.ok(!formatBatchSummary(summary).includes('Shell'), 'omitting the saved list keeps the old counts-only summary');
 });
 
 test('two different media groups do not mix', async (t) => {

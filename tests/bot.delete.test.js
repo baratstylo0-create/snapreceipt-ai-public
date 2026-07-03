@@ -1,4 +1,5 @@
 'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
 // In-chat delete: "Delete receipt" typed in Telegram used to hit the generic photo-prompt
 // reply, which read as if the bot ignored the message. Now: text intent -> confirm/cancel
 // inline keyboard (handleDeleteIntent) -> button tap -> callback_query (handleCallbackQuery)
