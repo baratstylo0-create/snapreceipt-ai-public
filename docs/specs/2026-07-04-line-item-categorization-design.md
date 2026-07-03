@@ -1,4 +1,10 @@
-# Spec — Per-line-item categorization (surface + persist)  ·  Draft for sign-off
+# Spec — Per-line-item categorization (surface + persist)  ·  ✅ IMPLEMENTED (PR #79)
+
+> **Status (2026-07-04):** shipped in **PR #79** (`feat/jeevan-line-item-categorization`) — OCR line-item
+> extraction + per-item persist into `expenses.line_items` + dashboard per-item pill. Decisions locked to
+> this spec's recommended defaults (A always-extract · B full item shape · C reuse #74's `awaiting_category`
+> for flagged lines · D fx-scale · E cap 100). Kept as the design record; the "open decisions / what's next"
+> below reflect the pre-build draft and are retained for history.
 
 > **Owner-requested (2026-07-04).** The categorizer already computes a category for **each line item**,
 > but the product only ever keeps ONE rolled-up category per receipt. This spec makes the per-line

@@ -14,7 +14,7 @@ const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
-  resolveCategories, labelFor,
+  resolveCategories, labelFor, awaitingCategoryRows,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -85,6 +85,25 @@ test('filterSortPage sorts by date asc/desc', () => {
   ];
   assert.deepStrictEqual(filterSortPage(rows, { sortBy: 'date', sortDir: 'asc' }).rows.map((r) => r.id), ['b', 'c', 'a']);
   assert.deepStrictEqual(filterSortPage(rows, { sortBy: 'date', sortDir: 'desc' }).rows.map((r) => r.id), ['a', 'c', 'b']);
+});
+
+// --- awaitingCategoryRows (dashboard category-picker) ---------------------
+
+test('awaitingCategoryRows returns only rows whose status is awaiting_category', () => {
+  const rows = [
+    row({ id: 'a', status: 'saved' }),
+    row({ id: 'b', status: 'awaiting_category', category: '__pending__' }),
+    row({ id: 'c', status: 'needs_review' }),
+    row({ id: 'd', status: 'awaiting_category', category: '__pending__' }),
+  ];
+  assert.deepStrictEqual(awaitingCategoryRows(rows).map((r) => r.id), ['b', 'd']);
+});
+
+test('awaitingCategoryRows tolerates null / non-array / empty (never throws)', () => {
+  assert.deepStrictEqual(awaitingCategoryRows(null), []);
+  assert.deepStrictEqual(awaitingCategoryRows(undefined), []);
+  assert.deepStrictEqual(awaitingCategoryRows([]), []);
+  assert.deepStrictEqual(awaitingCategoryRows('nope'), []);
 });
 
 test('filterSortPage sorts by amount numerically (not lexically)', () => {

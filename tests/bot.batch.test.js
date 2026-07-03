@@ -330,3 +330,51 @@ test('two different media groups do not mix', async (t) => {
   const byImages = runBatchCalls.map(c => c.images).sort();
   assert.deepStrictEqual(byImages, [['https://tg/a1', 'https://tg/a2'], ['https://tg/b1']].sort());
 });
+
+// --- Category-picker in a batch (Owner's own example, 2026-07-03): "if upload 5
+// receipts, there 3 receipts can get category, another 2 is unknown, first saved
+// response for 3 receipts once then another 2 receipts send separate response for
+// choose category". ---
+test('batch of 5: 3 confident + 2 uncertain -> ONE main summary (covers the 3), then TWO separate category-picker messages', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    tgSend: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); },
+    // A runBatch fake that behaves like the real one: calls the injected assembleExpense
+    // once per image, in order, so flushGroup's captureAssemble wrapper sees each result.
+    runBatch: async (images, fieldSpec, d) => {
+      for (let i = 0; i < images.length; i++) {
+        await d.assembleExpense({ ...d.meta, fields: { merchant: 'Shop' + i, amount: 10 + i } });
+      }
+      return { images: images.length, receipts: images.length, saved: images.length, failed: [], flagged: [], truncated_images: [] };
+    },
+    assembleExpense: async ({ fields }) => {
+      const i = Number(fields.merchant.replace('Shop', ''));
+      const uncertain = i === 3 || i === 4; // the last 2 of 5 are "unknown"
+      const expense = { id: 'exp-' + i, merchant: fields.merchant, amount: fields.amount, currency: 'MYR', category: uncertain ? '__pending__' : 'Food' };
+      return uncertain
+        ? { expense, flagged: false, awaitingCategory: true, categoryOptions: ['Food', 'Petrol', 'Others'] }
+        : { expense, flagged: false };
+    },
+  });
+  for (let i = 0; i < 5; i++) await handleUpdate(photoUpdate('grp5', 'f' + i), deps);
+  await timers.runPending();
+
+  // 1 album-ack + 1 main summary + 2 separate picker prompts = 4 messages total.
+  assert.strictEqual(sent.length, 4, 'ack + summary + one picker message per uncertain receipt');
+  assert.match(sent[0].text, /reading them all now/i);
+  const summaryMsg = sent[1];
+  assert.match(summaryMsg.text, /3 saved/, 'the headline count only counts the 3 confident receipts');
+  assert.match(summaryMsg.text, /2 receipts need a category picked/i);
+  assert.match(summaryMsg.text, /Shop0/); // the 3 confident ones ARE in the itemized breakdown
+  assert.match(summaryMsg.text, /Shop1/);
+  assert.match(summaryMsg.text, /Shop2/);
+  assert.ok(!summaryMsg.text.includes('Shop3') && !summaryMsg.text.includes('Shop4'), 'the 2 uncertain ones are NOT in the main breakdown');
+
+  const pickerMsgs = sent.slice(2);
+  assert.strictEqual(pickerMsgs.length, 2);
+  for (const m of pickerMsgs) {
+    assert.ok(m.keyboard && Array.isArray(m.keyboard.inline_keyboard), 'each picker message carries an inline keyboard');
+    assert.match(m.text, /not sure what category/i);
+  }
+});

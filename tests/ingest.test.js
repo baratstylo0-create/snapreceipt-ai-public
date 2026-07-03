@@ -107,6 +107,52 @@ test('#6 category: falls back to the legacy normaliser if the categorizer throws
   assert.strictEqual(expense.category, 'Petrol'); // normaliseExpenseCategory('uber ride')
 });
 
+// --- Category-picker (Owner request 2026-07-03): when the categorizer flags its own
+// uncertainty (no memory/rule match, LLM watchdog didn't confirm/override), the receipt
+// is saved immediately (nothing lost) with a pending placeholder, and the caller is told
+// to ask the user instead of silently committing to a guessed category. ---
+
+test('category picker: an uncertain categorizer result (item flagged) -> awaitingCategory, pending sentinel, status awaiting_category, still inserted', async () => {
+  const { PENDING_CATEGORY } = require('../lib/ocr');
+  let inserted = null;
+  const result = await assembleExpense(goodInput(), deps({
+    categorizeLineItems: async () => ({ category: 'Others', items: [{ description: 'Acme', category: 'Others', source: 'fallback', confidence: 0.3, flagged: true }] }),
+    insertExpense: async (row) => { inserted = row; },
+  }));
+  assert.strictEqual(result.awaitingCategory, true);
+  assert.strictEqual(result.expense.category, PENDING_CATEGORY);
+  assert.strictEqual(result.expense.status, 'awaiting_category');
+  assert.ok(result.expense.id, 'a client-generated id must be present so it can be encoded into a Telegram button before any DB round-trip');
+  assert.ok(Array.isArray(result.categoryOptions) && result.categoryOptions.length > 0, 'a category list is returned for the picker buttons');
+  assert.ok(inserted, 'the row must still be inserted immediately — nothing is lost while waiting on the user');
+  assert.strictEqual(inserted.status, 'awaiting_category');
+});
+
+test('category picker: a CONFIDENT categorizer result never triggers the picker (regression lock)', async () => {
+  const result = await assembleExpense(goodInput(), deps({
+    categorizeLineItems: async () => ({ category: 'Fuel & Auto', items: [{ description: 'Shell', category: 'Fuel & Auto', source: 'rules', confidence: 0.8, flagged: false }] }),
+  }));
+  assert.ok(!('awaitingCategory' in result), 'the confident path must not even carry the key, matching every pre-existing caller/test');
+  assert.strictEqual(result.expense.category, 'Fuel & Auto');
+  assert.strictEqual(result.expense.status, 'saved');
+});
+
+test('category picker: every existing test-fake shape (no items[], or items:[]) never triggers the picker', async () => {
+  const noItems = await assembleExpense(goodInput(), deps({ categorizeLineItems: async () => ({ category: 'Others' }) }));
+  assert.ok(!('awaitingCategory' in noItems));
+  const emptyItems = await assembleExpense(goodInput(), deps({ categorizeLineItems: async () => ({ category: 'Others', items: [] }) }));
+  assert.ok(!('awaitingCategory' in emptyItems));
+});
+
+test('category picker: a memory-sourced item that the LLM watchdog later flagged also triggers the picker (flagged, not just source==="fallback")', async () => {
+  // Proves the trigger is the post-watchdog `flagged` bit, not a naive source==='fallback'
+  // check — a memory-sourced guess the watchdog strongly disagreed with is ALSO uncertain.
+  const result = await assembleExpense(goodInput(), deps({
+    categorizeLineItems: async () => ({ category: 'Groceries', items: [{ description: 'Acme', category: 'Groceries', source: 'memory', confidence: 0.99, flagged: true }] }),
+  }));
+  assert.strictEqual(result.awaitingCategory, true);
+});
+
 test('#5 anomaly: flagged -> status needs_review + anomaly stored with reasons', async () => {
   const { expense } = await assembleExpense(goodInput(), deps({
     detectAnomalies: async () => ({
