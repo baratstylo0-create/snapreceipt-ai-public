@@ -653,7 +653,19 @@
         var li = el('li', 'act-lineitem');
         var desc = (it && (it.description || it.name)) || '';
         var amount = it && it.amount != null ? Format.formatMoney(it.amount) : '';
-        Escape.setText(li, str(desc) + (amount ? '  —  ' + amount : ''));
+        var textSpan = el('span', 'act-lineitem-text');
+        Escape.setText(textSpan, str(desc) + (amount ? '  —  ' + amount : ''));
+        li.appendChild(textSpan);
+        // Per-item category (spec 2026-07-04): each line carries its own category now, so a
+        // mixed receipt shows a pill per line instead of one bucket for the whole receipt.
+        // A categorizer-flagged (uncertain) line gets a subtle ⚠️ marker. Reuses the same
+        // deterministic-colour pill as the row-level category.
+        if (it && it.category) {
+          var catPill = pill(it.category);
+          catPill.classList.add('act-lineitem-cat');
+          if (it.flagged) Escape.setText(catPill, str(it.category) + ' ⚠️');
+          li.appendChild(catPill);
+        }
         ul.appendChild(li);
       });
       liWrap.appendChild(ul);

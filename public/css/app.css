@@ -556,7 +556,9 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-lineitems { margin-top: 16px; }
 .act-lineitems-title { margin: 0 0 6px; font-size: 14px; }
 .act-lineitems-list { margin: 0; padding-left: 18px; }
-.act-lineitem { font-size: 13px; color: var(--txt); }
+.act-lineitem { font-size: 13px; color: var(--txt); display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.act-lineitem-text { flex: 1 1 auto; }
+.act-lineitem-cat { flex: 0 0 auto; font-size: 11px; }
 
 .act-receipt { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; }
 .act-receipt-label { font-size: 12px; }
