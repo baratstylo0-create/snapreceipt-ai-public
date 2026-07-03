@@ -201,3 +201,30 @@ test('a partial read (merchant present, amount 0) is NOT skipped and is inserted
   assert.ok(inserted, 'a partial read must still be saved for review');
   assert.strictEqual(inserted.merchant, 'Starbucks');
 });
+
+// Owner feedback 2026-07-03: a blurry real receipt and a totally unrelated photo used to
+// get the exact same "not a receipt" reply. assembleExpense must surface WHICH one this
+// was (via the model's own looks_like_receipt signal) so the caller can reply honestly.
+test('a skipped receipt carries skipReason "blurry" when the model says this looked like a receipt', async () => {
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: { looks_like_receipt: true } });
+  const { skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipReason, 'blurry');
+});
+
+test('a skipped receipt carries skipReason "not_receipt" when the model says this was not a receipt', async () => {
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: { looks_like_receipt: false } });
+  const { skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipReason, 'not_receipt');
+});
+
+test('a skipped receipt with no looks_like_receipt signal carries skipReason "unclear" (safe fallback)', async () => {
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: {} });
+  const { skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipReason, 'unclear');
+});
+
+// A SAVED receipt must not carry a leftover skipReason from a previous call/shared state.
+test('a saved (non-skipped) receipt has no skipReason key', async () => {
+  const { skipReason } = await assembleExpense(goodInput(), deps());
+  assert.strictEqual(skipReason, undefined);
+});
