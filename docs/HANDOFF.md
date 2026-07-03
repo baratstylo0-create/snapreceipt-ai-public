@@ -3,7 +3,22 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J2. READ THIS FIRST.  (updated 2026-07-02, latest — #1 PDF DONE; frontend+security plan handed off)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, latest — frontend Tasks 0-L+H+I+J DONE, PR #51 pending)
+
+**Branch:** `feature/jeevan-p5-frontend` (NOT merged to main yet). Pushed to `2a589ca`. `main` @ `f958775`. Run `npm install` + `npm test` first (should be 624 on the frontend branch).
+
+**State:** Reference frontend fully built (Tasks 0-G + L polish), security-hardened (Task H), QA-checklisted (Task I), and independently security-audited (Task J = APPROVE, 2 Low findings F1/F2 both already fixed — constant-time token compare + dropped `?key=` query auth). All committed and pushed.
+
+**NEXT ACTIONS (in order):**
+1. **Review + merge Barat's PR #51** (`fix/barat-currency-normalize-and-webhook-failclosed`) — closes #45 (RM→MYR) and #43 (webhook fail-closed, 503 on prod misconfig). He reports 443/443 green. Do independent review before merge (his lane files). Also: **schema verification item 5 is CLOSED** — he ran the live table-list query, confirmed clean (only expenses/field_templates/category_corrections).
+2. **Task K** — write the live human-test-session runbook (`docs/qa/...-runbook.md`), last item in `docs/plans/2026-07-02-reference-frontend-qa-security.md`.
+3. **Merge `feature/jeevan-p5-frontend` → main** once Task K is done (Tier-2, get independent review first — it's huge, consider a final `/code-review` pass).
+4. **Groq key rotation (ADR-016)** — spec written (`docs/specs/2026-07-03-groq-key-rotation-design.md`), NOT YET sent to Barat for sign-off, NOT built. Send him the spec, wait for OK, then I build `lib/groqkeys.js` (my file) + he wires `lib/groq.js` (his).
+5. Deferred/parked: AI-assisted CSV template builder (own spec, not started).
+
+**Gotcha:** `git add -A` on a branch lacking the frontend branch's `.gitignore` entries previously leaked `graphify-out/` scan artifacts into a commit — already cleaned up, but check before any `-A` add on a non-frontend branch.
+
+---
 
 **Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #40 merge (`79f204b`). gh authed as Jeevan1811. `npm install` after clone; direct push to main blocked — branch + PR only. `npm test` on main = **360 passing**. **No open PRs.**
 

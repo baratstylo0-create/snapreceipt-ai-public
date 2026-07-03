@@ -1,14 +1,20 @@
 'use strict';
 const express = require('express');
-const { checkDash } = require('./expenses');
+const { checkDash, dashOrigin } = require('./expenses');
 const { runAgent: realRunAgent } = require('../lib/agent');
 const { groqChatTools } = require('../lib/groq');
 const { sbSelect } = require('../lib/supabase');
+const { createRateLimiter } = require('../lib/ratelimit');
 
 const MAX_MESSAGES = 20, MAX_CHARS = 12000;
 const AGENT_MODEL = process.env.AGENT_MODEL || 'qwen/qwen3.6-27b';
 const AGENT_MAX_TOKENS = Number(process.env.AGENT_MAX_TOKENS) || 1500;
 const ALLOWED_ROLES = new Set(['user', 'assistant']);
+
+// P6 abuse defense (§4.4): every agent turn is a Groq call (cost-drainable) — rate limit it.
+// AGENT_RATE_MAX follows Barat's WEBHOOK_RATE_MAX naming convention; reuses the shared
+// lib/ratelimit.js limiter, no second implementation.
+const agentLimiter = createRateLimiter({ max: Number(process.env.AGENT_RATE_MAX) || 20 });
 
 // deps injected in tests; default to the real modules in production.
 module.exports = function mountAgent(app, deps = {}) {
@@ -16,8 +22,8 @@ module.exports = function mountAgent(app, deps = {}) {
   // The chat adapter binds model/token config onto the tool-calling Groq client.
   const chat = deps.chat || ((messages, opts) => groqChatTools(messages, { model: AGENT_MODEL, max_tokens: AGENT_MAX_TOKENS, temperature: 0, ...opts }));
 
-  app.post('/api/agent', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+  app.post('/api/agent', agentLimiter, checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const messages = req.body && req.body.messages;
       if (!Array.isArray(messages) || messages.some(m => !m || !ALLOWED_ROLES.has(m.role) || typeof m.content !== 'string')) {

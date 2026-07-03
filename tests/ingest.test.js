@@ -67,6 +67,27 @@ test('#10 currency: fails safe (ok:false) — keeps original amount, no crash', 
   assert.ok(!('amount_original' in expense));
 });
 
+// --- issue #45: assembleExpense now normalizes the extracted currency via
+// normalizeCurrencyCode BEFORE converting, so a non-ISO symbol like "RM" (Malaysian
+// Ringgit) is treated as MYR instead of silently falling back to DEFAULT_CURRENCY. ---
+test('#45 currency: "RM" is normalized to MYR before FX (not dropped to DEFAULT_CURRENCY)', async () => {
+  let seenFrom = null;
+  const { expense } = await assembleExpense(goodInput({ fields: { currency: 'RM' } }), deps({
+    convertCurrency: async (amount, from, to) => { seenFrom = from; return { ok: true, rate: 0.21, to, amount: amount * 0.21 }; },
+  }));
+  assert.strictEqual(seenFrom, 'MYR', 'assembleExpense must map "RM" -> "MYR" and convert FROM MYR');
+  assert.strictEqual(expense.currency_original, 'MYR', 'the original currency recorded must be MYR, not RM or USD');
+});
+
+test('#45 currency: a genuinely ambiguous symbol ("$") still falls back to DEFAULT_CURRENCY safely', async () => {
+  const { cfg } = require('../lib/config');
+  let seenFrom = null;
+  await assembleExpense(goodInput({ fields: { currency: '$' } }), deps({
+    convertCurrency: async (amount, from, to) => { seenFrom = from; return { ok: true, rate: 1, to, amount }; },
+  }));
+  assert.strictEqual(seenFrom, cfg.DEFAULT_CURRENCY, 'an ambiguous "$" must not be guessed — falls back to DEFAULT_CURRENCY');
+});
+
 test('#6 category: stores the categorizer result, called with the receipt shape', async () => {
   let seen = null;
   const { expense } = await assembleExpense(goodInput(), deps({

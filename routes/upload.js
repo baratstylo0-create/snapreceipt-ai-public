@@ -1,12 +1,19 @@
 'use strict';
 const express = require('express');
-const { checkDash } = require('./expenses');
+const { checkDash, dashOrigin } = require('./expenses');
 const { runBatch: realRunBatch } = require('../lib/massupload');
 const ocr = require('../lib/ocr');
 const templates = require('../lib/templates');
 const pdf = require('../lib/pdf');
+const { createRateLimiter } = require('../lib/ratelimit');
 
 const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
+
+// P6 abuse defense (§4.4): mass upload fans out to Groq vision OCR per image/page —
+// cost-drainable without a limit. UPLOAD_RATE_MAX follows Barat's WEBHOOK_RATE_MAX naming
+// convention (lib/ratelimit.js, wired into routes/webhook.js). Reuses the same shared
+// limiter, no second implementation.
+const uploadLimiter = createRateLimiter({ max: Number(process.env.UPLOAD_RATE_MAX) || 20 });
 
 // #1 PDF: map lib/pdf's typed PdfError codes to an HTTP status + a FIXED client message.
 // The message NEVER interpolates the code or any library internals (SOP §7.2). TOO_LARGE
@@ -53,8 +60,8 @@ module.exports = function mountUpload(app, deps = {}) {
   const getFieldSpec = deps.getFieldSpec || templates.getFieldSpec;
   const rasterizePdf = deps.rasterizePdf || pdf.rasterizePdf;
 
-  app.post('/api/upload', checkDash, express.json({ limit: '10mb' }), async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+  app.post('/api/upload', uploadLimiter, checkDash, express.json({ limit: '10mb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const images = req.body && req.body.images;
       if (!Array.isArray(images) || images.length === 0 || images.some(s => typeof s !== 'string' || s === '')) {

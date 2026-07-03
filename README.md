@@ -68,6 +68,19 @@ Send a receipt photo to your bot in Telegram → it replies with the parsed expe
 - The **service-role key stays on the server** — the browser never sees it. The dashboard reads through `/api/expenses`.
 - Set **`WEBHOOK_SECRET`** so only Telegram can post to `/webhook`.
 - Set **`DASHBOARD_TOKEN`** to gate the dashboard + API with a shared key (basic v1 protection).
+- **Production MUST set `DASHBOARD_TOKEN`.** When `NODE_ENV=production` (or `AUTH_REQUIRED=true`)
+  and no `DASHBOARD_TOKEN` is configured, every dashboard/API request — including
+  `GET /receipt/:fileId`, which serves sensitive receipt images — is now **refused** (fail-closed)
+  instead of silently letting every request through. In dev (no `NODE_ENV=production`), an
+  unset token still falls back to the old permissive behavior for convenience, but every
+  unauthenticated request logs a loud `console.warn` so it's never silently forgotten.
+- Set **`DASHBOARD_ORIGIN`** (e.g. `https://receipts.yourdomain.com`) in production to lock
+  `Access-Control-Allow-Origin` on the token-gated `/api/*` and `/receipt/*` routes down to the
+  real dashboard origin. Left unset it falls back to `*`, which is fine for local dev but means
+  any origin can call the bearer-token API from a browser.
+- All write/AI/upload endpoints (`/api/upload`, `/api/agent`, and the shared auth gate
+  `checkDash` itself) are rate-limited per IP via `lib/ratelimit.js` — tune with
+  `UPLOAD_RATE_MAX`, `AGENT_RATE_MAX`, `DASH_AUTH_RATE_MAX` (see `.env.example`).
 - For real multi-customer SaaS auth, see **CLAUDE.md → "Going multi-tenant"**.
 
 ## Categories
