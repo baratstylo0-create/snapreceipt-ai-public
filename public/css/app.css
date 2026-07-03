@@ -745,6 +745,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .up-upload:not(:disabled):hover,
 .act-save:hover,
 .tp-submit:not(:disabled):hover,
+.tp-fb-save:not(:disabled):hover,
 .rp-export-btn:not(:disabled):hover,
 .ag-send:not(:disabled):hover {
   background: var(--accent-strong);
@@ -845,6 +846,101 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .tp-msg { margin: 0; font-size: 13px; }
 .tp-msg--ok { color: #2ea043; }
 .tp-msg--err { color: var(--muted); }
+
+/* --- Manage: visual field builder (additive, zero-CSV-knowledge path) ----- */
+.tp-fb {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.tp-fb-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--txt); }
+.tp-fb-sub { margin: 0; font-size: 13px; }
+.tp-fb-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.tp-fb-rows { display: flex; flex-direction: column; gap: 8px; }
+.tp-fb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.tp-fb-name {
+  flex: 1 1 200px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.tp-fb-type {
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.tp-fb-required {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tp-fb-remove {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-fb-remove:hover { color: var(--txt); border-color: var(--muted); }
+
+.tp-fb-add {
+  align-self: flex-start;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-fb-add:hover { background: var(--accent); color: var(--accent-contrast); }
+.tp-fb-add:disabled { opacity: 0.5; cursor: default; }
+
+.tp-fb-save {
+  align-self: flex-start;
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-fb-save:disabled { opacity: 0.5; cursor: default; }
 
 /* --- Reports + Excel export (Task F) -------------------------------------- */
 .rp-root { display: flex; flex-direction: column; gap: 16px; }
