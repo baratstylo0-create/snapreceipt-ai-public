@@ -10,6 +10,15 @@
 - **What's next:** Barat wires the call-site loop in `lib/groq.js` + adds his groq.js test (429→next key no-sleep; all-429→backoff; single-key unchanged) — he's unblocked the moment this merges. Also open: QA + merge Barat's PR #54 (non-receipt guard).
 - **Assumptions:** `lib/groqkeys.js` + its tests are Jeevan's (ADR-016); `lib/groq.js` call-site is Barat's — no cross-lane edit.
 
+## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-not-captured
+- **Files:** `lib/ocr.js` (`expenseFromPhoto` + new `isEmptyReceipt` helper, exported), `tests/ocr.nonreceipt.test.js` (new).
+- **What changed — user-reported live during phone QA:** sending a *non-receipt* photo (a selfie) replied "✅ *Expense Captured* / Merchant: Unknown / Total: $0.00 / Needs review" **and saved a junk $0.00 row**. Misleading + pollutes the dashboard.
+  - **Fix:** new `isEmptyReceipt(expense, fields)` — true when there's **no usable merchant** (missing / empty / "Unknown", case-insensitive) **AND no positive amount**. In `expenseFromPhoto`, when it's empty we now **skip the insert** and reply honestly: *"🧾 I couldn't find a receipt in that photo. Please send a clear photo of a receipt or invoice — make sure the shop name and total are visible."* No DB write, no false "Captured".
+  - **Deliberately conservative:** a **partial** read (a real merchant OR a positive amount) is still saved and routed to review as before — only the fully-empty non-receipt is dropped. So a genuine hard-to-read receipt is never silently discarded.
+  - **Tests: 448/448** (9 new unit tests on `isEmptyReceipt`: selfie/Unknown/empty/missing/case-insensitive/non-positive → empty; merchant-only, amount-only, both → kept; null-safe).
+- **What's next:** open PR → review → merge. **Overlap note:** touches `lib/ocr.js` like open PR #51 (currency #45) but a different region (`expenseFromPhoto` vs the `assembleExpense` currency line) — clean auto-merge expected. I'll restart the local test bot on this branch so Barat can re-send a selfie and confirm the new reply live.
+- **Assumptions:** the "no merchant AND no positive amount" heuristic is the non-receipt signal; matches exactly what the vision model returns for a selfie (Unknown + 0). If a real receipt ever legitimately has both blank, it was unreadable anyway and the resend prompt is the right response.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-currency-normalize-and-webhook-failclosed
 - **Files:** `lib/ocr.js` (`assembleExpense` import + currency check), `routes/webhook.js` (fail-closed gate), `tests/ingest.test.js` (+2 #45 integration tests), `tests/ratelimit.wiring.qa.test.js` (#43 characterization flipped + 2 new fail-closed tests). **Two related fixes on ONE branch** per Jeevan's 2026-07-03 process note (stop making 5 separate one-fix PRs that each conflict on WORKLOG).
 - **What changed:**
