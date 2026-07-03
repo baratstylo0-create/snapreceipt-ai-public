@@ -3,7 +3,26 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST — live-tested with Owner, category bug fixed, template builder built)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST — category fix MERGED; Barat found a CRITICAL data-loss bug, PR #65 needs urgent review)
+
+**main HEAD** = PR #66 merge (`8422e48`), **721 tests passing**. `npm install` first. **Gotcha: `.env` in repo root has LIVE credentials — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.**
+
+### ⚠️ TOP PRIORITY — PR #65 (Barat): batch uploads have been silently NOT SAVING to the database
+While fixing a "junk data got saved" bug report, Barat found something worse: **`assembleExpense`'s documented contract says it inserts the row — it never did.** Only the single-photo path (`expenseFromPhoto`) had its own explicit insert. **Every batch/multi-photo upload (Telegram albums, Telegram PDFs, dashboard multi-upload) has told users "N saved" while writing NOTHING to Supabase since #7 shipped.** He's fixed it (`isEmptyReceipt` now runs inside `assembleExpense` + a real insert now happens there; `runBatch` counts `skipped` separately from `saved`) — 690/690 tests, 9 new. **Review + merge this first**, and consider whether any of today's live-test batch uploads (if any were multi-photo) need re-sending.
+
+### Also open: PR #64 (Barat) — in-chat Telegram delete ("delete" → Yes/Cancel button → soft-deletes). Tier-2 (deletes financial data + new webhook update type `callback_query`), 690/690, lower urgency than #65.
+
+### Landed this session (main, done)
+- PR #66 (me): category taxonomy bug fixed (dashboard now reads the REAL 18-category list from `lib/categorize.js` via `/api/config`, deterministic color palette, never drifts again) + dashboard labels read the customer's FieldSpec + new visual "build a field" template builder (zero CSV knowledge, honest about type/required not round-tripping through the CSV endpoint).
+- Live end-to-end test with the Owner (real Supabase + Groq). `DEFAULT_CURRENCY=MYR` set. **2 old test rows are still USD — Owner hasn't confirmed whether to re-convert, don't touch without asking.**
+- PRs #60, #61, #62, #63 all merged earlier this session (Groq key-rotation ADR-016 complete both sides, non-receipt short flag, CORS preflight fix, bot allowlist + acks + batch breakdown).
+
+### NEXT ACTIONS for J2 (in order)
+1. **Review + merge PR #65 first** (critical data-loss fix), then #64.
+2. **Voucher/reference number feature** — Owner wants it (e.g. `V-2026-0041` per expense), needs a schema change (Barat's lane: `schema.sql` + `lib/ocr.js`/`lib/supabase.js`). Not yet spec'd — write a short spec, get Barat's sign-off, then he builds it.
+3. **Ask Owner:** re-convert the 2 old USD rows to MYR, or leave as historical?
+4. **Mugi still hasn't started** — needs his GitHub username to be added as a collaborator.
+5. Non-blocking: issues #31, #20, #14.
 
 **main HEAD** = PR #63 merge (`67163ff`). **Open branch (NOT merged):** `feature/jeevan-dynamic-categories-fieldspec`, pushed, **721 tests passing** (baseline 703 before this branch's 2 commits). `npm install` first.
 
