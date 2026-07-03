@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-not-captured
+- **Files:** `lib/ocr.js` (`expenseFromPhoto` + new `isEmptyReceipt` helper, exported), `tests/ocr.nonreceipt.test.js` (new).
+- **What changed — user-reported live during phone QA:** sending a *non-receipt* photo (a selfie) replied "✅ *Expense Captured* / Merchant: Unknown / Total: $0.00 / Needs review" **and saved a junk $0.00 row**. Misleading + pollutes the dashboard.
+  - **Fix:** new `isEmptyReceipt(expense, fields)` — true when there's **no usable merchant** (missing / empty / "Unknown", case-insensitive) **AND no positive amount**. In `expenseFromPhoto`, when it's empty we now **skip the insert** and reply honestly: *"🧾 I couldn't find a receipt in that photo. Please send a clear photo of a receipt or invoice — make sure the shop name and total are visible."* No DB write, no false "Captured".
+  - **Deliberately conservative:** a **partial** read (a real merchant OR a positive amount) is still saved and routed to review as before — only the fully-empty non-receipt is dropped. So a genuine hard-to-read receipt is never silently discarded.
+  - **Tests: 448/448** (9 new unit tests on `isEmptyReceipt`: selfie/Unknown/empty/missing/case-insensitive/non-positive → empty; merchant-only, amount-only, both → kept; null-safe).
+- **What's next:** open PR → review → merge. **Overlap note:** touches `lib/ocr.js` like open PR #51 (currency #45) but a different region (`expenseFromPhoto` vs the `assembleExpense` currency line) — clean auto-merge expected. I'll restart the local test bot on this branch so Barat can re-send a selfie and confirm the new reply live.
+- **Assumptions:** the "no merchant AND no positive amount" heuristic is the non-receipt signal; matches exactly what the vision model returns for a selfie (Unknown + 0). If a real receipt ever legitimately has both blank, it was unreadable anyway and the resend prompt is the right response.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-flushgroup-timer-unhandled-rejection
 - **Files:** `lib/bot.js` (`flushGroup`, its `setTimeout` call site in `handleUpdate`), `tests/bot.flushgroup-guard.test.js` (new).
 - **What changed — closes a QA subagent finding (Debug loop, SOP §4.8), same failure shape as PR #44's `tgSend` bug:**
