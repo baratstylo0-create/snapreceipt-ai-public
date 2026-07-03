@@ -194,6 +194,33 @@ test('formatBatchSummary lists each saved receipt (merchant · amount · categor
   assert.ok(!formatBatchSummary(summary).includes('Shell'), 'omitting the saved list keeps the old counts-only summary');
 });
 
+test('ADR-017: formatBatchSummary shows voucher_no per receipt when present, omits it when absent', () => {
+  const summary = { images: 2, receipts: 2, saved: 2, failed: [], flagged: [], truncated_images: [] };
+  const saved = [
+    { merchant: 'L.C. Vegetarian', amount: 36, currency: 'MYR', category: 'Food', voucher_no: 'RC-2026-0007', flagged: false },
+    { merchant: 'Shell', amount: 86, currency: 'MYR', category: 'Petrol', flagged: false }, // no voucher_no (pre-migration row)
+  ];
+  const text = formatBatchSummary(summary, saved);
+  assert.match(text, /RC-2026-0007/, 'the first receipt shows its reference number');
+  const shellLine = text.split('\n').find(l => l.includes('Shell'));
+  assert.ok(!/RC-/.test(shellLine), 'no reference number is fabricated for a receipt that has none');
+});
+
+test('a media group with a real assembleExpense-returned voucher_no flows into the summary', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    runBatch: async (images, fieldSpec, d) => {
+      await d.assembleExpense({ ...d.meta, fields: { merchant: 'Bonda', amount: 10 } });
+      return { images: images.length, receipts: images.length, saved: 1, failed: [], flagged: [], truncated_images: [] };
+    },
+    assembleExpense: async ({ fields }) => ({ expense: { merchant: fields.merchant, amount: fields.amount, currency: 'MYR', category: 'Food', voucher_no: 'RC-2026-0042' }, flagged: false }),
+  });
+  await handleUpdate(photoUpdate('grpVoucher', 'f1'), deps);
+  await timers.runPending();
+  assert.match(sent[sent.length - 1].text, /RC-2026-0042/);
+});
+
 test('formatBatchSummary humanizes a skipped (non-receipt) photo instead of silently omitting it', () => {
   const text = formatBatchSummary({
     images: 4, receipts: 4, saved: 2, skipped: 2,
