@@ -3,14 +3,14 @@
 // collision-safe with concurrent feature PRs). Mounted in server.js.
 const express = require('express');
 const supabase = require('../lib/supabase');   // namespace so tests can stub sbSelect/sbUpdate
-const { checkDash } = require('./expenses');    // reuse the same optional API gate
+const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
 
 const DECISION_STATUS = { approve: 'approved', reject: 'rejected' };
 
 module.exports = function mountReview(app) {
   // GET /api/review — the admin queue: expenses awaiting an accept/reject decision.
   app.get('/api/review', checkDash, async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const rows = await supabase.sbSelect('expenses', {
         eq: { status: 'needs_review' }, extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 500,
@@ -25,7 +25,7 @@ module.exports = function mountReview(app) {
   // POST /api/review/:id { decision: 'approve'|'reject', note? } — admin decision.
   // Records the audit trail into the existing expenses.anomaly jsonb (no schema change needed).
   app.post('/api/review/:id', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const decision = req.body && req.body.decision;
       const status = DECISION_STATUS[decision];

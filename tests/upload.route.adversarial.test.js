@@ -145,17 +145,18 @@ test('runBatch throws with a path in the message -> 502, no path leak', async ()
 
 // --- AUTH BOUNDARY ---------------------------------------------------------
 
-test('checkDash: query ?key= also authorizes (parity with expenses route)', async () => {
+test('checkDash: query ?key= is REJECTED -> 401 (header-only auth, Task J F2)', async () => {
   const prev = cfg.DASHBOARD_TOKEN;
   cfg.DASHBOARD_TOKEN = 'secret';
   try {
     const srv = appWith().listen(0);
     const { port } = srv.address();
     try {
+      // A correct token in the query string no longer authorizes — only the Bearer header does.
       const r = await fetch('http://127.0.0.1:' + port + '/api/upload?key=secret', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: [b64] }),
       });
-      assert.equal(r.status, 200);
+      assert.equal(r.status, 401);
     } finally { srv.close(); }
   } finally { cfg.DASHBOARD_TOKEN = prev; }
 });

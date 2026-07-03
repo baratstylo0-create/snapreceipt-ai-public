@@ -10,7 +10,7 @@ const supabase = require('../lib/supabase');       // namespace import so tests 
 const templates = require('../lib/templates');     // namespace import so tests can stub getFieldSpec
 const { buildWorkbook } = require('../lib/excel');
 const { isISO } = require('../lib/reports');
-const { checkDash } = require('./expenses');       // reuse the same optional API gate
+const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
 
 // Same cap philosophy as routes/reports.js's REPORT_ROW_LIMIT: never silently
 // undercount a money export; signal truncation instead (via a header, since
@@ -19,7 +19,7 @@ const EXCEL_ROW_LIMIT = 10000;
 
 module.exports = function mountExcel(app) {
   app.get('/api/excel', checkDash, async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const from = isISO(req.query.from) ? String(req.query.from) : null;
       const to = isISO(req.query.to) ? String(req.query.to) : null;

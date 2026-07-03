@@ -6,6 +6,7 @@
 const express = require('express');
 const { cfg, assertConfig } = require('./lib/config');
 const { registerWebhook } = require('./lib/telegram');
+const securityHeaders = require('./lib/security-headers');
 
 const mountWebhook = require('./routes/webhook');
 const mountExpenses = require('./routes/expenses');
@@ -22,6 +23,11 @@ assertConfig();
 
 const app = express();
 app.set('trust proxy', true);
+// Security headers (CSP + hardening) on every response, before any route mounts.
+// Adds Cache-Control: no-store on data-bearing paths (/api/*, /receipt). Keeps a
+// strict no-inline CSP that the external-only frontend (css/app.css + js/*.js)
+// is built to satisfy. See lib/security-headers.js.
+app.use(securityHeaders);
 mountWebhook(app);
 mountExpenses(app);
 mountReceipt(app);
