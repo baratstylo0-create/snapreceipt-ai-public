@@ -6,7 +6,7 @@
 // read (a merchant OR a positive amount) IS a real receipt and must be kept for review.
 const test = require('node:test');
 const assert = require('node:assert');
-const { isEmptyReceipt } = require('../lib/ocr');
+const { isEmptyReceipt, skipReason, skipMessage } = require('../lib/ocr');
 
 test('selfie / non-receipt: merchant "Unknown" + amount 0 -> EMPTY (do not save)', () => {
   assert.strictEqual(isEmptyReceipt({ amount: 0 }, { merchant: 'Unknown' }), true);
@@ -52,4 +52,41 @@ test('partial read: no merchant but a positive amount -> NOT empty (keep for rev
 test('does not throw on odd inputs (null expense / null fields)', () => {
   assert.doesNotThrow(() => isEmptyReceipt(null, null));
   assert.strictEqual(isEmptyReceipt(null, null), true);
+});
+
+// --- skipReason: WHY a skipped photo was skipped, from the model's own signal ---
+// (Owner feedback 2026-07-03: a blurry real receipt and a totally unrelated photo used
+// to get the exact same reply. They need different, honest wording.)
+
+test('skipReason: looks_like_receipt true -> "blurry" (it IS a receipt, just unreadable)', () => {
+  assert.strictEqual(skipReason({ looks_like_receipt: true }), 'blurry');
+});
+
+test('skipReason: looks_like_receipt false -> "not_receipt"', () => {
+  assert.strictEqual(skipReason({ looks_like_receipt: false }), 'not_receipt');
+});
+
+test('skipReason: a stringified "true"/"false" (model didn\'t emit a real JSON boolean) still resolves', () => {
+  assert.strictEqual(skipReason({ looks_like_receipt: 'true' }), 'blurry');
+  assert.strictEqual(skipReason({ looks_like_receipt: 'TRUE' }), 'blurry');
+  assert.strictEqual(skipReason({ looks_like_receipt: 'false' }), 'not_receipt');
+});
+
+test('skipReason: missing/garbled signal -> "unclear" (never guess)', () => {
+  assert.strictEqual(skipReason({}), 'unclear');
+  assert.strictEqual(skipReason(null), 'unclear');
+  assert.strictEqual(skipReason({ looks_like_receipt: 'maybe' }), 'unclear');
+  assert.strictEqual(skipReason({ looks_like_receipt: null }), 'unclear');
+});
+
+test('skipMessage: each reason has distinct, humanized wording', () => {
+  assert.match(skipMessage('blurry'), /blurry/i);
+  assert.match(skipMessage('not_receipt'), /doesn't look like a receipt/i);
+  assert.match(skipMessage('unclear'), /not a receipt — skipped/i);
+  assert.ok(skipMessage('blurry') !== skipMessage('not_receipt'), 'blurry and not_receipt must read differently');
+});
+
+test('skipMessage: an unrecognised reason falls back to the safe generic wording', () => {
+  assert.strictEqual(skipMessage('something-new'), skipMessage('unclear'));
+  assert.strictEqual(skipMessage(undefined), skipMessage('unclear'));
 });

@@ -31,6 +31,7 @@ function deps(over = {}) {
     detectAnomalies:     over.detectAnomalies     || (async () => ({ flagged: false, reasons: [], status_suggestion: 'saved' })),
     convertCurrency:     over.convertCurrency     || (async () => ({ ok: false, rate: null })), // default: no conversion
     loadHistory:         over.loadHistory         || (async () => []),
+    insertExpense:       over.insertExpense       || (async () => {}), // hermetic: never hit real Supabase
   };
 }
 
@@ -153,4 +154,77 @@ test('detection failure degrades gracefully (not flagged, still inserts)', async
   }));
   assert.strictEqual(flagged, false);
   assert.strictEqual(expense.status, 'saved');
+});
+
+// Regression: assembleExpense's own documented contract (docs/specs/2026-07-02-mass-upload-design.md)
+// says it inserts the row, but until this fix it only ever RETURNED the built expense —
+// nothing in the batch path (Telegram multi-photo/PDF, dashboard mass-upload) ever wrote
+// to Supabase. expenseFromPhoto's own separate sbInsert masked this for single photos only.
+test('a normal receipt is actually inserted (insertExpense called with the built row), skipped:false', async () => {
+  let inserted = null;
+  const { expense, skipped } = await assembleExpense(goodInput(), deps({
+    insertExpense: async (row) => { inserted = row; },
+  }));
+  assert.strictEqual(skipped, false);
+  assert.ok(inserted, 'insertExpense must be called for a real receipt');
+  assert.strictEqual(inserted.merchant, expense.merchant);
+  assert.strictEqual(inserted.amount, expense.amount);
+});
+
+// A photo the model couldn't read as a receipt at all (no merchant, no positive amount —
+// e.g. a selfie) must never be saved, from ANY caller, not just the single-photo path.
+test('a non-receipt (no merchant, no amount) is skipped: not inserted, no downstream work', async () => {
+  let insertCalled = false, categorizeCalled = false, detectCalled = false, convertCalled = false;
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: {} });
+  const { expense, skipped, flagged } = await assembleExpense(input, deps({
+    insertExpense: async () => { insertCalled = true; },
+    categorizeLineItems: async () => { categorizeCalled = true; return { category: 'Others' }; },
+    detectAnomalies: async () => { detectCalled = true; return { flagged: false, reasons: [], status_suggestion: 'saved' }; },
+    convertCurrency: async () => { convertCalled = true; return { ok: false, rate: null }; },
+  }));
+  assert.strictEqual(skipped, true);
+  assert.strictEqual(flagged, false);
+  assert.strictEqual(insertCalled, false, 'a non-receipt must never be inserted');
+  assert.strictEqual(categorizeCalled, false, 'no point categorizing junk that will not be saved');
+  assert.strictEqual(detectCalled, false, 'no point anomaly-checking junk that will not be saved');
+  assert.strictEqual(convertCalled, false, 'no point FX-converting junk that will not be saved');
+  assert.strictEqual(expense.merchant, 'Unknown');
+});
+
+// A PARTIAL read (merchant OR amount present, not both missing) is still a real receipt
+// worth keeping — must NOT be treated as empty, must still be inserted.
+test('a partial read (merchant present, amount 0) is NOT skipped and is inserted', async () => {
+  let inserted = null;
+  const input = goodInput({ fields: { merchant: 'Starbucks', amount: 0 }, rawParsed: {} });
+  const { skipped } = await assembleExpense(input, deps({ insertExpense: async (row) => { inserted = row; } }));
+  assert.strictEqual(skipped, false);
+  assert.ok(inserted, 'a partial read must still be saved for review');
+  assert.strictEqual(inserted.merchant, 'Starbucks');
+});
+
+// Owner feedback 2026-07-03: a blurry real receipt and a totally unrelated photo used to
+// get the exact same "not a receipt" reply. assembleExpense must surface WHICH one this
+// was (via the model's own looks_like_receipt signal) so the caller can reply honestly.
+test('a skipped receipt carries skipReason "blurry" when the model says this looked like a receipt', async () => {
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: { looks_like_receipt: true } });
+  const { skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipReason, 'blurry');
+});
+
+test('a skipped receipt carries skipReason "not_receipt" when the model says this was not a receipt', async () => {
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: { looks_like_receipt: false } });
+  const { skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipReason, 'not_receipt');
+});
+
+test('a skipped receipt with no looks_like_receipt signal carries skipReason "unclear" (safe fallback)', async () => {
+  const input = goodInput({ fields: { merchant: 'Unknown', amount: 0 }, rawParsed: {} });
+  const { skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipReason, 'unclear');
+});
+
+// A SAVED receipt must not carry a leftover skipReason from a previous call/shared state.
+test('a saved (non-skipped) receipt has no skipReason key', async () => {
+  const { skipReason } = await assembleExpense(goodInput(), deps());
+  assert.strictEqual(skipReason, undefined);
 });

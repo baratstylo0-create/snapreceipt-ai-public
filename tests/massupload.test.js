@@ -73,7 +73,36 @@ test('truncated image index recorded; flagged receipts aggregated', async () => 
 test('empty images -> zeroed summary, never throws', async () => {
   const f = fakes({});
   const s = await runBatch([], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
-  assert.deepEqual(s, { images: 0, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] });
+  assert.deepEqual(s, { images: 0, receipts: 0, saved: 0, skipped: 0, failed: [], flagged: [], truncated_images: [] });
+});
+
+// 2026-07-03: assembleExpense now returns skipped:true for a receipt it decided is not
+// a real receipt (no merchant, no positive amount) and does not insert it. runBatch must
+// count that separately from `saved`, not as a save and not as a failure.
+test('a skipped (non-receipt) result is counted in `skipped`, not `saved`, not `failed`', async () => {
+  const extractReceipts = async () => ({ receipts: [
+    { fields: { merchant: 'Real Shop' }, rawParsed: {} },
+    { fields: { merchant: 'Unknown', amount: 0 }, rawParsed: {} },
+  ] });
+  const assembleExpense = async (arg) => (
+    arg.fields.merchant === 'Real Shop'
+      ? { expense: { merchant: 'Real Shop' }, flagged: false, skipped: false }
+      : { expense: { merchant: 'Unknown' }, flagged: false, skipped: true }
+  );
+  const s = await runBatch(['img1'], FS, { extractReceipts, assembleExpense });
+  assert.equal(s.receipts, 2);
+  assert.equal(s.saved, 1);
+  assert.equal(s.skipped, 1);
+  assert.deepEqual(s.failed, []);
+});
+
+// Backward-compat: an older fake that never returns `skipped` at all (undefined, not
+// `false`) must behave exactly as before this change — everything counted as saved.
+test('back-compat: assembleExpense results with no `skipped` key are all counted as saved', async () => {
+  const f = fakes({ img1: { receipts: [{ fields: { merchant: 'Shell' }, rawParsed: {} }, { fields: { merchant: 'Tesco' }, rawParsed: {} }] } });
+  const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.equal(s.saved, 2);
+  assert.equal(s.skipped, 0);
 });
 
 test('extractReceipts throws a plain string: image failed with string reason, others processed', async () => {

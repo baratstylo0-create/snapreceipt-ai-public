@@ -284,6 +284,7 @@ test('QA: assembleExpense tolerates fileId:null — no crash, receipt_file_id st
     detectAnomalies:     async () => ({ flagged: false, reasons: [], status_suggestion: 'saved' }),
     convertCurrency:     async () => ({ ok: false, rate: null }),
     loadHistory:         async () => [],
+    insertExpense:       async () => {}, // hermetic: never hit real Supabase
   };
   const input = {
     chatId: 1, repName: 'Dashboard', fileId: null, fieldSpec: SPEC,
@@ -310,6 +311,7 @@ test('QA: extractReceipts -> assembleExpense end-to-end with fileId:null for eve
     detectAnomalies:     async () => ({ flagged: false, reasons: [], status_suggestion: 'saved' }),
     convertCurrency:     async () => ({ ok: false, rate: null }),
     loadHistory:         async () => [],
+    insertExpense:       async () => {}, // hermetic: never hit real Supabase
   };
   const rows = [];
   for (const r of receipts) {

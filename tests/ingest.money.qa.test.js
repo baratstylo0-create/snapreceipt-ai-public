@@ -30,6 +30,7 @@ function deps(over = {}) {
     detectAnomalies:     over.detectAnomalies     || (async () => ({ flagged: false, reasons: [], status_suggestion: 'saved' })),
     convertCurrency:     over.convertCurrency     || (async () => ({ ok: false, rate: null })),
     loadHistory:         over.loadHistory         || (async () => []),
+    insertExpense:       over.insertExpense       || (async () => {}), // hermetic: never hit real Supabase
   };
 }
 

@@ -194,6 +194,103 @@ test('formatBatchSummary lists each saved receipt (merchant · amount · categor
   assert.ok(!formatBatchSummary(summary).includes('Shell'), 'omitting the saved list keeps the old counts-only summary');
 });
 
+test('formatBatchSummary humanizes a skipped (non-receipt) photo instead of silently omitting it', () => {
+  const text = formatBatchSummary({
+    images: 4, receipts: 4, saved: 2, skipped: 2,
+    failed: [], flagged: [], truncated_images: [],
+  });
+  assert.match(text, /2 photos not a clear receipt/);
+  assert.match(text, /didn't look like a clear receipt/i);
+  assert.match(text, /skipped rather than guessed/i);
+});
+
+test('formatBatchSummary: skipped=1 uses singular wording ("it was skipped")', () => {
+  const text = formatBatchSummary({ images: 1, receipts: 1, saved: 0, skipped: 1, failed: [], flagged: [], truncated_images: [] });
+  assert.match(text, /1 photo not a clear receipt/);
+  assert.match(text, /it was skipped/i);
+});
+
+test('a media group with a mix of real + non-receipt photos: the breakdown lists ONLY real saves, never the skipped junk', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    runBatch: async (images, fieldSpec, d) => {
+      // Mirrors the real runBatch: calls the injected assembleExpense per image and
+      // respects its skipped flag.
+      let saved = 0, skipped = 0;
+      for (let i = 0; i < images.length; i++) {
+        const res = await d.assembleExpense({ ...d.meta, fields: { merchant: 'Img' + i } });
+        if (res.skipped) skipped++; else saved++;
+      }
+      return { images: images.length, receipts: images.length, saved, skipped, failed: [], flagged: [], truncated_images: [] };
+    },
+    // Image 0 is a real receipt; image 1 is a temple photo the model still tried to read.
+    assembleExpense: async ({ fields }) => (
+      fields.merchant === 'Img0'
+        ? { expense: { merchant: 'Real Shop', amount: 20, currency: 'MYR', category: 'Food' }, flagged: false, skipped: false }
+        : { expense: { merchant: 'Unknown', amount: 0, currency: 'MYR', category: 'Others' }, flagged: false, skipped: true }
+    ),
+  });
+  await handleUpdate(photoUpdate('grpMixed', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpMixed', 'f2'), deps);
+  await timers.runPending();
+  const summaryMsg = sent[sent.length - 1].text;
+  assert.match(summaryMsg, /Real Shop/, 'the real receipt is listed');
+  assert.ok(!summaryMsg.includes('Unknown'), 'the skipped non-receipt must never appear in the per-item breakdown');
+  assert.match(summaryMsg, /1 photo not a clear receipt/);
+});
+
+test('formatBatchSummary: given skippedReasons, breaks the skip count down by WHY (blurry vs not a receipt at all)', () => {
+  const summary = { images: 3, receipts: 3, saved: 1, skipped: 2, failed: [], flagged: [], truncated_images: [] };
+  const text = formatBatchSummary(summary, [], ['blurry', 'not_receipt']);
+  assert.match(text, /1 photo too blurry to read/);
+  assert.match(text, /1 photo that didn't look like a receipt at all/);
+  assert.match(text, /nothing was guessed/i);
+});
+
+test('formatBatchSummary: skippedReasons missing/incomplete falls back to the safe generic wording', () => {
+  const summary = { images: 2, receipts: 2, saved: 0, skipped: 2, failed: [], flagged: [], truncated_images: [] };
+  // Only one reason recorded for two skips (e.g. a hostile/short array) — must not
+  // mis-render a partial breakdown, falls back to the plain "N skipped" line.
+  const text = formatBatchSummary(summary, [], ['blurry']);
+  assert.match(text, /didn't look like a clear receipt, so they were skipped rather than guessed/i);
+  assert.ok(!text.includes('too blurry to read'), 'must not render a half-populated breakdown');
+});
+
+test('formatBatchSummary: an "unclear" reason in the mix falls back to generic wording rather than mislabeling it', () => {
+  const summary = { images: 3, receipts: 3, saved: 0, skipped: 3, failed: [], flagged: [], truncated_images: [] };
+  const text = formatBatchSummary(summary, [], ['blurry', 'not_receipt', 'unclear']);
+  assert.match(text, /didn't look like a clear receipt, so they were skipped rather than guessed/i);
+});
+
+test('a media group with blurry AND not-a-receipt skips: the summary breaks them down by reason, real receipt untouched', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    runBatch: async (images, fieldSpec, d) => {
+      let saved = 0, skipped = 0;
+      for (let i = 0; i < images.length; i++) {
+        const res = await d.assembleExpense({ ...d.meta, fields: { merchant: 'Img' + i } });
+        if (res.skipped) skipped++; else saved++;
+      }
+      return { images: images.length, receipts: images.length, saved, skipped, failed: [], flagged: [], truncated_images: [] };
+    },
+    assembleExpense: async ({ fields }) => {
+      if (fields.merchant === 'Img0') return { expense: { merchant: 'Real Shop', amount: 20, currency: 'MYR', category: 'Food' }, flagged: false, skipped: false };
+      if (fields.merchant === 'Img1') return { expense: { merchant: 'Unknown' }, flagged: false, skipped: true, skipReason: 'blurry' };
+      return { expense: { merchant: 'Unknown' }, flagged: false, skipped: true, skipReason: 'not_receipt' };
+    },
+  });
+  await handleUpdate(photoUpdate('grpReasons', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpReasons', 'f2'), deps);
+  await handleUpdate(photoUpdate('grpReasons', 'f3'), deps);
+  await timers.runPending();
+  const summaryMsg = sent[sent.length - 1].text;
+  assert.match(summaryMsg, /Real Shop/);
+  assert.match(summaryMsg, /1 photo too blurry to read/);
+  assert.match(summaryMsg, /1 photo that didn't look like a receipt at all/);
+});
+
 test('two different media groups do not mix', async (t) => {
   const timers = fakeTimers();
   const { deps, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
