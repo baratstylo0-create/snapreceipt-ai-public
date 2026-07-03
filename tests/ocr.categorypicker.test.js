@@ -3,7 +3,7 @@
 // 2026-07-03). No network — buildCategoryKeyboard/categoryPromptText are hermetic.
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCategoryKeyboard, categoryPromptText, PENDING_CATEGORY } = require('../lib/ocr');
+const { buildCategoryKeyboard, categoryPromptText, editCategoryKeyboard, PENDING_CATEGORY } = require('../lib/ocr');
 const { CATEGORIES } = require('../lib/categorize');
 
 test('buildCategoryKeyboard: every real category gets a button, Others is always last on its own row', () => {
@@ -57,4 +57,20 @@ test('categoryPromptText: mentions the merchant and amount, never the pending se
 
 test('categoryPromptText: does not throw on a missing merchant', () => {
   assert.doesNotThrow(() => categoryPromptText({ amount: 10, currency: 'USD' }));
+});
+
+// --- editCategoryKeyboard (Owner request 2026-07-04): the single "Edit category" button
+// attached to the normal "Expense Captured" reply. ---
+
+test('editCategoryKeyboard: exactly one button, correct callback_data prefix', () => {
+  const kb = editCategoryKeyboard('exp-5');
+  const flat = kb.inline_keyboard.flat();
+  assert.strictEqual(flat.length, 1);
+  assert.strictEqual(flat[0].callback_data, 'catedit:exp-5');
+  assert.match(flat[0].text, /Edit/i);
+});
+
+test('editCategoryKeyboard: callback_data stays well under Telegram\'s 64-byte limit for a real UUID', () => {
+  const kb = editCategoryKeyboard('a'.repeat(36));
+  assert.ok(Buffer.byteLength(kb.inline_keyboard[0][0].callback_data, 'utf8') <= 64);
 });

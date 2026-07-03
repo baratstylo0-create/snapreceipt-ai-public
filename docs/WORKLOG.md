@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-category-picker-and-pdf-fix (2nd follow-up, PR #78)
+- **Files:** `lib/telegram.js` (`tgEditMessage` gained an optional `replyMarkup` — attach a NEW keyboard instead of only clearing), `lib/ocr.js` (`expense.id` now generated for EVERY path, not just the uncertain-category one; new `editCategoryKeyboard`, wired into `expenseFromPhoto`'s normal reply), `lib/bot.js` (new `catedit:` callback branch; `catpick:`'s confirmation gained "(updated)" wording for re-picks), `tests/ocr.categorypicker.test.js` (+2), `tests/bot.categorypicker.test.js` (+5).
+- **What changed — Owner request: an Edit button on the normal "Expense Captured" message, so a wrong auto-picked category can be corrected without the dashboard:**
+  - `assembleExpense` generates `expense.id` (`crypto.randomUUID()`) unconditionally now, not only on the uncertain-category path — every insert path needs a known id up front for a Telegram button to reference it before the DB round-trip returns.
+  - `expenseFromPhoto`'s normal (confident-category) reply now carries a single "✏️ Edit category" button (`editCategoryKeyboard`, `catedit:<id>`).
+  - New `catedit:` branch in `handleCallbackQuery`: re-checks ownership (never another chat's receipt) — deliberately does NOT require any particular prior status, just resets it to `awaiting_category` and edits the message in place to show the SAME `buildCategoryKeyboard`/`categoryPromptText` picker used for uncertain receipts. The actual re-pick is handled by the EXISTING `catpick:` branch (one tested implementation, not a parallel one) — `tgEditMessage` gained an optional 4th arg so this call can attach a fresh keyboard instead of clearing one.
+  - `catpick:`'s success path now detects "was this an edit" (`row.category` was already a real value, not the `__pending__` sentinel) and appends "(updated)" to the confirmation so it reads differently from a fresh first-time pick.
+  - **Documented side effect:** resetting status to `awaiting_category` on edit clears any prior `needs_review` anomaly status until the re-pick completes (the anomaly `reasons` themselves are untouched, only `status`) — accepted as a rare, cosmetic edge case, not data loss.
+- **Tests: 812/812** (+7: `editCategoryKeyboard` shape/byte-length, `catedit:` ownership/deleted-row/edit-in-place-with-buttons, the full catedit→catpick round trip proving "(updated)" wording, and the negative case proving a fresh pick does NOT say "(updated)").
+- **What's next:** part of the still-open PR #78 (pushed as an additional commit). Restarting the local bot for Barat's live re-test.
+- **Assumptions:** none new beyond #78's own.
+
 ## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-category-picker-and-pdf-fix (follow-up, same open PR #74)
 - **Files:** `lib/telegram.js` (new `tgEditMessage`), `lib/bot.js` (`handleCallbackQuery`'s catpick branch + `tryResolveRemark` now edit in place; new module-level `pendingRemarkMessages` Map), `tests/telegram.test.js` (+3), `tests/bot.categorypicker.test.js` (+3), `tests/bot.categorypicker.remark.test.js` (+2).
 - **What changed — Owner feedback on yesterday's category-picker (PR #74, not yet merged):** the picker prompt used to stay in the chat forever with its buttons, and a SEPARATE new message was sent on confirm — leaving a wall of stale button messages if you scroll back. Now the SAME message is edited in place instead:

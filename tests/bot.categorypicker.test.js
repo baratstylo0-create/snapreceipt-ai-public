@@ -153,3 +153,49 @@ test('a catpick callback with NO message_id (defensive fallback) still sends a n
   assert.strictEqual(sent.length, 1);
   assert.match(sent[0].text, /Groceries/);
 });
+
+// --- "✏️ Edit category" on an already-saved receipt (Owner request 2026-07-04) ---
+const SAVED_ROW = { id: 'exp-20', merchant: 'Segamat', amount: 18, currency: 'MYR', status: 'saved', category: 'Fuel & Auto', rep_chat_id: '100' };
+
+test('catedit: tapping Edit on an already-saved row resets it to awaiting_category and edits the message to show the picker (with buttons, not cleared)', async () => {
+  const { deps, edited, sent, updateCalls } = baseDeps({ sbSelect: async () => [SAVED_ROW] });
+  await handleCallbackQuery({ id: 'cbEdit1', data: 'catedit:exp-20', message: withMessageId(100, 900) }, deps);
+  assert.strictEqual(updateCalls.length, 1);
+  assert.deepStrictEqual(updateCalls[0].patch, { status: 'awaiting_category' });
+  assert.strictEqual(sent.length, 0, 'edited in place, no new message');
+  assert.strictEqual(edited.length, 1);
+  assert.strictEqual(edited[0].messageId, 900);
+  assert.match(edited[0].text, /Segamat/);
+});
+
+test('catedit: SECURITY — a different chat cannot edit someone else\'s receipt', async () => {
+  const { deps, updateCalls, sent } = baseDeps({ sbSelect: async () => [SAVED_ROW] });
+  await handleCallbackQuery({ id: 'cbEdit2', data: 'catedit:exp-20', message: withMessageId(999, 901) }, deps);
+  assert.strictEqual(updateCalls.length, 0);
+  assert.match(sent[0].text, /can't do that/i);
+});
+
+test('catedit: a deleted row is refused gracefully, no crash', async () => {
+  const { deps, updateCalls } = baseDeps({ sbSelect: async () => [{ ...SAVED_ROW, deleted_at: '2026-07-04T00:00:00Z' }] });
+  await handleCallbackQuery({ id: 'cbEdit3', data: 'catedit:exp-20', message: withMessageId(100, 902) }, deps);
+  assert.strictEqual(updateCalls.length, 0);
+});
+
+test('catedit -> catpick round trip: re-picking a category after Edit says "(updated)"', async () => {
+  // Simulates the two-step flow: catedit resets status, THEN a category tap resolves it.
+  // After catedit, the row (as read back by the next catpick call) is awaiting_category
+  // again but its `category` field still holds the OLD real value (Fuel & Auto) — that's
+  // exactly the signal catpick uses to know this is a re-pick, not a fresh uncertain one.
+  const idx = CATEGORIES.indexOf('Groceries');
+  const rowAfterEdit = { ...SAVED_ROW, status: 'awaiting_category' }; // category still 'Fuel & Auto'
+  const { deps, edited } = baseDeps({ sbSelect: async () => [rowAfterEdit] });
+  await handleCallbackQuery({ id: 'cbEdit4', data: 'catpick:exp-20:' + idx, message: withMessageId(100, 900) }, deps);
+  assert.match(edited[0].text, /Groceries \(updated\)/);
+});
+
+test('a fresh (never-before-categorized) receipt does NOT get "(updated)" wording', async () => {
+  const idx = CATEGORIES.indexOf('Groceries');
+  const { deps, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] }); // category is PENDING_CATEGORY, not a real one
+  await handleCallbackQuery({ id: 'cbEdit5', data: 'catpick:exp-9:' + idx, message: withMessageId(100, 900) }, deps);
+  assert.ok(!/\(updated\)/.test(edited[0].text));
+});
