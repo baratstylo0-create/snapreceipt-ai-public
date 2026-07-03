@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-03 · Claude-J1 (for Jeevan) · docs/jeevan-voucher-spec
+- **Files:** `docs/specs/2026-07-03-voucher-reference-number-design.md` (new), this WORKLOG.
+- **What changed — Owner-requested spec:** design for a human-readable per-expense reference (`V-2026-0041`), separate from the DB UUID. Pending **Barat sign-off** (his `schema.sql` + insert path). Key CTO call: **generate DB-side (BEFORE INSERT trigger + atomic per-(account,year) counter via `ON CONFLICT DO UPDATE RETURNING`), NOT app-side `count(*)+1`** — the latter races, and post-#65 every batch path inserts near-simultaneously, so the race is live. Explicitly distinct from OCR'd `invoice_number` (voucher_no is system-generated, never in the FieldSpec). 4 open decisions flagged for sign-off (year basis, backfill, gaps-allowed vs gapless, prefix).
+- **What's next:** Barat reviews/signs off → builds schema; then thin display wiring (Excel #2 + routes/expenses = Jeevan, Telegram reply = Barat, dashboard = Mugi).
+- **Assumptions:** unique+ordered with gaps allowed is fine for v1 (no legal gapless requirement); `V-` prefix; per-year reset.
+
 ## 2026-07-03 · Claude-J1 (for Jeevan) · fix/jeevan-config-startup-visibility
 - **Files:** `lib/config.js` (new `configSummary()`), `server.js` (boot banner uses it), `tests/config-summary.test.js` (new, +3).
 - **What changed — root-caused the "all live receipts saved as USD" incident:** live-data check on Barat's shared Supabase (`xurnpvesgcybrnilxszf`, NOT the FrictionAI parent) showed every expense stored as USD despite `DEFAULT_CURRENCY=MYR`. Traced via `ai_raw`: OCR read the currencies correctly (Bonda MYR 183.65, etc.) — the pipeline was converting good MYR amounts *into* USD because the **running process's `cfg.DEFAULT_CURRENCY` was still USD**. `.env` was edited to MYR mid-session, but dotenv loads `.env` into `process.env` ONCE at startup, so the file edit never reached the running process (a row ingested AFTER the `.env` edit was still USD — proof). Not a code bug: current `.env` + a fresh process resolves MYR correctly (verified by booting the server).
