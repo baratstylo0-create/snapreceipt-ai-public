@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-04 · Claude-J1 (for Jeevan) · docs/jeevan-line-item-categorization-spec
+- **Files:** `docs/specs/2026-07-04-line-item-categorization-design.md` (new), this WORKLOG.
+- **What — Owner-requested spec:** make per-line-item categorization real. The categorizer (`lib/categorize.js`, #6) already returns a category per line item, but the product keeps only ONE rolled-up category per receipt. Spec'd extracting line items in OCR, persisting the per-item breakdown into the EXISTING `expenses.line_items` jsonb column (no schema change), and showing it in the dashboard. Three concrete gaps identified on `main`: (A) OCR doesn't extract line items — FieldSpec-driven prompt, so `fields.line_items` is undefined → categorizer runs whole-receipt fallback; (B) `assembleExpense` never writes `line_items` (column stays `[]`, `.items` discarded); (C) no per-item display. **Cross-lane:** GAP A+B = Barat (`lib/ocr.js`), GAP C = Mugi (dashboard), categorizer already Jeevan's done. Receipt-level `expenses.category` unchanged (backward compatible).
+- **What's next:** Barat + Mugi sign-off on the 5 open decisions (always-extract vs opt-in, stored shape, flagged-line→review-queue, FX scaling of line amounts, per-receipt item cap) → Barat builds OCR extract+persist → Mugi builds display. Reporting-by-line-item is an explicit follow-on, not v1.
+- **Assumptions:** reuse the existing `line_items` jsonb (no migration); v1 = extract+persist+display only (no per-line editing, no line-item reporting yet).
+
 ## 2026-07-04 · Claude-J1 (for Jeevan) · feat/jeevan-dashboard-category-picker
 - **Files:** `public/js/components/activity.js` (`awaitingCategoryRows` pure helper + export, `buildAwaitingItem` render, `renderAwaiting` + `awaitArea` sub-mount in `mount`, `categoryCell` friendly display), `public/css/app.css` (picker styles + `.act-pill--pending`), `tests/frontend/activity.test.js` (+2, TDD), this WORKLOG.
 - **What — dashboard parity of the bot's #74 category picker (Owner: "same guards + features on the dashboard").** #74 made the bot ask (inline buttons) when the categorizer is uncertain instead of guessing; those rows are saved `status='awaiting_category'`, `category='__pending__'`. But the SAME rows created from a dashboard upload had **no UI to resolve them** (the #74 author flagged this exact gap). Now the dashboard:
