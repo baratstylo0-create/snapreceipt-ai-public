@@ -3,20 +3,26 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, latest — frontend Tasks 0-L+H+I+J DONE, PR #51 pending)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, latest — reference frontend SHIPPED, rate-limit UX done)
 
-**Branch:** `feature/jeevan-p5-frontend` (NOT merged to main yet). Pushed to `2a589ca`. `main` @ `f958775`. Run `npm install` + `npm test` first (should be 624 on the frontend branch).
+**Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #58 merge (`ecf734d`). `npm install` + `npm test` first — **663 passing, 0 open PRs.**
 
-**State:** Reference frontend fully built (Tasks 0-G + L polish), security-hardened (Task H), QA-checklisted (Task I), and independently security-audited (Task J = APPROVE, 2 Low findings F1/F2 both already fixed — constant-time token compare + dropped `?key=` query auth). All committed and pushed.
+### State: reference frontend + P6 hardening + ADR-016 key pool ALL SHIPPED
+- **PR #52** — the whole P5/P6 plan (frontend Tasks 0-K, security hardening, QA checklist, security-QA, runbook) merged after a real pre-merge `/code-review` (3 finder angles) that caught + fixed 1 material bug (auth-limiter throttling legit card-view traffic) + 2 minor. `docs/qa/` has the manual test plan + runbook.
+- **PR #54** (Barat) — non-receipt guard: a selfie no longer saves a junk $0 row.
+- **PR #55** (me) — rate limits loosened (upload/agent 20→120/min, Owner directive: never throttle a legit busy user; these are runaway backstops now, not throttles).
+- **PR #56** (Barat) — `RateLimit-Limit/Remaining/Reset` headers on every limited response.
+- **PR #57** (me) — `lib/groqkeys.js` (ADR-016 multi-key pool: `keyPool`/`pickKey`/`nextKey`). Barat unblocked to wire `lib/groq.js`'s fall-through loop (his lane) — not yet confirmed done, check WORKLOG/ask him.
+- **PR #58** (me) — frontend "% used" rate-limit meter (header chip, reads Barat's headers, warns near the edge). Verified live in preview (ok + critical states).
 
-**NEXT ACTIONS (in order):**
-1. **Review + merge Barat's PR #51** (`fix/barat-currency-normalize-and-webhook-failclosed`) — closes #45 (RM→MYR) and #43 (webhook fail-closed, 503 on prod misconfig). He reports 443/443 green. Do independent review before merge (his lane files). Also: **schema verification item 5 is CLOSED** — he ran the live table-list query, confirmed clean (only expenses/field_templates/category_corrections).
-2. **Task K** — write the live human-test-session runbook (`docs/qa/...-runbook.md`), last item in `docs/plans/2026-07-02-reference-frontend-qa-security.md`.
-3. **Merge `feature/jeevan-p5-frontend` → main** once Task K is done (Tier-2, get independent review first — it's huge, consider a final `/code-review` pass).
-4. **Groq key rotation (ADR-016)** — spec written (`docs/specs/2026-07-03-groq-key-rotation-design.md`), NOT YET sent to Barat for sign-off, NOT built. Send him the spec, wait for OK, then I build `lib/groqkeys.js` (my file) + he wires `lib/groq.js` (his).
-5. Deferred/parked: AI-assisted CSV template builder (own spec, not started).
+### NEXT ACTIONS (in order)
+1. **Check if Barat has wired `lib/groq.js`'s call-site loop** against `lib/groqkeys.js` (ADR-016 — the module is merged, his side may or may not be done yet; his 3 call-site questions were all confirmed: 429-only rotation, swaps don't eat backoff budget, GROQ_KEYS supersedes GROQ_KEY). Review + merge his PR if open.
+2. **Mugi is unblocked** — the reference frontend (PR #52) is his scope reference; check if he's started (#3 production UI/UX), needs his GitHub username added.
+3. **Deferred/non-blocking issues** (pick up if idle): #53 (CORS preflight unhandled — only matters for a cross-origin deploy), #31 (per-image Telegram receipt links), #20 (exceljs uuid audit bump), #17 (`/api/templates` label sanitization), #14 (categorizer hardening).
+4. **AI-assisted CSV template builder** — deferred feature, own spec, not started.
+5. **P9 direction (when ready):** hosting/deploy, HTTPS, Supabase org migration off Barat's personal account (ADR-015 tier ladder — trigger is user #1, not 5 users), observability (P7), AI eval gate (P8).
 
-**Gotcha:** `git add -A` on a branch lacking the frontend branch's `.gitignore` entries previously leaked `graphify-out/` scan artifacts into a commit — already cleaned up, but check before any `-A` add on a non-frontend branch.
+**Gotcha carried forward:** `git add -A` can leak `graphify-out/` scan artifacts on a branch missing the frontend branch's `.gitignore` entries — prefer explicit `git add <files>`.
 
 ---
 
