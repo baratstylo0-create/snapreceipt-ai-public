@@ -36,24 +36,25 @@ function safeTokenEqual(presented, secret) {
 //     every request that slips through unauthenticated so it's never silently forgotten.
 // Production MUST set DASHBOARD_TOKEN — see README.md and .env.example.
 function checkDash(req, res, next) {
-  // Rate-limit the gate itself first (per-IP), before spending any work on the token
-  // comparison — brute-forcing DASHBOARD_TOKEN is the threat this defends against.
-  return dashAuthLimiter(req, res, () => {
-    if (!cfg.DASHBOARD_TOKEN) {
-      if (cfg.AUTH_REQUIRED) {
-        return res.status(500).json({ error: 'server misconfigured: DASHBOARD_TOKEN is required in production' });
-      }
-      console.warn('[checkDash] WARNING: DASHBOARD_TOKEN is not set — request allowed unauthenticated (dev-only fallback):', req.method, req.originalUrl);
-      return next();
+  if (!cfg.DASHBOARD_TOKEN) {
+    if (cfg.AUTH_REQUIRED) {
+      return res.status(500).json({ error: 'server misconfigured: DASHBOARD_TOKEN is required in production' });
     }
-    // Header-only auth (Task J security-QA F2): the `?key=` query path was dropped — tokens in
-    // URLs leak to browser history / proxy logs. The dashboard client always sends the bearer
-    // header (Excel/receipt downloads use an authed blob fetch, not a query-param'd link).
-    const a = req.get('Authorization') || '';
-    const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
-    if (safeTokenEqual(presented, cfg.DASHBOARD_TOKEN)) return next();
-    return res.status(401).json({ error: 'unauthorized' });
-  });
+    console.warn('[checkDash] WARNING: DASHBOARD_TOKEN is not set — request allowed unauthenticated (dev-only fallback):', req.method, req.originalUrl);
+    return next();
+  }
+  // Header-only auth (Task J security-QA F2): the `?key=` query path was dropped — tokens in
+  // URLs leak to browser history / proxy logs. The dashboard client always sends the bearer
+  // header (Excel/receipt downloads use an authed blob fetch, not a query-param'd link).
+  const a = req.get('Authorization') || '';
+  const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
+  // A VALID token is never brute-force — let it straight through, NOT through the limiter.
+  // (Review finding A#1: the shared per-IP dashAuthLimiter previously counted EVERY gated
+  // request, so the card view's ~20 receipt-thumbnail fetches per page could 429 a legit
+  // user. The brute-force threat is *failed* guesses, so only those are rate-limited.)
+  if (safeTokenEqual(presented, cfg.DASHBOARD_TOKEN)) return next();
+  // Failed auth → rate-limit the attempts (per-IP) to blunt token brute-force, then 401.
+  return dashAuthLimiter(req, res, () => res.status(401).json({ error: 'unauthorized' }));
 }
 
 // P6 hardening (§4.5): Access-Control-Allow-Origin was hardcoded to '*' on every token-gated

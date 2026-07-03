@@ -191,7 +191,10 @@
   // garbage all fall back to the default ('table' — today's unchanged behavior).
   // Pure, never throws.
   function normaliseViewMode(raw) {
-    return VIEW_MODES[raw] ? VIEW_MODES[raw] : 'table';
+    // hasOwnProperty guard (review finding B#1): a plain `VIEW_MODES[raw]` truthy-check
+    // returns an inherited Object.prototype member for keys like 'constructor'/'toString',
+    // so a corrupt stored value could resolve to a Function instead of falling back.
+    return (raw === 'table' || raw === 'cards') ? raw : 'table';
   }
 
   // ---- DOM helpers (browser only) ----------------------------------------
@@ -697,7 +700,9 @@
               if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], body, updated && typeof updated === 'object' ? updated : {});
               Escape.setText(statusEl, 'Saved.');
               renderTable();
-              openDrawer(state.rows[idx !== -1 ? idx : 0] || orig);
+              // Re-open the row we just saved. On a cache miss (idx === -1) re-open `orig`,
+              // NOT state.rows[0] — that would swap the drawer to an unrelated expense (B#2).
+              openDrawer(idx !== -1 ? state.rows[idx] : orig);
             })
             .catch(function () { Escape.setText(statusEl, 'Save failed. Please try again.'); });
         },
