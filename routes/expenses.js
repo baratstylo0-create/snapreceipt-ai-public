@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { cfg } = require('../lib/config');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
-const { recordCorrection } = require('../lib/categorize'); // #6 learning loop
+const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
 const { createRateLimiter } = require('../lib/ratelimit');
 
 // P6 abuse defense (§4.4): checkDash IS the auth gate for every dashboard/API route (they all
@@ -98,7 +98,13 @@ module.exports = function mountExpenses(app) {
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });
 
-  app.get('/api/config', (req, res) => res.json({ auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY }));
+  // `categories` (#6's real chart-of-accounts, lib/categorize.js CATEGORIES — single
+  // source of truth) lets the frontend build its filter/edit dropdowns + pill colours
+  // dynamically instead of keeping a second, driftable hardcoded copy (the bug that
+  // produced the Food/Petrol/Software/Inventory/Others vs. the real 18-category set).
+  app.get('/api/config', (req, res) => res.json({
+    auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
+  }));
 };
 
 module.exports.checkDash = checkDash;

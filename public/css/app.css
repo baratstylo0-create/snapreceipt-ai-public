@@ -388,10 +388,23 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   font-weight: 600;
   color: #0e1117;
 }
-.act-pill--food { background: #7ee787; }
-.act-pill--petrol { background: #ffa657; }
-.act-pill--software { background: #79c0ff; }
-.act-pill--inventory { background: #d2a8ff; }
+/* Deterministic 10-colour palette (dynamic categories, see activity.js
+   categoryColor): any category string hashes to one of c0-c9 rather than a
+   hardcoded per-name class, so it scales past the 5-name stub to the real
+   18-category chart of accounts without drifting again. Kept in the same
+   Finexy/GitHub-dark hue family as the rest of the dashboard (accent orange,
+   the badge/status reds-ambers-greens-blues below). .act-pill--others stays
+   the dedicated neutral grey fallback for empty/unknown/"Others". */
+.act-pill--c0 { background: #7ee787; }
+.act-pill--c1 { background: #ffa657; }
+.act-pill--c2 { background: #79c0ff; }
+.act-pill--c3 { background: #d2a8ff; }
+.act-pill--c4 { background: #f8949c; }
+.act-pill--c5 { background: #d29922; }
+.act-pill--c6 { background: #56d4dd; }
+.act-pill--c7 { background: #f0a6ca; }
+.act-pill--c8 { background: #a5d6ff; }
+.act-pill--c9 { background: #8dd68f; }
 .act-pill--others { background: #8b97a7; }
 
 /* badges */
