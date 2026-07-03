@@ -3,7 +3,24 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, latest — reference frontend SHIPPED, rate-limit UX done)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST — live-tested with Owner, category bug fixed, template builder built)
+
+**main HEAD** = PR #63 merge (`67163ff`). **Open branch (NOT merged):** `feature/jeevan-dynamic-categories-fieldspec`, pushed, **721 tests passing** (baseline 703 before this branch's 2 commits). `npm install` first.
+
+### What happened this session (in order)
+1. **Live end-to-end test with the Owner** using his real Supabase + a fresh Groq key (local `.env`, gitignored — NOT committed, still on disk in the repo root for continuity). Confirmed the WHOLE pipeline works for real: Telegram→OCR→dashboard→Agent chat (native tool-calling)→Excel export→currency conversion, all live. Set `DEFAULT_CURRENCY=MYR` (Owner is Malaysia-based) — **2 old test rows are still USD, Owner hasn't said whether to re-convert them, don't touch without asking.**
+2. **Reviewed + merged 3 of Barat's PRs this session:** #60 (Groq key-rotation call-site, ADR-016 now fully shipped both sides), #61 (short non-receipt flag), #63 (bot access allowlist — `ALLOWED_CHAT_IDS`, Owner's chat id `1979799104` is live — + restored "Reading…" acks per Owner's explicit re-approval, + batch receipt breakdown in Telegram replies). Also merged my own #62 (CORS preflight fix, issue #53 closed).
+3. **Found + reported a REAL bug via live data**, now FIXED on the open branch: the dashboard's category list/filter/pill-colors were a stale hardcoded 5-name stub (Food/Petrol/Software/Inventory/Others) that didn't match the REAL 18-category chart of accounts the AI categorizer (#6) actually uses (Meals & Entertainment, Groceries, Fuel & Auto, etc.) — confirmed live when a real receipt got categorized "Meals & Entertainment" and broke the UI. Fixed: `GET /api/config` now returns the real `categories` list (sourced from `lib/categorize.js`'s `CATEGORIES`, single source of truth); dashboard uses a deterministic hash→color palette instead of a hardcoded name map (scales to any category count, never drifts again).
+4. **Also on the open branch:** dashboard labels (table headers, edit-drawer fields) now read the customer's own FieldSpec (`GET /api/templates`) instead of hardcoded English strings — a renamed/custom field shows the customer's own label. **And** a brand-new **visual "build a field" template builder** in Manage (add-field rows: name/type/required/remove — zero CSV knowledge needed) that reuses the existing CSV-import endpoint under the hood. **Honest, tested finding:** the CSV endpoint only carries field NAMES — type/required do NOT round-trip through it (Barat's `parseTemplate` only recognizes a few canonical header names for type inference). The builder's UI says so plainly (`.tp-fb-note`) rather than pretending otherwise.
+
+### NEXT ACTIONS for J2 (in order)
+1. **Review + merge `feature/jeevan-dynamic-categories-fieldspec`** (721 tests, 2 commits: `602c369` category/label fix, `4d5d27c` template builder). Self-authored by me → do independent review or ask Owner to merge (classifier blocks self-merge). **Gotcha: `.env` is present in the repo root with LIVE credentials — always `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests will falsely fail** (pure environment contamination, hit this twice already this session).
+2. **Ask the Owner:** (a) re-convert the 2 old USD test rows to MYR, or leave as historical? (b) do a live browser check of the category-fix branch himself (the implementing subagents couldn't safely launch a live server with real creds present — verified via the automated suite only).
+3. **Voucher/reference number feature** — Owner wants a short human-readable ID per expense (e.g. `V-2026-0041`), separate from the DB UUID. This needs a schema change — **Barat's lane** (`schema.sql` + `lib/ocr.js`'s `assembleExpense` or `lib/supabase.js` insert path). **Not yet spec'd or requested from Barat — write a short spec first** (mirror the Groq-key-rotation ADR/spec pattern), get his sign-off, then he builds it.
+4. **Mugi still hasn't started** — needs his GitHub username to be added as a collaborator. Reference frontend + all Task M/N fixes are his scope reference once the open branch merges.
+5. Non-blocking issues still open: #31 (per-image Telegram links), #20 (exceljs uuid), #14 (categorizer hardening).
+
+**Gotcha (new):** the local `.env` in the repo root holds LIVE Supabase/Groq secrets from this session's live test — treat as dev-exposed (ADR-015: rotate before any real customer), and always move it aside before running tests.
 
 **Repo:** `C:\Users\Asus\Downloads\receipt-analyser-saas`. **main HEAD** = PR #58 merge (`ecf734d`). `npm install` + `npm test` first — **663 passing, 0 open PRs.**
 
