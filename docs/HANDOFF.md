@@ -3,7 +3,32 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST — category fix MERGED; Barat found a CRITICAL data-loss bug, PR #65 needs urgent review)
+## ⚡ SESSION END — Claude-J1. READ THIS FIRST. (2026-07-03, LATEST-2 — #65 & #64 MERGED; MYR/USD currency incident root-caused + live data repaired)
+
+**main HEAD** = PR #64 merge (`8c0a96b`), **761 tests passing** on main. `npm install` first. **Gotcha unchanged: `.env` in repo root has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.**
+
+### ⚠️ CORRECT Supabase project for THIS app = `xurnpvesgcybrnilxszf` (Barat's, shared to Owner as co-owner)
+My own authed Supabase MCP only sees the **FrictionAI parent** (`fziaxuhonvrhqjulhcyu`) — DO NOT confuse them (that parent has a different `expenses` schema: `tenant_id`/`date`, no `account_id`). To query the real app DB, read `SB_URL`/`SB_KEY` from `.env` and hit PostgREST directly (the MCP token can't reach Barat's project). Repo `.env` has **no `BOT_TOKEN`** → can't drive the live bot from here.
+
+### Landed this session (main, done)
+- **PR #65 (Barat) MERGED** — batch uploads now actually persist + skip non-receipts (blurry vs not-a-receipt messages). Reviewed clean, 704/704 → merged.
+- **PR #64 (Barat) MERGED** — in-chat Telegram delete (Yes/Cancel `callback_query`, confirm-time ownership re-check, allowlist covers callbacks). Was behind main; I merged origin/main into it (trivial WORKLOG conflict), 761/761, merged.
+
+### MYR/USD currency incident — ROOT-CAUSED (not a code bug) + DATA REPAIRED
+- **Symptom:** every live expense stored USD despite `DEFAULT_CURRENCY=MYR`. **Root cause:** the running process's `cfg.DEFAULT_CURRENCY` was still USD — `dotenv` loads `.env` into `process.env` ONCE at startup, so the mid-session `.env`→MYR edit never reached the running process (a row ingested AFTER the edit was still USD = proof). OCR read currencies correctly (`ai_raw`); pipeline converted good MYR *into* USD against the stale target. A fresh process on the current `.env` = MYR (verified by booting the server).
+- **Data repaired (Owner-approved, live):** 3 real rows recomputed to MYR from `ai_raw` (Bonda 183.65, L.C. Vegetarian 68.9, 99 Speed Mart 21.1; fx fields cleared); 3 junk rows soft-deleted (M/S Cash + 2× Unknown $0). Live `expenses` = 3 clean MYR rows.
+- **PR #69 (mine, OPEN)** — boot banner via new `configSummary()` prints `account · currency · tax · auth` on every start so a stale/wrong currency is visible at boot. **NOT a "live getter"** — a getter reads the same stale `process.env`, wouldn't have prevented it. `lib/config.js` + `server.js`, 764/764 (+3). Self-authored → needs independent/Owner merge.
+- ⚠️ **Barat owns the operational fix:** a live pipeline on HIS side is still ingesting USD (fresh `99 Speed Mart` at 13:30 UTC) — he must **restart** it to pick up MYR. Message relayed via Owner.
+
+### NEXT ACTIONS for J2 (in order)
+1. **Merge PR #69** (config boot banner) once reviewed.
+2. **Voucher/reference-number feature** — Owner wants `V-2026-0041`-style IDs; schema change (Barat's lane: `schema.sql` + `lib/ocr.js`/`lib/supabase.js`). NOT yet spec'd — write a short spec, get Barat's sign-off, then he builds.
+3. **Rotate** the dashboard token that leaked into the chat log (Barat flagged; Owner agreed).
+4. **Mugi still hasn't started** — needs his GitHub username to add as collaborator.
+5. Non-blocking: issues #31, #20, #14.
+
+---
+## ⚡ SESSION END — Claude-J1. (2026-07-03 — category fix MERGED; Barat found a CRITICAL data-loss bug, PR #65 needs urgent review)
 
 **main HEAD** = PR #66 merge (`8422e48`), **721 tests passing**. `npm install` first. **Gotcha: `.env` in repo root has LIVE credentials — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.**
 
