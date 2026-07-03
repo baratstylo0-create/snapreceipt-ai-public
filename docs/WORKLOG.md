@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-03 · Claude-J2 (for Jeevan) · feature/jeevan-groqkeys (ADR-016 Groq multi-key pool — my module)
+- **Files:** `lib/groqkeys.js` (new), `tests/groqkeys.test.js` (new, 14), `.env.example` (GROQ_KEYS documented), `tests/smoke.test.js` (import), this WORKLOG.
+- **What changed:** Barat SIGNED OFF the ADR-016 spec → built the Jeevan-lane module. `lib/groqkeys.js`: pure, dependency-free, no network — `keyPool()` (GROQ_KEYS comma-list, trimmed/empties-dropped; fallback `[GROQ_KEY]`; `[]` if neither), `pickKey()` (random or null), `nextKey(tried:Set)` (random untried or null; tolerates non-Set). Env read fresh per call (stateless; caller owns the `tried` set). **643/643** (14 new). Confirmed Barat's 3 call-site points: (1) **429-only rotation** (non-429 keeps today's backoff); (2) **key-swaps don't consume the 4-attempt backoff budget** (bounded by `tried`, no sleep; only full-pool exhaustion backs off); (3) **SUPERSEDE not union** — GROQ_KEYS set ⇒ GROQ_KEY ignored (benign failure mode: a stale GROQ_KEY goes unused, vs union keeping a possibly-dead key that throws non-429 and won't rotate), documented loudly in `.env.example`.
+- **What's next:** Barat wires the call-site loop in `lib/groq.js` + adds his groq.js test (429→next key no-sleep; all-429→backoff; single-key unchanged) — he's unblocked the moment this merges. Also open: QA + merge Barat's PR #54 (non-receipt guard).
+- **Assumptions:** `lib/groqkeys.js` + its tests are Jeevan's (ADR-016); `lib/groq.js` call-site is Barat's — no cross-lane edit.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-not-captured
 - **Files:** `lib/ocr.js` (`expenseFromPhoto` + new `isEmptyReceipt` helper, exported), `tests/ocr.nonreceipt.test.js` (new).
 - **What changed — user-reported live during phone QA:** sending a *non-receipt* photo (a selfie) replied "✅ *Expense Captured* / Merchant: Unknown / Total: $0.00 / Needs review" **and saved a junk $0.00 row**. Misleading + pollutes the dashboard.
@@ -12,6 +18,7 @@
   - **Tests: 448/448** (9 new unit tests on `isEmptyReceipt`: selfie/Unknown/empty/missing/case-insensitive/non-positive → empty; merchant-only, amount-only, both → kept; null-safe).
 - **What's next:** open PR → review → merge. **Overlap note:** touches `lib/ocr.js` like open PR #51 (currency #45) but a different region (`expenseFromPhoto` vs the `assembleExpense` currency line) — clean auto-merge expected. I'll restart the local test bot on this branch so Barat can re-send a selfie and confirm the new reply live.
 - **Assumptions:** the "no merchant AND no positive amount" heuristic is the non-receipt signal; matches exactly what the vision model returns for a selfie (Unknown + 0). If a real receipt ever legitimately has both blank, it was unreadable anyway and the resend prompt is the right response.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-currency-normalize-and-webhook-failclosed
 - **Files:** `lib/ocr.js` (`assembleExpense` import + currency check), `routes/webhook.js` (fail-closed gate), `tests/ingest.test.js` (+2 #45 integration tests), `tests/ratelimit.wiring.qa.test.js` (#43 characterization flipped + 2 new fail-closed tests). **Two related fixes on ONE branch** per Jeevan's 2026-07-03 process note (stop making 5 separate one-fix PRs that each conflict on WORKLOG).
 - **What changed:**
