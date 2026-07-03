@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-telegram-delete
+- **Files:** `lib/telegram.js` (new `tgAnswerCallback`, `callback_query` added to webhook `allowed_updates`), `lib/bot.js` (`handleDeleteIntent`, `handleCallbackQuery`, routed from `handleUpdate`), `tests/bot.delete.test.js` (new), `tests/telegram.test.js` (+2), this WORKLOG.
+- **What changed — Owner feedback during live use:** typing "Delete receipt" in the bot got the generic "Send me a photo…" fallback, which read as if the message was ignored. Two fixes:
+  1. Any delete/remove/undo/cancel-shaped text now gets an answer that actually engages with the request.
+  2. Built the real in-chat delete: text intent → bot looks up THIS chat's own most-recent receipt (`rep_chat_id` scoped, `deleted_at is null`) → sends a Yes/Cancel inline keyboard with the merchant/amount/date so nothing is ever deleted on the word alone → button tap → `callback_query` → **re-checks ownership + not-already-deleted at confirm time** (the callback_data only carries an id, so this re-check is the real authorization gate, not just the prompt) → `sbSoftDelete` (same soft-delete already used by the dashboard's `DELETE /api/expenses/:id`, so a Telegram-deleted row is recoverable the same way).
+  - `callback_query` added to `registerWebhook`'s `allowed_updates` — was previously message-only, so button taps were never delivered.
+  - `tgAnswerCallback` always acks (even on error) so a button never spins forever on the user's phone.
+- **Tests: 690/690** (+16: cancel button, confirm+delete happy path, already-deleted guard, cross-chat ownership refusal [SECURITY], unknown-id guard, delete-throw never leaks/still acks, unrecognised callback_data no-ops safely, missing-chat guard, handleUpdate routing for both callback_query and delete-shaped text, tgAnswerCallback wire format + never-throws).
+- **What's next:** open PR → review (touches money-adjacent data deletion + a new webhook update type, so treating as Tier-2). Once merged + webhook re-registers with the new `allowed_updates`, needs one live phone test: type "delete", tap Yes, confirm the row disappears from the dashboard.
+- **Assumptions:** one confirm button offers only the SINGLE most-recent receipt for that chat (v1 scope — not a list/picker); a shared account currently maps each Telegram chat to its own `rep_chat_id`, so this naturally can't delete another rep's row. No new dependency.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-short-flag
 - **Files:** `lib/ocr.js` (`expenseFromPhoto` non-receipt reply text only).
 - **What changed — Owner preference during live QA:** the non-receipt reply (PR #54) was a long "I couldn't find a receipt… please send a clear photo with shop name + total". Owner asked for a **short flag** instead. Reply is now just `🚫 *Not a receipt — skipped.*`. Detection logic (`isEmptyReceipt`) + skip-the-insert behavior are **unchanged** — only the message wording.
