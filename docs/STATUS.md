@@ -2,38 +2,49 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 
 ## Current phase
-**P5/P6 — Reference frontend + security hardening.** All 12 M1 backend features + #1 PDF (both surfaces) merged to `main` (`360` passing there). Active work is on **`feature/jeevan-p5-frontend`** (not yet merged, **522 passing** on-branch): Tasks 0/A–G of `docs/plans/2026-07-02-reference-frontend-qa-security.md` are **DONE** (shell+CSP+auth gate, Overview, Activity, Upload incl. PDFs, Templates, Reports+Excel, Agent chat) plus a Finexy-style visual pass. Verified live in a browser preview — clean render, zero console errors, CSP holds. **Barat's P6 lane also DONE + merged** (PR #42: rate limiting, webhook-secret test, control-char strip, Telegram bot QA checklist). Remaining on the plan: **Task H (security hardening — `/receipt/:fileId` auth gate, `checkDash` fail-closed, CORS tighten, reuse `lib/ratelimit.js`)**, then I/J/K (QA checklist, independent security-QA, live runbook).
+**M1 personal = FEATURE-COMPLETE and END-TO-END VERIFIED.** All 12 backend features + #1 PDF (both surfaces) + the reference frontend + P6 security hardening are **merged to `main`**. `npm test` on `main` = **775 passing**. On 2026-07-03 the Owner + J1 ran a full live E2E walkthrough against the real Supabase (`xurnpvesgcybrnilxszf`) + Groq: dashboard upload → OCR → save → list/filter → edit → 18-category auto-categorization → MYR currency → Excel export → AI agent chat (native tool-calling) → reports → review-queue approve — **all working**. Two real bugs found + fixed during that walkthrough (edit-expense amount `step`, agent currency-symbol) — PR #75.
+
+**Now starting: M-Frontend (Mugi).** Owner has assigned Mugi the production frontend. Workflow: **Mugi delivers a design/concept; Jeevan's team extracts the source and adapts our existing frontend to it, following the frozen `/api/*` contract.** Mugi is UNBLOCKED — the reference frontend in `public/` is his starting point (see `docs/roles/MUGI.md`).
+
+**M2 (business/multi-tenant) remains DEFERRED** until the Owner signs off that personal is solid.
 
 ## Track
 Vertical AI Solution. Milestone M1 = Personal version (12 features).
 
 ## Sprint goal (current)
-**Finish the frontend/security plan, then merge `feature/jeevan-p5-frontend`.** Next: J1's **Task H** (dashboard-side hardening — the two real findings: unauthenticated `/receipt/:fileId`, fail-open `checkDash`). Barat's Telegram live-QA is his own to run (has the creds) whenever he's able — not blocking. A new idea floated by Owner: **Groq API key rotation across multiple accounts** (Barat's + Jeevan's 2 + Mugi's) to multiply the free-tier daily cap — same model, no quality loss, purely a quota pool via the existing 429-retry loop in `lib/groq.js`. Design pending a short brainstorm + ADR; touches Barat's frozen file, so needs his sign-off. Slotted in after Task H.
+1. **Onboard Mugi onto the frontend** (design/concept → team adapts). Everything he needs is in the repo.
+2. **Apply the voucher/reference-number DB migration** (`db/2026-07-03-voucher-reference-number.sql`, ADR-017) to the live Supabase project — merged to `schema.sql` (PR #72) but NOT yet run against `xurnpvesgcybrnilxszf`. Until applied, `voucher_no` is simply never shown (fully backward-compatible). Needs someone with SQL Editor access.
+3. **Receipt-image display** (long-open): dashboard uploads store no image and `/receipt/:fileId` needs `BOT_TOKEN`. Owner chose the proper fix — Supabase Storage → real URL in the `receipt_url` column. Spec still to be written; now unblocked (no longer racing Barat's voucher edits, which landed).
 
 ## Who's on what
 | Person | Claude | Current task | State |
 |---|---|---|---|
-| Jeevan | J1 | Frontend Tasks 0–G done (522 tests). Next: **Task H** hardening on his own route files + `server.js` | building Task H |
-| Barat | B1/B2 | **P6 lane DONE + merged (PR #42).** Schema verification 4/5 confirmed (item 5 — no foreign data — pending a live re-scan when his tools are back). Telegram live-QA run his own to schedule | idle / available for live-QA + schema re-check |
-| Mugi | M1 | Deferred — production UI/UX from this reference frontend, after it merges | parked |
+| Jeevan | J1 | Merges (voucher #72, spec #70, handoff #71 all merged); ran live E2E; owns receipt-image storage spec next | active |
+| Barat | B1 | Voucher schema/insert-path (PR #72) merged. **Must restart his live ingest pipeline** to pick up MYR (still emitting USD — a stale-`process.env` issue, not a code bug). Onboarding/chat-id spec (PR #73) is M2 — spec only, build ON HOLD | available |
+| Mugi | M1 | **STARTING: production frontend** — design/concept from the existing reference frontend, following the API contract | starting |
 
 ## Feature status (personal M1)
 - ✅ All 12 backend features + #1 PDF (both surfaces) merged to `main`.
-- 🔄 In build (branch `feature/jeevan-p5-frontend`, not yet merged): reference frontend Tasks 0–G done; **Task H hardening next**; I/J/K (QA + security-QA + live runbook) queued.
-- ⏳ To do: #3 dashboard (Mugi, from the reference frontend once merged); Groq multi-key rotation (design pending).
+- ✅ Reference frontend (every feature surfaced) + P6 security hardening merged.
+- ✅ Voucher/reference number `RC-YYYY-NNNN` — app code merged (PR #72). ⚠️ DB migration not yet applied live.
+- ✅ Live E2E verified end-to-end (2026-07-03).
+- 🔄 Mugi: production frontend (design → adapt).
+- ⏳ Receipt-image storage (Supabase Storage) — spec pending.
 
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| **SCHEMA VERIFICATION (2026-07-02, Barat) — 4/5 PASS, 1 pending.** ✅ account_id-text scoping (no tenant_id) · ✅ expense_date TEXT · ✅ 6 feature columns (confidence/anomaly/amount_original/currency_original/fx_rate/template_id) · ✅ field_templates + category_corrections tables — all confirmed via schema.sql + Barat's earlier live insert/read. ⚠️ **Item 5 (no unrelated/foreign-product data commingled) NOT YET RE-CONFIRMED LIVE** — Barat's query tools were in read-only mode when asked; he'll run one live table-list scan the moment they're back. Not a red flag (nothing foreign has ever surfaced), just an open re-check. | Barat | item 5 pending, re-scan when able |
-| **LAUNCH GATE (ADR-015):** no real user onboarded until (a) every secret is rotated post-dev-exposure AND (b) Jeevan holds an independent Supabase backup outside the account | Owner/Barat | tracked, blocks any real-user launch |
-| #6 categorizer hardening (GitHub issue #14) | Jeevan | tracked, non-blocking |
-| `/api/templates` label sanitization + control-char rejection (GitHub issue #17) | Jeevan/Mugi | tracked, non-blocking |
-| exceljs transitive `uuid` audit bump (GitHub issue #20) | Jeevan | tracked, non-blocking |
-| Mugi GitHub username | Jeevan | deferred until he starts |
+| **Voucher DB migration not applied live.** `db/2026-07-03-voucher-reference-number.sql` merged into `schema.sql` but not yet run on `xurnpvesgcybrnilxszf`. J1's Supabase MCP only reaches the FrictionAI parent (`fziaxuhonvrhqjulhcyu`), not this project — needs someone with SQL Editor access. Idempotent, safe to re-run. | Barat/Jeevan | pending manual SQL run |
+| **Data question: `M/S Cash` row.** A `M/S Cash` row (created 2026-07-03T14:53) is live with `status=saved`, `deleted_at=null`, but a prior WORKLOG entry claims an `M/S Cash` junk row was soft-deleted. Either a second row exists or the soft-delete didn't take. Not touched — financial data, needs Owner confirmation. | Owner | needs confirmation |
+| **LAUNCH GATE (ADR-015):** no real (non-Owner) user onboarded until every secret is rotated post-dev-exposure AND Jeevan holds an independent Supabase backup outside Barat's account. `DASHBOARD_TOKEN` rotated 2026-07-03; Groq/Supabase keys still owe rotation before real customers. | Owner/Barat | tracked, blocks real-user launch |
+| Non-blocking hardening: categorizer (#14), `/api/templates` label sanitization (#17), exceljs `uuid` bump (#20) | Jeevan | tracked, non-blocking |
+| Mugi GitHub username (to add as collaborator) | Jeevan | needed when Mugi starts pushing |
 
-## GOTCHA (new this session)
-A feature branch showing failing tests right after merging `main` in isn't necessarily a real bug — if a dependency was added to `package.json` on `main` after your branch forked, your local `node_modules` may just be missing it. **Always `npm install` before diagnosing "post-merge" test failures.** (PR #22 was nearly treated as blocked on a real bug; it was a stale `node_modules`.)
+## GOTCHAs (carry forward)
+- **`.env` in the repo root holds LIVE Supabase/Groq secrets** — always `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail (pure env contamination).
+- **`npm install` before diagnosing "post-merge" test failures** — a dep added to `main` after your branch forked leaves `node_modules` stale.
+- Auto-mode classifier **blocks self-authored PR merges** — Owner must direct each one, or do a full read-diff+test review first.
+- Correct Supabase project for THIS app = `xurnpvesgcybrnilxszf`. The FrictionAI parent `fziaxuhonvrhqjulhcyu` is a DIFFERENT db (different schema) — don't confuse them.
 
 ## Not doing yet
-Business-account layer (business Excel template parked; personal M1 first per SOP), billing, hosting. Reference frontend (ADR-011) = after core backend features merge.
+Business-account / multi-tenant layer (M2 — deferred until Owner signs off personal), billing, hosting/deploy, observability (P7), AI eval gate (P8).
