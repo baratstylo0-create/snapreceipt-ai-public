@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-short-flag
+- **Files:** `lib/ocr.js` (`expenseFromPhoto` non-receipt reply text only).
+- **What changed — Owner preference during live QA:** the non-receipt reply (PR #54) was a long "I couldn't find a receipt… please send a clear photo with shop name + total". Owner asked for a **short flag** instead. Reply is now just `🚫 *Not a receipt — skipped.*`. Detection logic (`isEmptyReceipt`) + skip-the-insert behavior are **unchanged** — only the message wording.
+- **Tests: 663/663** (no change — the 9 `isEmptyReceipt` unit tests assert the decision, not the message string; no test referenced the old wording).
+- **What's next:** open PR → review → merge. Restarting the local test bot on this branch so Barat can confirm the new short reply live.
+- **Assumptions:** none new. A quick AI look is still required to know a photo isn't a receipt (can't pre-classify a selfie vs a receipt without looking) — "no need to analyse" is satisfied by not saving/processing further, and the reply is now a one-liner.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-groq-key-rotation
 - **Files:** `lib/groq.js` (call-site rotation loop), `tests/groq.rotation.test.js` (new). My lane. Consumes Jeevan's `lib/groqkeys.js` (PR #57, on main) read-only.
 - **What changed — ADR-016 call-site, the Groq half of multi-key rotation:** factored the duplicated 4-attempt loop out of `groqChat`/`groqChatTools` into one shared `callGroq(body, extract, empty)` runner that now rotates keys per call:
