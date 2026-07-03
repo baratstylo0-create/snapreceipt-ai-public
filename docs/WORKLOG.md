@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-batch-details-and-acks (access allowlist)
+- **Files:** `lib/bot.js` (`handleUpdate` + `ALLOWED_CHAT_IDS`), `.env.example`, `tests/bot.allowlist.test.js` (new), plus a one-line hermetic `process.env.ALLOWED_CHAT_IDS=''` guard added to the top of the existing bot test files (`bot.batch`, `bot.flushgroup-guard`, `bot.hardening.qa`, `bot.pdf`, `bot.pdf.qa`).
+- **What changed — Owner asked to give Jeevan access + secure the bot:** the bot had **no access control** — anyone who found it could send receipts (a real risk for a financial bot). Added an optional **`ALLOWED_CHAT_IDS`** allowlist (comma-separated Telegram chat IDs). **Empty/unset = open (back-compat, unchanged)**; when set, only listed chat IDs are served and everyone else gets a polite "private bot" reply with nothing run. Read in `lib/bot.js` (my lane) directly from env, injectable via `deps.allowedChatIds` for tests. Set in local `.env` (git-ignored) to `1376793145` (Barat) + `1979799104` (Jeevan).
+- **Test hygiene fix:** `.env` is loaded in tests (dotenv), so the real allowlist leaked in and blocked every test chat id. Neutralised by setting `process.env.ALLOWED_CHAT_IDS=''` at the top of the bot test files (dotenv doesn't override an already-set var) — tests stay hermetic regardless of local `.env`.
+- **Tests: 671/671** (+5 allowlist: allowed served, stranger blocked incl. /start & text, empty=open back-compat, numeric-id matches string entry).
+- **What's next:** part of PR #63. Restart bot so Jeevan's chat id is live. **Note for Jeevan:** this is Tier-2 (access control) — flag for his review.
+- **Assumptions:** chat id compared as string (Telegram sends numeric; allowlist entries are strings). Denial sends a short message rather than silent-ignore, so a legit new user knows to ask for access.
+
+## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-batch-details-and-acks
+- **Files:** `lib/bot.js` (`handleUpdate`, `flushGroup`, `formatBatchSummary`), `tests/bot.batch.test.js`.
+- **What changed — two Owner requests from live QA:**
+  1. **Batch summary now lists every saved receipt**, not just counts. `formatBatchSummary(summary, saved)` gained an optional `saved` list → renders `N. *Merchant* — RM36.00 · Category ⚠️` per receipt (⚠️ = needs review), capped at 15 lines with "…and N more". `flushGroup` captures those details by **wrapping the injected `assembleExpense`** (records each returned `expense`) — so **`runBatch` (Jeevan's `lib/massupload.js`) is untouched**, stays in my lane. Passing no `saved` list = the old counts-only summary (back-compat; PDF path + existing test unchanged).
+  2. **Reassurance ack restored** (reverses the earlier "quiet mode" for uploads — Owner felt the silence-while-processing looked broken). Now: a single photo → `🧾 Reading your receipt… please hold on a moment 🙏`; an album → **one** `🧾 Got your receipts — reading them all now… please hold on 🙏` on the first photo (once per group), then the detailed summary. Image-document path too.
+- **Tests: 666/666** (updated the media-group test for the new ack; +3: ack-once-per-album, batch summary lists each saved merchant, `formatBatchSummary` detail rendering + back-compat when `saved` omitted).
+- **What's next:** open PR → review → merge. Restarting the local bot on this branch for Barat's live re-test. Note: touches `lib/bot.js`/`formatBatchSummary` — coordinate if J2's frontend reads the same; this is Telegram-reply-only.
+- **Assumptions:** merchant/amount/category are our OWN saved data (safe to show); `failed[].reason` still never surfaced (SOP §7.2). The `saved` list may be ≤ `summary.saved` in the exotic case where `assembleExpense` resolves without an `expense` object — the authoritative count stays `summary.saved`. tgSend's plain-text fallback (PR #44) covers any Markdown-special chars in a merchant name.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-nonreceipt-short-flag
 - **Files:** `lib/ocr.js` (`expenseFromPhoto` non-receipt reply text only).
 - **What changed — Owner preference during live QA:** the non-receipt reply (PR #54) was a long "I couldn't find a receipt… please send a clear photo with shop name + total". Owner asked for a **short flag** instead. Reply is now just `🚫 *Not a receipt — skipped.*`. Detection logic (`isEmptyReceipt`) + skip-the-insert behavior are **unchanged** — only the message wording.

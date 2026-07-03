@@ -1,4 +1,5 @@
 'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
 // Tier-2 QA regressions for the Telegram PDF path (handlePdfDocument / handleUpdate), PR #38.
 // Complements tests/bot.pdf.test.js: focuses on never-throws + non-leak under the shapes Barat
 // did NOT cover — a RAW (non-PdfError) rasterize throw, a runBatch throw, and secret-planting.
