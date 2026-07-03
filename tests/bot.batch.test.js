@@ -194,6 +194,52 @@ test('formatBatchSummary lists each saved receipt (merchant · amount · categor
   assert.ok(!formatBatchSummary(summary).includes('Shell'), 'omitting the saved list keeps the old counts-only summary');
 });
 
+test('formatBatchSummary humanizes a skipped (non-receipt) photo instead of silently omitting it', () => {
+  const text = formatBatchSummary({
+    images: 4, receipts: 4, saved: 2, skipped: 2,
+    failed: [], flagged: [], truncated_images: [],
+  });
+  assert.match(text, /2 photos not a clear receipt/);
+  assert.match(text, /didn't look like a clear receipt/i);
+  assert.match(text, /skipped rather than guessed/i);
+});
+
+test('formatBatchSummary: skipped=1 uses singular wording ("it was skipped")', () => {
+  const text = formatBatchSummary({ images: 1, receipts: 1, saved: 0, skipped: 1, failed: [], flagged: [], truncated_images: [] });
+  assert.match(text, /1 photo not a clear receipt/);
+  assert.match(text, /it was skipped/i);
+});
+
+test('a media group with a mix of real + non-receipt photos: the breakdown lists ONLY real saves, never the skipped junk', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    runBatch: async (images, fieldSpec, d) => {
+      // Mirrors the real runBatch: calls the injected assembleExpense per image and
+      // respects its skipped flag.
+      let saved = 0, skipped = 0;
+      for (let i = 0; i < images.length; i++) {
+        const res = await d.assembleExpense({ ...d.meta, fields: { merchant: 'Img' + i } });
+        if (res.skipped) skipped++; else saved++;
+      }
+      return { images: images.length, receipts: images.length, saved, skipped, failed: [], flagged: [], truncated_images: [] };
+    },
+    // Image 0 is a real receipt; image 1 is a temple photo the model still tried to read.
+    assembleExpense: async ({ fields }) => (
+      fields.merchant === 'Img0'
+        ? { expense: { merchant: 'Real Shop', amount: 20, currency: 'MYR', category: 'Food' }, flagged: false, skipped: false }
+        : { expense: { merchant: 'Unknown', amount: 0, currency: 'MYR', category: 'Others' }, flagged: false, skipped: true }
+    ),
+  });
+  await handleUpdate(photoUpdate('grpMixed', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpMixed', 'f2'), deps);
+  await timers.runPending();
+  const summaryMsg = sent[sent.length - 1].text;
+  assert.match(summaryMsg, /Real Shop/, 'the real receipt is listed');
+  assert.ok(!summaryMsg.includes('Unknown'), 'the skipped non-receipt must never appear in the per-item breakdown');
+  assert.match(summaryMsg, /1 photo not a clear receipt/);
+});
+
 test('two different media groups do not mix', async (t) => {
   const timers = fakeTimers();
   const { deps, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
