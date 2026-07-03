@@ -175,23 +175,50 @@ test('webhook secret: a very long (10KB) header value is rejected safely, no cra
   } finally { s.close(); }
 });
 
-// ---- (5) characterization: missing WEBHOOK_SECRET is fail-OPEN by design (tracked #43) ----
-// This does NOT "fix" the fail-open behaviour — it documents/locks the CURRENT
-// intentional-but-tracked posture so a future change to it is a deliberate, visible
-// diff rather than a silent behaviour change. See routes/webhook.js: the secret
-// check is skipped entirely `if (cfg.WEBHOOK_SECRET)` is falsy.
-test('characterization (tracked issue #43): with NO WEBHOOK_SECRET configured, ANY request (even with a bogus header) is accepted — fail-open by design, not yet fixed', async () => {
-  const prev = cfg.WEBHOOK_SECRET;
-  cfg.WEBHOOK_SECRET = '';
+// ---- (5) issue #43 FIXED: missing WEBHOOK_SECRET is fail-closed in prod, permissive in dev ----
+// In dev (no AUTH_REQUIRED) a missing secret stays permissive (unchanged, so local dev is
+// frictionless) — but in production / AUTH_REQUIRED=true a missing secret now REFUSES the
+// request (503) instead of accepting anyone. See routes/webhook.js.
+test('issue #43: DEV (no AUTH_REQUIRED) with NO WEBHOOK_SECRET stays permissive — request accepted', async () => {
+  const prevS = cfg.WEBHOOK_SECRET; const prevAuth = process.env.AUTH_REQUIRED; const prevEnv = process.env.NODE_ENV;
+  cfg.WEBHOOK_SECRET = ''; delete process.env.AUTH_REQUIRED; process.env.NODE_ENV = 'test';
   const { s, base } = webhookServer();
   try {
     const r1 = await fetch(base + '/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const r2 = await fetch(base + '/webhook', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'totally-wrong' }, body: '{}',
     });
-    assert.strictEqual(r1.status, 200, 'no secret configured -> no auth check at all (known gap, issue #43)');
-    assert.strictEqual(r2.status, 200, 'even a garbage header is accepted when no secret is configured (known gap, issue #43)');
-  } finally { s.close(); cfg.WEBHOOK_SECRET = prev; }
+    assert.strictEqual(r1.status, 200, 'dev with no secret -> permissive (accepted)');
+    assert.strictEqual(r2.status, 200, 'dev with no secret -> a garbage header is still accepted (permissive)');
+  } finally { s.close(); cfg.WEBHOOK_SECRET = prevS; if (prevAuth === undefined) delete process.env.AUTH_REQUIRED; else process.env.AUTH_REQUIRED = prevAuth; process.env.NODE_ENV = prevEnv; }
+});
+
+test('issue #43 FIX: PROD (AUTH_REQUIRED=true) with NO WEBHOOK_SECRET is fail-CLOSED — request refused (503), never processed', async () => {
+  const prevS = cfg.WEBHOOK_SECRET; const prevAuth = process.env.AUTH_REQUIRED;
+  cfg.WEBHOOK_SECRET = ''; process.env.AUTH_REQUIRED = 'true';
+  const { s, base } = webhookServer();
+  try {
+    const r1 = await fetch(base + '/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const r2 = await fetch(base + '/webhook', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'anything' }, body: '{}',
+    });
+    assert.strictEqual(r1.status, 503, 'auth required + no secret configured = misconfiguration -> refuse, do not accept unauthenticated updates');
+    assert.strictEqual(r2.status, 503, 'even a header-bearing request is refused when the server has no secret to check against');
+    const body = await r1.text();
+    assert.ok(!/secret|token|stack|Error/i.test(body), 'the 503 body must not leak internals');
+  } finally { s.close(); cfg.WEBHOOK_SECRET = prevS; if (prevAuth === undefined) delete process.env.AUTH_REQUIRED; else process.env.AUTH_REQUIRED = prevAuth; }
+});
+
+test('issue #43: PROD with a PROPER WEBHOOK_SECRET set still works normally (correct secret -> 200, wrong -> 401)', async () => {
+  const prevS = cfg.WEBHOOK_SECRET; const prevAuth = process.env.AUTH_REQUIRED;
+  cfg.WEBHOOK_SECRET = 'prod-secret-xyz'; process.env.AUTH_REQUIRED = 'true';
+  const { s, base } = webhookServer();
+  try {
+    const ok = await fetch(base + '/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'prod-secret-xyz' }, body: '{}' });
+    const bad = await fetch(base + '/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'wrong' }, body: '{}' });
+    assert.strictEqual(ok.status, 200, 'a properly-configured prod webhook accepts the correct secret');
+    assert.strictEqual(bad.status, 401, 'and rejects a wrong secret (401, not the 503 misconfig path)');
+  } finally { s.close(); cfg.WEBHOOK_SECRET = prevS; if (prevAuth === undefined) delete process.env.AUTH_REQUIRED; else process.env.AUTH_REQUIRED = prevAuth; }
 });
 
 // ---- (6) templates route rate limiter wiring ----
