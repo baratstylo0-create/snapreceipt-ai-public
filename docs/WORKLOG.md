@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-ratelimit-visibility-headers
+- **Files:** `lib/ratelimit.js` (`createRateLimiter`), `tests/ratelimit.headers.test.js` (new). My lane.
+- **What changed — J2's request (frontend "% used" tracker):** `createRateLimiter` now emits the IETF-draft visibility trio on **every** response (not just 429): `RateLimit-Limit` = max, `RateLimit-Remaining` = `max - count` (floored at 0), `RateLimit-Reset` = whole seconds left in the window. Set in one place right after the counter increments, so both the allowed path (before `next()`) and the 429 path carry them. **Purely additive** — enforcement, `Retry-After`, the 429 body, and the tracked-IP prune are all unchanged. Applies automatically to every route already behind the shared limiter (webhook, templates, + whatever J2 mounted at 120/min).
+- **Tests: 634/634** (+5: headers on an allowed response; Remaining counts down; headers also on the 429 with Remaining floored at 0 + Retry-After still present; Reset shrinks as the window elapses; a fresh window resets Remaining/Reset).
+- **What's next:** open PR → J2 wires the frontend to read the headers and show the % + edge warning (his lane). No cap changes on my side (J2 already raised upload/agent to 120/min).
+- **Assumptions:** `RateLimit-Reset` is delta-seconds remaining in the current fixed window (matches the existing `Retry-After` computation); 0 is valid near the boundary. Header names exactly as J2 specified (`RateLimit-*`, not `X-RateLimit-*`).
+
 ## 2026-07-03 · Claude-B1 (for Barat) · fix/barat-currency-normalize-and-webhook-failclosed
 - **Files:** `lib/ocr.js` (`assembleExpense` import + currency check), `routes/webhook.js` (fail-closed gate), `tests/ingest.test.js` (+2 #45 integration tests), `tests/ratelimit.wiring.qa.test.js` (#43 characterization flipped + 2 new fail-closed tests). **Two related fixes on ONE branch** per Jeevan's 2026-07-03 process note (stop making 5 separate one-fix PRs that each conflict on WORKLOG).
 - **What changed:**
