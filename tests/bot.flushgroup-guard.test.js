@@ -1,4 +1,5 @@
 'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
 // Regression test for a QA finding (subagent debug pass, 2026-07-03): flushGroup's
 // dependency-resolution lines (tgFileUrl/getFieldSpec/runBatch/etc.) used to sit
 // OUTSIDE its own try/catch. If any of them threw while being resolved, the throw

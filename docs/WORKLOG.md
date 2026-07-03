@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-batch-details-and-acks (access allowlist)
+- **Files:** `lib/bot.js` (`handleUpdate` + `ALLOWED_CHAT_IDS`), `.env.example`, `tests/bot.allowlist.test.js` (new), plus a one-line hermetic `process.env.ALLOWED_CHAT_IDS=''` guard added to the top of the existing bot test files (`bot.batch`, `bot.flushgroup-guard`, `bot.hardening.qa`, `bot.pdf`, `bot.pdf.qa`).
+- **What changed — Owner asked to give Jeevan access + secure the bot:** the bot had **no access control** — anyone who found it could send receipts (a real risk for a financial bot). Added an optional **`ALLOWED_CHAT_IDS`** allowlist (comma-separated Telegram chat IDs). **Empty/unset = open (back-compat, unchanged)**; when set, only listed chat IDs are served and everyone else gets a polite "private bot" reply with nothing run. Read in `lib/bot.js` (my lane) directly from env, injectable via `deps.allowedChatIds` for tests. Set in local `.env` (git-ignored) to `1376793145` (Barat) + `1979799104` (Jeevan).
+- **Test hygiene fix:** `.env` is loaded in tests (dotenv), so the real allowlist leaked in and blocked every test chat id. Neutralised by setting `process.env.ALLOWED_CHAT_IDS=''` at the top of the bot test files (dotenv doesn't override an already-set var) — tests stay hermetic regardless of local `.env`.
+- **Tests: 671/671** (+5 allowlist: allowed served, stranger blocked incl. /start & text, empty=open back-compat, numeric-id matches string entry).
+- **What's next:** part of PR #63. Restart bot so Jeevan's chat id is live. **Note for Jeevan:** this is Tier-2 (access control) — flag for his review.
+- **Assumptions:** chat id compared as string (Telegram sends numeric; allowlist entries are strings). Denial sends a short message rather than silent-ignore, so a legit new user knows to ask for access.
+
 ## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-batch-details-and-acks
 - **Files:** `lib/bot.js` (`handleUpdate`, `flushGroup`, `formatBatchSummary`), `tests/bot.batch.test.js`.
 - **What changed — two Owner requests from live QA:**

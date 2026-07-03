@@ -1,4 +1,5 @@
 'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
 // Tier-2 QA regressions for PR #42 (P6 Telegram-lane hardening) — gaps not covered
 // by tests/bot.batch.test.js or tests/bot.pdf.qa.test.js: untrusted media_group_id
 // shapes, concurrent flush races on the shared `groups` Map, and non-Error throws

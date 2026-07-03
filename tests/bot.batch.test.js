@@ -1,4 +1,5 @@
 'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
 const test = require('node:test');
 const assert = require('node:assert');
 const { handleUpdate, formatBatchSummary } = require('../lib/bot');
