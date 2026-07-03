@@ -65,3 +65,9 @@ memory table is absent; receipt-level rollup by amount.
 ## Out of scope
 OCR pipeline rewire (Barat), dashboard taxonomy expansion (Mugi), multi-tenant account_id override,
 duplicate/personal-expense admin queue (that is **#5 anomaly**, next).
+
+**Single-account memory scoping (#14):** `category_corrections` is global to the single account today —
+`loadMemory`/`recordCorrection` don't filter by `account_id` (the whole app is single-account v1). When we
+go multi-tenant, the learning memory must be scoped per account (add `account_id` to the table + every
+read/write), or one customer's corrections would leak into another's suggestions. Tracked here so it isn't
+missed at the multi-tenant cutover.
