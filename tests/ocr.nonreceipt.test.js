@@ -6,7 +6,7 @@
 // read (a merchant OR a positive amount) IS a real receipt and must be kept for review.
 const test = require('node:test');
 const assert = require('node:assert');
-const { isEmptyReceipt, skipReason, skipMessage } = require('../lib/ocr');
+const { isEmptyReceipt, skipReason, skipMessage, refLine } = require('../lib/ocr');
 
 test('selfie / non-receipt: merchant "Unknown" + amount 0 -> EMPTY (do not save)', () => {
   assert.strictEqual(isEmptyReceipt({ amount: 0 }, { merchant: 'Unknown' }), true);
@@ -89,4 +89,22 @@ test('skipMessage: each reason has distinct, humanized wording', () => {
 test('skipMessage: an unrecognised reason falls back to the safe generic wording', () => {
   assert.strictEqual(skipMessage('something-new'), skipMessage('unclear'));
   assert.strictEqual(skipMessage(undefined), skipMessage('unclear'));
+});
+
+// --- refLine (ADR-017): the optional "Ref: RC-2026-0041" line in the Telegram reply ---
+
+test('refLine: includes the voucher_no when present', () => {
+  assert.match(refLine({ voucher_no: 'RC-2026-0041' }), /RC-2026-0041/);
+  assert.match(refLine({ voucher_no: 'RC-2026-0041' }), /Ref:/);
+});
+
+test('refLine: empty string when voucher_no is missing (no migration applied yet, or an old row) — never a blank "Ref: " placeholder', () => {
+  assert.strictEqual(refLine({}), '');
+  assert.strictEqual(refLine({ voucher_no: null }), '');
+  assert.strictEqual(refLine({ voucher_no: '' }), '');
+});
+
+test('refLine: does not throw on null/undefined expense', () => {
+  assert.strictEqual(refLine(null), '');
+  assert.strictEqual(refLine(undefined), '');
 });
