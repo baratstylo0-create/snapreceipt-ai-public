@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { tgSend, tgAnswerCallback } = require('../lib/telegram');
+const { tgSend, tgEditMessage, tgAnswerCallback } = require('../lib/telegram');
 
 // Stub global.fetch (tgSend -> hreq -> fetch). Each call returns the next queued
 // Telegram API body; records the request body sent so we can assert parse_mode.
@@ -60,6 +60,44 @@ test('tgSend never throws on a network error (fetch rejects)', async () => {
   try {
     await assert.doesNotReject(() => tgSend(1, 'anything'));
   } finally { global.fetch = realFetch; }
+});
+
+// --- tgEditMessage (Owner request 2026-07-04): turn a category-picker prompt into its
+// final "Saved" state in place, instead of leaving stale buttons + sending a new message. ---
+
+test('tgEditMessage: posts chat_id/message_id/text to editMessageText and explicitly clears the keyboard', async () => {
+  const s = stubTelegram([{ ok: true, result: { message_id: 5 } }]);
+  try {
+    await tgEditMessage(42, 5, '✅ Saved as Groceries');
+    assert.strictEqual(s.calls.length, 1);
+    assert.strictEqual(s.calls[0].chat_id, 42);
+    assert.strictEqual(s.calls[0].message_id, 5);
+    assert.strictEqual(s.calls[0].text, '✅ Saved as Groceries');
+    assert.deepStrictEqual(s.calls[0].reply_markup, { inline_keyboard: [] }, 'the keyboard must be explicitly cleared — Telegram does not remove it on its own');
+  } finally { s.restore(); }
+});
+
+test('tgEditMessage: a Markdown-rejected edit is RETRIED as plain text (same safety net as tgSend)', async () => {
+  const s = stubTelegram([
+    { ok: false, error_code: 400, description: "Bad Request: can't parse entities" },
+    { ok: true, result: { message_id: 5 } },
+  ]);
+  try {
+    await tgEditMessage(42, 5, '✅ Saved as 7*11 & A_B [store]');
+    assert.strictEqual(s.calls.length, 2);
+    assert.strictEqual(s.calls[0].parse_mode, 'Markdown');
+    assert.ok(!('parse_mode' in s.calls[1]));
+    assert.strictEqual(s.calls[1].text, s.calls[0].text);
+  } finally { s.restore(); }
+});
+
+test('tgEditMessage never throws even if both attempts fail, or on a network error', async () => {
+  const s = stubTelegram([{ ok: false, description: 'bad' }, { ok: false, description: 'still bad' }]);
+  try { await assert.doesNotReject(() => tgEditMessage(1, 1, 'x')); } finally { s.restore(); }
+
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('ECONNRESET'); };
+  try { await assert.doesNotReject(() => tgEditMessage(1, 1, 'x')); } finally { global.fetch = realFetch; }
 });
 
 test('tgAnswerCallback posts callback_query_id + opts to answerCallbackQuery', async () => {

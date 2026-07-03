@@ -11,14 +11,17 @@ const { handleUpdate, tryResolveRemark } = require('../lib/bot');
 
 function baseDeps(over = {}) {
   const sent = [];
+  const edited = [];
   const updateCalls = [];
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
+    tgEditMessage: async (chatId, messageId, text) => { edited.push({ chatId, messageId, text }); },
     sbSelect: async () => [],
     sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
+    pendingRemarkMessages: new Map(), // fresh per test — isolates from the real module-level Map
     ...over,
   };
-  return { deps, sent, updateCalls };
+  return { deps, sent, edited, updateCalls };
 }
 
 const AWAITING_ROW = { id: 'exp-9', merchant: 'Bonda KL', amount: 183.65, currency: 'MYR', status: 'awaiting_remark', rep_chat_id: '100', created_at: '2026-07-03T00:00:00Z' };
@@ -39,6 +42,32 @@ test('tryResolveRemark: no pending row for this chat -> returns false, nothing u
   assert.strictEqual(handled, false);
   assert.strictEqual(updateCalls.length, 0);
   assert.strictEqual(sent.length, 0);
+});
+
+// --- Edit-in-place (Owner request 2026-07-04): if the "Others" tap remembered a
+// message_id (set in handleCallbackQuery when the tap happened), resolving the remark
+// EDITS that same message into its final state instead of sending yet another new one. ---
+
+test('tryResolveRemark: a remembered message_id -> the ORIGINAL message is edited, no new message, mapping cleared after', async () => {
+  const { deps, sent, edited } = baseDeps({ sbSelect: async () => [AWAITING_ROW] });
+  deps.pendingRemarkMessages.set('exp-9', { chatId: 100, messageId: 777 });
+  const handled = await tryResolveRemark(100, 'client dinner', deps);
+  assert.strictEqual(handled, true);
+  assert.strictEqual(sent.length, 0, 'no new message — the original picker message is edited instead');
+  assert.strictEqual(edited.length, 1);
+  assert.strictEqual(edited[0].chatId, 100);
+  assert.strictEqual(edited[0].messageId, 777);
+  assert.match(edited[0].text, /client dinner/);
+  assert.strictEqual(deps.pendingRemarkMessages.has('exp-9'), false, 'the mapping is cleared once resolved');
+});
+
+test('tryResolveRemark: NO remembered message_id (e.g. a bot restart in between) -> falls back to a fresh message, no crash', async () => {
+  const { deps, sent, edited } = baseDeps({ sbSelect: async () => [AWAITING_ROW] }); // pendingRemarkMessages starts empty
+  const handled = await tryResolveRemark(100, 'client dinner', deps);
+  assert.strictEqual(handled, true);
+  assert.strictEqual(edited.length, 0);
+  assert.strictEqual(sent.length, 1);
+  assert.match(sent[0].text, /client dinner/);
 });
 
 test('tryResolveRemark: a lookup/update failure never throws, returns false so the caller falls through', async () => {
