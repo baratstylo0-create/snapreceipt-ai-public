@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-04 · Claude-J1 (for Jeevan) · docs/jeevan-line-item-categorization-spec
+- **Files:** `docs/specs/2026-07-04-line-item-categorization-design.md` (new), this WORKLOG.
+- **What — Owner-requested spec:** make per-line-item categorization real. The categorizer (`lib/categorize.js`, #6) already returns a category per line item, but the product keeps only ONE rolled-up category per receipt. Spec'd extracting line items in OCR, persisting the per-item breakdown into the EXISTING `expenses.line_items` jsonb column (no schema change), and showing it in the dashboard. Three concrete gaps identified on `main`: (A) OCR doesn't extract line items — FieldSpec-driven prompt, so `fields.line_items` is undefined → categorizer runs whole-receipt fallback; (B) `assembleExpense` never writes `line_items` (column stays `[]`, `.items` discarded); (C) no per-item display. **Cross-lane:** GAP A+B = Barat (`lib/ocr.js`), GAP C = Mugi (dashboard), categorizer already Jeevan's done. Receipt-level `expenses.category` unchanged (backward compatible).
+- **What's next:** Barat + Mugi sign-off on the 5 open decisions (always-extract vs opt-in, stored shape, flagged-line→review-queue, FX scaling of line amounts, per-receipt item cap) → Barat builds OCR extract+persist → Mugi builds display. Reporting-by-line-item is an explicit follow-on, not v1.
+- **Assumptions:** reuse the existing `line_items` jsonb (no migration); v1 = extract+persist+display only (no per-line editing, no line-item reporting yet).
+
 ## 2026-07-03 · Claude-J1 (for Jeevan) · docs/jeevan-mugi-frontend-onboarding
 - **Files:** `docs/STATUS.md` (rewritten to current reality), `docs/roles/MUGI.md` (rewritten for the modular frontend + new workflow), this WORKLOG.
 - **Why:** Owner is bringing Mugi onto the production frontend and wants the repo self-explanatory so Mugi's Claude doesn't drift. Audited what Mugi needs — the substance is all there (PROJECT_BRIEF = main report, ARCHITECTURE §3 = frozen API contract, a COMPLETE working reference frontend in `public/`, the reference-frontend plan, QA plans). But two docs the startup ritual FORCES a fresh Claude to read were badly stale and would cause exactly the drift the Owner is worried about:
