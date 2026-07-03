@@ -14,7 +14,11 @@ const ALLOWED_ROLES = new Set(['user', 'assistant']);
 // P6 abuse defense (§4.4): every agent turn is a Groq call (cost-drainable) — rate limit it.
 // AGENT_RATE_MAX follows Barat's WEBHOOK_RATE_MAX naming convention; reuses the shared
 // lib/ratelimit.js limiter, no second implementation.
-const agentLimiter = createRateLimiter({ max: Number(process.env.AGENT_RATE_MAX) || 20 });
+// Owner directive (lenient): a human power-user peaks at ~10-20 questions/min, so 120/min
+// is generous headroom that never trips real use. It's a RUNAWAY backstop (bug-loop /
+// flood), not a throttle — the Groq key pool (ADR-016) is the cost backstop. Not unlimited
+// on purpose: a runaway would otherwise drain every pooled key.
+const agentLimiter = createRateLimiter({ max: Number(process.env.AGENT_RATE_MAX) || 120 });
 
 // deps injected in tests; default to the real modules in production.
 module.exports = function mountAgent(app, deps = {}) {
