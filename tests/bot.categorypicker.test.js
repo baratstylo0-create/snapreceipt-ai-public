@@ -1,0 +1,114 @@
+'use strict';
+process.env.ALLOWED_CHAT_IDS = ''; // hermetic: never inherit a real .env allowlist in tests
+// Category-picker button flow (Owner request 2026-07-03): a receipt whose category is
+// uncertain is saved with status='awaiting_category' and a keyboard is sent. Tapping a
+// real category resolves it immediately; tapping "Others" instead asks for a typed note
+// (resolved separately, by handleUpdate's pending-remark check — see
+// tests/bot.categorypicker.remark.test.js). Mirrors handleDeleteIntent/handleCallbackQuery's
+// re-lookup-at-confirm-time authorization pattern (tests/bot.delete.test.js).
+const { test } = require('node:test');
+const assert = require('node:assert');
+const { handleCallbackQuery } = require('../lib/bot');
+const { CATEGORIES } = require('../lib/categorize');
+
+function baseDeps(over = {}) {
+  const sent = [];
+  const answered = [];
+  const updateCalls = [];
+  const deps = {
+    tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
+    tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
+    sbSelect: async () => [],
+    sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
+    ...over,
+  };
+  return { deps, sent, answered, updateCalls };
+}
+
+const PENDING_ROW = { id: 'exp-9', merchant: 'Bonda KL', amount: 183.65, currency: 'MYR', status: 'awaiting_category', rep_chat_id: '100' };
+
+test('tapping a real category: row updated to that category + status saved, confirmation sent', async () => {
+  const idx = CATEGORIES.indexOf('Groceries');
+  const { deps, sent, answered, updateCalls } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cb1', data: 'catpick:exp-9:' + idx, message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(updateCalls.length, 1);
+  assert.strictEqual(updateCalls[0].id, 'exp-9');
+  assert.deepStrictEqual(updateCalls[0].patch, { category: 'Groceries', status: 'saved' });
+  assert.strictEqual(answered.length, 1);
+  assert.match(sent[0].text, /Groceries/);
+  assert.match(sent[0].text, /Bonda KL/);
+});
+
+test('tapping "Others": row moves to awaiting_remark with category=Others, NOT status=saved yet', async () => {
+  const { deps, updateCalls, sent } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cb2', data: 'catpick:exp-9:others', message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(updateCalls.length, 1);
+  assert.deepStrictEqual(updateCalls[0].patch, { category: 'Others', status: 'awaiting_remark' });
+  assert.match(sent[0].text, /type a short note/i);
+});
+
+test('SECURITY: a catpick callback from a DIFFERENT chat than the row owner is refused, no update', async () => {
+  const { deps, updateCalls, sent, answered } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cb3', data: 'catpick:exp-9:0', message: { chat: { id: 999 } } }, deps);
+  assert.strictEqual(updateCalls.length, 0);
+  assert.match(sent[0].text, /can't do that/i);
+  assert.strictEqual(answered[0].opts.text, 'Not yours');
+});
+
+test('a row that is NOT (or no longer) awaiting_category is refused (already resolved / wrong feature state)', async () => {
+  const { deps, updateCalls, sent } = baseDeps({ sbSelect: async () => [{ ...PENDING_ROW, status: 'saved' }] });
+  await handleCallbackQuery({ id: 'cb4', data: 'catpick:exp-9:0', message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(updateCalls.length, 0);
+  assert.match(sent[0].text, /already resolved/i);
+});
+
+test('double-tap protection: a SECOND tap on an already-resolved pick does nothing (idempotent, no double-apply)', async () => {
+  // Simulates the row already having moved to status:'saved' after the first tap.
+  const { deps, updateCalls } = baseDeps({ sbSelect: async () => [{ ...PENDING_ROW, status: 'saved', category: 'Groceries' }] });
+  await handleCallbackQuery({ id: 'cb5', data: 'catpick:exp-9:5', message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(updateCalls.length, 0, 'a stale/duplicate tap must never re-apply a category change');
+});
+
+test('a deleted row is refused with "already gone", no update', async () => {
+  const { deps, updateCalls, sent } = baseDeps({ sbSelect: async () => [{ ...PENDING_ROW, deleted_at: '2026-07-03T00:00:00Z' }] });
+  await handleCallbackQuery({ id: 'cb6', data: 'catpick:exp-9:0', message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(updateCalls.length, 0);
+  assert.match(sent[0].text, /already gone/i);
+});
+
+test('an unknown/vanished row id is refused gracefully, no crash', async () => {
+  const { deps, updateCalls, sent } = baseDeps({ sbSelect: async () => [] });
+  await assert.doesNotReject(() => handleCallbackQuery({ id: 'cb7', data: 'catpick:ghost-id:0', message: { chat: { id: 100 } } }, deps));
+  assert.strictEqual(updateCalls.length, 0);
+  assert.match(sent[0].text, /already gone/i);
+});
+
+test('an out-of-range or garbage index is rejected safely, no crash, no update', async () => {
+  const { deps, updateCalls, sent } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await handleCallbackQuery({ id: 'cb8', data: 'catpick:exp-9:9999', message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(updateCalls.length, 0);
+  assert.match(sent[0].text, /isn't valid/i);
+
+  const { deps: d2, updateCalls: u2 } = baseDeps({ sbSelect: async () => [PENDING_ROW] });
+  await assert.doesNotReject(() => handleCallbackQuery({ id: 'cb9', data: 'catpick:exp-9:not-a-number', message: { chat: { id: 100 } } }, d2));
+  assert.strictEqual(u2.length, 0);
+});
+
+test('a select/update failure never throws, always acks, never leaks internals', async () => {
+  const { deps, sent, answered } = baseDeps({
+    sbSelect: async () => { throw new Error('ECONNREFUSED 10.0.0.5 supabase-internal'); },
+  });
+  await assert.doesNotReject(() => handleCallbackQuery({ id: 'cb10', data: 'catpick:exp-9:0', message: { chat: { id: 100 } } }, deps));
+  assert.strictEqual(answered.length, 1);
+  assert.ok(!/ECONNREFUSED|10\.0\.0\.5/.test(sent[0].text), 'raw error must never leak');
+});
+
+test('a catpick callback never matches the del: branch and vice versa (cross-feature isolation)', async () => {
+  const { deps: d1, updateCalls } = baseDeps({ sbSelect: async () => [PENDING_ROW], sbSoftDelete: async () => { throw new Error('should not be called'); } });
+  await handleCallbackQuery({ id: 'x1', data: 'catpick:exp-9:0', message: { chat: { id: 100 } } }, d1);
+  assert.strictEqual(updateCalls.length, 1, 'catpick: was handled by the catpick branch');
+
+  const { deps: d2, sent } = baseDeps({ sbSelect: async () => [{ id: 'exp-1', rep_chat_id: '100' }] });
+  await handleCallbackQuery({ id: 'x2', data: 'del:exp-1', message: { chat: { id: 100 } } }, d2);
+  assert.ok(!sent[0].text.includes('category'), 'del: was handled by the delete branch, not catpick');
+});

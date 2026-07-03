@@ -60,6 +60,39 @@ test('reply NEVER contains failed[].reason (SOP §7.2) even when a receipt fails
   assert.match(lastMsg, /couldn't read/i);
 });
 
+// --- PDF summary parity fix (2026-07-03): a PDF that renders fine but yields nothing
+// usable used to show a bare "0 saved" with no explanation — now matches the photo-album
+// path (skip reasons + per-receipt breakdown), via the same captureAssemble wrapper. ---
+
+test('a PDF page the model could not read as a receipt -> the reply explains why, not a bare "0 saved"', async () => {
+  const { deps, sent } = baseDeps({
+    // A runBatch that behaves like the real one: calls the injected assembleExpense per
+    // extracted receipt so handlePdfDocument's captureAssemble wrapper sees the result.
+    runBatch: async (images, fieldSpec, d) => {
+      const r1 = await d.assembleExpense({ ...d.meta, fields: { merchant: 'Unknown', amount: 0 }, rawParsed: { looks_like_receipt: false } });
+      return { images: images.length, receipts: 1, saved: 0, skipped: 1, failed: [], flagged: [], truncated_images: [] };
+    },
+    assembleExpense: async ({ rawParsed }) => ({ expense: {}, flagged: false, skipped: true, skipReason: rawParsed.looks_like_receipt === false ? 'not_receipt' : 'unclear' }),
+  });
+  await handleUpdate(pdfUpdate('fileSkip'), deps);
+  const lastMsg = sent[sent.length - 1].text;
+  assert.match(lastMsg, /not a clear receipt|didn't look like a receipt/i, 'the reply must explain the skip, not just say "0 saved"');
+});
+
+test('a PDF page that IS saved -> the reply lists it (merchant/amount/category), matching the photo-album breakdown', async () => {
+  const { deps, sent } = baseDeps({
+    runBatch: async (images, fieldSpec, d) => {
+      await d.assembleExpense({ ...d.meta, fields: { merchant: 'Shell', amount: 86 } });
+      return { images: images.length, receipts: 1, saved: 1, failed: [], flagged: [], truncated_images: [] };
+    },
+    assembleExpense: async ({ fields }) => ({ expense: { merchant: fields.merchant, amount: fields.amount, currency: 'MYR', category: 'Petrol' }, flagged: false }),
+  });
+  await handleUpdate(pdfUpdate('fileSaved'), deps);
+  const lastMsg = sent[sent.length - 1].text;
+  assert.match(lastMsg, /Shell/, 'the saved PDF receipt is listed by merchant, not just counted');
+  assert.match(lastMsg, /Petrol/);
+});
+
 test('rasterizePdf throwing PdfError -> one safe reply, no throw, runBatch NOT called', async () => {
   class FakePdfError extends Error { constructor(code) { super(code); this.name = 'PdfError'; this.code = code; } }
   const { deps, sent, runBatchCalls } = baseDeps({

@@ -131,6 +131,7 @@ test('handleUpdate: routes a callback_query update to handleCallbackQuery, never
 test('handleUpdate: typing "delete" routes to handleDeleteIntent, not the generic photo prompt', async () => {
   let calledChatId = null;
   const deps = { tgSend: async () => { throw new Error('should not send the generic fallback'); },
+    sbSelect: async () => [], // hermetic: no pending-remark row for this chat, so tryResolveRemark falls through
     handleDeleteIntent: async (chatId) => { calledChatId = chatId; } };
   await handleUpdate({ message: { chat: { id: 77 }, from: { first_name: 'A' }, text: 'delete receipt' } }, deps);
   assert.strictEqual(calledChatId, 77);
@@ -139,7 +140,7 @@ test('handleUpdate: typing "delete" routes to handleDeleteIntent, not the generi
 test('handleUpdate: "remove"/"undo"/"cancel" wording also routes to the delete flow', async () => {
   for (const text of ['remove that one', 'undo', 'cancel it']) {
     let hit = false;
-    const deps = { handleDeleteIntent: async () => { hit = true; } };
+    const deps = { sbSelect: async () => [], handleDeleteIntent: async () => { hit = true; } };
     await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text } }, deps);
     assert.strictEqual(hit, true, `"${text}" should route to handleDeleteIntent`);
   }
