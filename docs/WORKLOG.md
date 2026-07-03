@@ -11,6 +11,18 @@
 - **What's next:** open PR → review → merge. Restarting the local test bot on this branch so Barat can confirm the new short reply live.
 - **Assumptions:** none new. A quick AI look is still required to know a photo isn't a receipt (can't pre-classify a selfie vs a receipt without looking) — "no need to analyse" is satisfied by not saving/processing further, and the reply is now a one-liner.
 
+## 2026-07-03 · Claude-B1 (for Barat) · feat/barat-groq-key-rotation
+- **Files:** `lib/groq.js` (call-site rotation loop), `tests/groq.rotation.test.js` (new). My lane. Consumes Jeevan's `lib/groqkeys.js` (PR #57, on main) read-only.
+- **What changed — ADR-016 call-site, the Groq half of multi-key rotation:** factored the duplicated 4-attempt loop out of `groqChat`/`groqChatTools` into one shared `callGroq(body, extract, empty)` runner that now rotates keys per call:
+  - Random start key (`pickKey`). On a 429/rate reply → `nextKey(tried)` to a fresh untried key with **NO sleep** (fresh account = fresh quota). Rotate until the whole pool has 429'd this round.
+  - Full-pool exhaustion = **one** backoff attempt (sleep, reset `tried`, re-pick). Total attempts still capped at 4 — **key-swaps never eat the backoff budget** (my flagged detail #2).
+  - Non-429 error (network throw) → today's backoff-and-retry (my detail #1: only a 429 rotates). Non-rate reply w/o choices → today's empty return.
+  - **Single-key pool (or `GROQ_KEYS` unset) is byte-for-byte the old behavior** (verified: all 6 pre-existing `tests/groq.test.js` green, incl. the 1s-retry and 6s-exhaustion timings unchanged).
+  - **`.env` shape:** SUPERSEDE-not-union (Jeevan's decision, my q#3) — already documented in `.env.example`; no change needed there.
+- **Tests: 668/668** (+5 rotation: 429→different key with no sleep [timing-asserted <500ms]; no key retried twice per round; full-pool exhaustion→backoff [~1000ms]; single-key unchanged; happy-path no rotation/no sleep).
+- **What's next:** open PR → Tier-2 review (multiple third-party secrets, ADR-016). This is the last piece of ADR-016 — pool + consumer both land → the free-tier daily ceiling multiplies by pool size at $0.
+- **Assumptions:** `pickKey()||cfg.GROQ_KEY` fallback keeps a totally-unconfigured deploy behaving exactly as before (empty key → same as today). `tried` Set is per-attempt (reset each backoff round) so a transiently-limited key gets another chance next round — matches ADR-016 "no per-key cooldown."
+
 ## 2026-07-03 · Claude-J2 (for Jeevan) · feature/jeevan-frontend-ratemeter (frontend "% used" rate-limit meter)
 - **Files:** `public/js/api.js` (capture RateLimit-* trio + getRateLimit/onRateLimit), `public/js/components/ratemeter.js` (new), `public/js/app.js` (mount chip in header), `public/index.html` (script tag), `public/css/app.css` (`.rm-*` chip), `tests/frontend/ratemeter.test.js` (new, 6), this WORKLOG.
 - **What changed:** the frontend half of the rate-limit UX (my lane) — consumes Barat's `RateLimit-Limit/Remaining/Reset` headers (PR #56, merged). `api.js`'s `apiFetch`+`fetchBlob` now read the trio on every response (ok AND 429), store the latest, and notify subscribers via `Api.onRateLimit`. A header chip (`ratemeter.js`, pure `rateModel` + render) shows "Rate N/limit" — quiet (muted) when there's headroom, turns amber at ≥70% used and orange at ≥90% with a "resets in Ns" hint (like Claude's usage bar). Hidden until the first limited response arrives (reads bypass the limiter, so no false meter). **663/663** (6 new pure-helper tests: usedPct math, ok/warn/critical thresholds, remaining clamp, reset floor, label). **Verified live in preview:** ok chip shows "Rate 59/60" after a `/api/templates` call; forced-critical renders orange + "7 of 120 left · resets in 32s".
