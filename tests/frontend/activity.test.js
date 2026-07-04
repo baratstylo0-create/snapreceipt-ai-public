@@ -14,7 +14,7 @@ const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
-  resolveCategories, labelFor, awaitingCategoryRows,
+  resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -85,6 +85,21 @@ test('filterSortPage sorts by date asc/desc', () => {
   ];
   assert.deepStrictEqual(filterSortPage(rows, { sortBy: 'date', sortDir: 'asc' }).rows.map((r) => r.id), ['b', 'c', 'a']);
   assert.deepStrictEqual(filterSortPage(rows, { sortBy: 'date', sortDir: 'desc' }).rows.map((r) => r.id), ['a', 'c', 'b']);
+});
+
+// --- receiptByIdPath / hasReceiptImage (ADR-018 durable receipt images) ----
+
+test('receiptByIdPath builds the by-id serve URL, encoding the id', () => {
+  assert.strictEqual(receiptByIdPath('abc-123'), '/receipt/by-id/abc-123');
+  assert.strictEqual(receiptByIdPath('a/b c'), '/receipt/by-id/a%2Fb%20c');
+});
+
+test('hasReceiptImage is true when EITHER receipt_url or receipt_file_id is present', () => {
+  assert.strictEqual(hasReceiptImage({ receipt_url: 'default/x.jpg' }), true);
+  assert.strictEqual(hasReceiptImage({ receipt_file_id: 'fid' }), true);
+  assert.strictEqual(hasReceiptImage({ receipt_url: null, receipt_file_id: null }), false);
+  assert.strictEqual(hasReceiptImage({}), false);
+  assert.strictEqual(hasReceiptImage(null), false);
 });
 
 // --- awaitingCategoryRows (dashboard category-picker) ---------------------

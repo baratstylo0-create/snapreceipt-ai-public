@@ -37,6 +37,17 @@ test('sets CSP + hardening headers on a normal (non-api) path', () => {
   assert.strictEqual(res.headers['Cache-Control'], undefined, 'no no-store on a page path');
 });
 
+test("img-src allows blob: — receipt images render via fetchBlob -> object URL (ADR-018)", () => {
+  // The dashboard fetches every receipt image with an auth'd XHR and renders the bytes as
+  // a browser-generated blob: object URL in a real <img> (never a raw cross-origin URL).
+  // Without blob: in img-src, CSP silently blocks EVERY receipt image (Storage + Telegram).
+  const res = fakeRes();
+  securityHeaders({ path: '/index.html' }, res, () => {});
+  assert.match(res.headers['Content-Security-Policy'], /img-src [^;]*\bblob:/);
+  // still same-origin only for scripts/styles (no loosening elsewhere)
+  assert.match(res.headers['Content-Security-Policy'], /script-src 'self'/);
+});
+
 test('adds Cache-Control: no-store on /api/* paths', () => {
   const res = fakeRes();
   securityHeaders({ path: '/api/expenses' }, res, () => {});

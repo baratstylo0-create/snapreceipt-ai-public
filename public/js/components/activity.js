@@ -260,6 +260,19 @@
     return '/receipt/' + encodeURIComponent(str(fileId));
   }
 
+  // ADR-018: serve the receipt image BY EXPENSE ID. The server looks the row up and streams
+  // the durable Storage copy (receipt_url) or falls back to the Telegram proxy — so the
+  // browser never learns the raw storage path. id is encodeURIComponent'd (never raw).
+  function receiptByIdPath(id) {
+    return '/receipt/by-id/' + encodeURIComponent(str(id));
+  }
+
+  // Does this row have a viewable receipt image on either surface? True for a durable
+  // Storage copy (receipt_url, e.g. dashboard uploads) OR a legacy Telegram file (receipt_file_id).
+  function hasReceiptImage(row) {
+    return !!(row && (row.receipt_url || row.receipt_file_id));
+  }
+
   var VIEW_MODE_KEY = 'activityViewMode';
   var VIEW_MODES = { table: 'table', cards: 'cards' };
 
@@ -336,12 +349,12 @@
   // built from unescaped data. imgWrap starts with a loading message and is
   // replaced in place once the fetch resolves/rejects. className/alt let the
   // caller size the thumbnail vs. the full drawer image differently via CSS.
-  function loadReceiptImage(fileId, imgWrap, opts) {
+  function loadReceiptImage(expenseId, imgWrap, opts) {
     opts = opts || {};
     var imgClassName = opts.imgClassName || 'act-receipt-image';
     var alt = opts.alt || 'Receipt image';
     if (!Api || typeof Api.fetchBlob !== 'function') return;
-    Api.fetchBlob(receiptPath(fileId)).then(function (blob) {
+    Api.fetchBlob(receiptByIdPath(expenseId)).then(function (blob) {
       var url = URL.createObjectURL(blob);
       clear(imgWrap);
       var img = el('img', imgClassName);
@@ -529,11 +542,11 @@
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
 
-    if (r.receipt_file_id) {
+    if (hasReceiptImage(r)) {
       var thumbWrap = el('div', 'act-card-thumb');
       thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
       card.appendChild(thumbWrap);
-      loadReceiptImage(r.receipt_file_id, thumbWrap, { imgClassName: 'act-card-thumb-image', alt: 'Receipt thumbnail' });
+      loadReceiptImage(r.id, thumbWrap, { imgClassName: 'act-card-thumb-image', alt: 'Receipt thumbnail' });
     }
 
     var body = el('div', 'act-card-body');
@@ -715,14 +728,14 @@
     // table) so opening a list of rows doesn't fan out N image requests before the
     // user asks to see any of them.
     var receipt = el('div', 'act-receipt');
-    if (rowObj.receipt_file_id) {
+    if (hasReceiptImage(rowObj)) {
       receipt.appendChild(textCell('span', 'act-receipt-label muted', 'Receipt image'));
       var imgWrap = el('div', 'act-receipt-image-wrap');
       var status2 = el('p', 'act-receipt-msg muted');
       Escape.setText(status2, 'Loading receipt image…');
       imgWrap.appendChild(status2);
       receipt.appendChild(imgWrap);
-      loadReceiptImage(rowObj.receipt_file_id, imgWrap, { imgClassName: 'act-receipt-image', alt: 'Receipt image' });
+      loadReceiptImage(rowObj.id, imgWrap, { imgClassName: 'act-receipt-image', alt: 'Receipt image' });
     } else {
       receipt.appendChild(textCell('span', 'act-receipt-label muted', 'No receipt image on file'));
     }
@@ -1000,6 +1013,8 @@
     refDisplay: refDisplay,
     patchBody: patchBody,
     receiptPath: receiptPath,
+    receiptByIdPath: receiptByIdPath,
+    hasReceiptImage: hasReceiptImage,
     normaliseViewMode: normaliseViewMode,
     // render (browser)
     mount: mount,

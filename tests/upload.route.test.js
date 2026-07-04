@@ -12,6 +12,7 @@ function appWith(over = {}) {
     runBatch: async () => ({ images: 1, receipts: 2, saved: 2, failed: [], flagged: [], truncated_images: [] }),
     extractReceipts: async () => ({ receipts: [], truncated: false }),
     assembleExpense: async () => ({ expense: {}, flagged: false }),
+    uploadReceiptImage: async () => null, // hermetic default (no real Storage); overridden per-test
     getFieldSpec: async () => ({ columns: [{ key: 'merchant', type: 'text' }] }),
     ...over,
   };
@@ -107,6 +108,33 @@ test('getFieldSpec throws -> 502 JSON', async () => {
   const r = await post(app, { images: [b64] });
   assert.equal(r.status, 502);
   assert.ok(!JSON.stringify(r.json).includes('internal/y.js'));
+});
+
+test('ADR-018: each image is uploaded to Storage; its object path rides per-image to runBatch as receipt_url', async () => {
+  const uploaded = [];
+  let batchDeps;
+  const app = appWith({
+    uploadReceiptImage: async (buf) => { uploaded.push(buf.toString()); return 'default/obj-' + uploaded.length + '.jpg'; },
+    runBatch: async (images, _spec, d) => { batchDeps = d; return { images: images.length, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] }; },
+  });
+  const r = await post(app, { images: [b64, b64] });
+  assert.equal(r.status, 200);
+  assert.equal(uploaded.length, 2, 'both images uploaded to Storage');
+  assert.equal(batchDeps.metas[0].receipt_url, 'default/obj-1.jpg');
+  assert.equal(batchDeps.metas[1].receipt_url, 'default/obj-2.jpg');
+  assert.equal(batchDeps.metas[0].repName, 'Dashboard', 'shared meta fields preserved per image');
+});
+
+test('ADR-018 fail-safe: a failed upload (null) leaves receipt_url null; the row still uploads', async () => {
+  let batchDeps;
+  const app = appWith({
+    uploadReceiptImage: async () => null, // storage hiccup — never throws
+    runBatch: async (images, _spec, d) => { batchDeps = d; return { images: images.length, receipts: 1, saved: 1, failed: [], flagged: [], truncated_images: [] }; },
+  });
+  const r = await post(app, { images: [b64] });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.saved, 1);
+  assert.equal(batchDeps.metas[0].receipt_url, null);
 });
 
 test('failed[].reason sanitized: raw error text never reaches the client', async () => {
