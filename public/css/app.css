@@ -1096,37 +1096,31 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   border-color: var(--accent);
 }
 
-.rp-range-group {
+.rp-nav-group {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
 }
-.rp-range-label {
-  font-size: 13px;
-  color: var(--muted);
-  font-weight: 600;
-}
-.rp-date-input {
-  padding: 7px 10px;
+.rp-nav-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   background: var(--panel);
+  color: var(--txt);
   border: 1px solid var(--line);
   border-radius: 8px;
-  color: var(--txt);
   font: inherit;
+  font-weight: 700;
+  cursor: pointer;
 }
-.rp-year-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.rp-year-select {
-  padding: 7px 10px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+.rp-nav-btn:hover { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
+.rp-nav-label {
+  min-width: 140px;
+  text-align: center;
+  font-weight: 700;
   color: var(--txt);
-  font: inherit;
 }
 
 .rp-export-btn {
