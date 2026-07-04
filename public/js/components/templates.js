@@ -139,6 +139,24 @@
     return namedFields(fields).length > 0;
   }
 
+  // QA report #4: importing a real .xlsx got read via FileReader.readAsText, which
+  // garbles binary bytes into a string; POSTing that garbage broke JSON.parse
+  // server-side, surfacing only "malformed request body" — a dead end for the user.
+  // Catch it client-side, BEFORE attempting to read the file, from its name/type (the
+  // `accept=".csv"` picker filter is a hint only, not an enforcement — a user can still
+  // pick "All files" or drag a non-CSV in). Never throws on a garbage/missing file.
+  var NON_CSV_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'docx', 'doc', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'zip'];
+  function isNonCsvFile(file) {
+    if (!file) return false;
+    var name = str(file.name);
+    var m = /\.([a-z0-9]+)$/i.exec(name);
+    var ext = m ? m[1].toLowerCase() : '';
+    if (ext === 'csv') return false;
+    if (NON_CSV_EXTENSIONS.indexOf(ext) !== -1) return true;
+    var type = str(file.type);
+    return type !== '' && type !== 'text/csv' && type !== 'text/plain' && type.indexOf('text/') !== 0;
+  }
+
   // Map an HTTP status + parsed body to a display message.
   //   400: body.error IS shown verbatim when it is a string (server already
   //        sanitized it — this is the "reject-and-explain" the plan asks for).
@@ -320,11 +338,19 @@
     Escape.setText(fileLabel, 'Or choose a CSV file');
     form.appendChild(fileLabel);
 
+    // QA report #1b: give the CSV file picker the same drag-and-drop affordance
+    // already built for the main Upload screen, instead of "Choose File" only.
+    var fileZone = el('div', 'tp-file-zone');
+    fileZone.setAttribute('role', 'button');
+    fileZone.setAttribute('tabindex', '0');
+    fileZone.appendChild(msg('tp-file-zone-text muted', 'Drop a CSV file here, or choose one below'));
+
     var fileInput = el('input', 'tp-csv-file');
     fileInput.type = 'file';
     fileInput.id = 'tp-csv-file';
     fileInput.setAttribute('accept', '.csv,text/csv');
-    form.appendChild(fileInput);
+    fileZone.appendChild(fileInput);
+    form.appendChild(fileZone);
 
     var nameLabel = el('label', 'tp-form-label');
     nameLabel.setAttribute('for', 'tp-name-input');
@@ -349,14 +375,37 @@
 
     var busy = false;
 
-    fileInput.addEventListener('change', function () {
-      var file = fileInput.files && fileInput.files[0];
+    // Shared by the file input's change AND the drop zone — QA report #4: reject an
+    // obvious non-CSV (e.g. .xlsx) BEFORE attempting to read it as text, with a message
+    // that tells the user exactly what to do, instead of a cryptic server 400 later.
+    function handleChosenFile(file) {
       if (!file) return;
+      if (isNonCsvFile(file)) {
+        Escape.setText(statusEl, 'That looks like a ' + (str(file.name).split('.').pop() || 'non-CSV') +
+          ' file, not a CSV. Please export/save it as CSV (in Excel: File → Save As → CSV) and choose that file instead.');
+        return;
+      }
       readFileAsText(file).then(function (text) {
+        Escape.setText(statusEl, '');
         textarea.value = text;
       }).catch(function () {
         Escape.setText(statusEl, 'Could not read that file. Please paste the CSV text instead.');
       });
+    }
+    fileInput.addEventListener('change', function () {
+      handleChosenFile(fileInput.files && fileInput.files[0]);
+    });
+    ['dragenter', 'dragover'].forEach(function (evt) {
+      fileZone.addEventListener(evt, function (ev) { ev.preventDefault(); ev.stopPropagation(); fileZone.classList.add('is-dragover'); });
+    });
+    ['dragleave', 'dragend'].forEach(function (evt) {
+      fileZone.addEventListener(evt, function (ev) { ev.preventDefault(); ev.stopPropagation(); fileZone.classList.remove('is-dragover'); });
+    });
+    fileZone.addEventListener('drop', function (ev) {
+      ev.preventDefault(); ev.stopPropagation(); fileZone.classList.remove('is-dragover');
+      var dt = ev.dataTransfer;
+      var file = dt && dt.files && dt.files[0];
+      if (file) handleChosenFile(file);
     });
 
     function setBusy(b) {
@@ -552,6 +601,7 @@
     namedFields: namedFields,
     buildCsvHeader: buildCsvHeader,
     canSaveBuilder: canSaveBuilder,
+    isNonCsvFile: isNonCsvFile,
     fieldDisplayName: fieldDisplayName,
     FIELD_TYPES: FIELD_TYPES,
     // render (browser)

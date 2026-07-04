@@ -154,3 +154,37 @@ test('failed[].reason sanitized: raw error text never reaches the client', async
   assert.deepEqual({ i: r.json.failed[1].image_index, j: r.json.failed[1].receipt_index, rr: r.json.failed[1].reason },
                    { i: 1, j: 2, rr: 'could not save receipt' });      // receipt-level
 });
+
+// QA report #1: the dashboard upload result must show WHAT was extracted, not just
+// counts — this locks that the wrapped assembleExpense captures a per-item summary.
+test('saved_items: captures merchant/amount/category/voucher_no/id for each saved receipt', async () => {
+  const app = appWith({
+    assembleExpense: async () => ({
+      expense: { id: 'exp-1', merchant: 'Shell', amount: 42.5, currency: 'MYR', category: 'Fuel & Auto', voucher_no: 'RC-2026-0099' },
+      flagged: false, skipped: false,
+    }),
+    // Mirror the real lib/massupload.js contract: call the injected assembleExpense once per receipt.
+    runBatch: async (images, spec, d) => {
+      const r = await d.assembleExpense({});
+      return { images: 1, receipts: 1, saved: 1, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  const r = await post(app, { images: [b64] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.saved_items, [{ id: 'exp-1', merchant: 'Shell', amount: 42.5, currency: 'MYR', category: 'Fuel & Auto', voucher_no: 'RC-2026-0099' }]);
+});
+
+test('saved_items: a skipped (non-receipt) result is never included', async () => {
+  const app = appWith({
+    assembleExpense: async () => ({ expense: { id: 'x', merchant: 'Unknown' }, skipped: true }),
+    runBatch: async (images, spec, d) => { await d.assembleExpense({}); return { images: 1, receipts: 1, saved: 0, skipped: 1, failed: [], flagged: [], truncated_images: [] }; },
+  });
+  const r = await post(app, { images: [b64] });
+  assert.deepEqual(r.json.saved_items, []);
+});
+
+test('saved_items: defaults to [] when runBatch never calls assembleExpense (e.g. all images failed)', async () => {
+  const app = appWith({ runBatch: async () => ({ images: 1, receipts: 0, saved: 0, failed: [{ image_index: 0, reason: 'x' }], flagged: [], truncated_images: [] }) });
+  const r = await post(app, { images: [b64] });
+  assert.deepEqual(r.json.saved_items, []);
+});

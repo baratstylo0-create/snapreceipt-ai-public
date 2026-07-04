@@ -160,8 +160,12 @@ test('badgesFor returns no badges for a clean row', () => {
   assert.deepStrictEqual(badgesFor(row()), []);
 });
 
+// QA report #10b fix: the real shape lib/ocr.js/lib/anomaly.js writes is
+// `{ flagged, reasons: [{type, detail, severity}] }` — there is no singular `.reason`
+// field. Fixtures below use the REAL shape (see tests/frontend/activity.anomaly.test.js
+// for the dedicated regression coverage of this bug fix).
 test('badgesFor flags an anomaly and carries its reason (raw, for escaping at render)', () => {
-  const badges = badgesFor(row({ anomaly: { flagged: true, reason: 'amount 10x median' } }));
+  const badges = badgesFor(row({ anomaly: { flagged: true, reasons: [{ detail: 'amount 10x median' }] } }));
   const anom = badges.find((b) => b.kind === 'anomaly');
   assert.ok(anom, 'expected an anomaly badge');
   assert.strictEqual(anom.reason, 'amount 10x median');
@@ -169,9 +173,10 @@ test('badgesFor flags an anomaly and carries its reason (raw, for escaping at re
 
 test('badgesFor treats a truthy-but-flagged=false anomaly object as not flagged', () => {
   assert.deepStrictEqual(badgesFor(row({ anomaly: { flagged: false } })), []);
-  // A bare object with only a reason still counts as flagged (reason present).
-  const b = badgesFor(row({ anomaly: { reason: 'suspicious' } }));
-  assert.ok(b.some((x) => x.kind === 'anomaly'));
+  // A bare object with reasons but NO explicit flagged:true is NOT treated as flagged —
+  // flagged:true is the one authoritative signal (matches the real writer's contract).
+  const b = badgesFor(row({ anomaly: { reasons: [{ detail: 'suspicious' }] } }));
+  assert.ok(!b.some((x) => x.kind === 'anomaly'));
 });
 
 test('badgesFor flags low confidence when any field is "low"', () => {
