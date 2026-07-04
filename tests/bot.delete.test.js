@@ -12,17 +12,22 @@ const { handleUpdate, handleDeleteIntent, handleCallbackQuery } = require('../li
 
 function baseDeps(over = {}) {
   const sent = [];
+  const edited = [];
   const answered = [];
   const softDeleteCalls = [];
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
+    tgEditMessage: async (chatId, messageId, text) => { edited.push({ chatId, messageId, text }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
     sbSoftDelete: async (table, { id }) => { softDeleteCalls.push({ table, id }); },
     ...over,
   };
-  return { deps, sent, answered, softDeleteCalls };
+  return { deps, sent, edited, answered, softDeleteCalls };
 }
+// Every real Telegram button tap carries the ORIGINAL message (message_id) — used to
+// exercise the edit-in-place path (Owner request 2026-07-04).
+const withMessageId = (chatId, messageId) => ({ chat: { id: chatId }, message_id: messageId });
 
 test('handleDeleteIntent: no receipts for this chat -> friendly "nothing to delete" reply, no keyboard', async () => {
   const { deps, sent } = baseDeps({ sbSelect: async () => [] });
@@ -68,6 +73,53 @@ test('handleCallbackQuery: confirm on an owned, un-deleted row -> soft-deletes a
   await handleCallbackQuery({ id: 'cb2', data: 'del:exp-9', message: { chat: { id: 9 } } }, deps);
   assert.deepStrictEqual(softDeleteCalls, [{ table: 'expenses', id: 'exp-9' }]);
   assert.strictEqual(answered[0].opts.text, 'Deleted');
+  assert.match(sent[0].text, /Tesco/);
+});
+
+// --- Edit-in-place (Owner request 2026-07-04): when the tapped update carries the
+// original message_id (as every real Telegram button tap does), the Yes/Cancel prompt is
+// EDITED into its final result — buttons cleared — instead of sending a brand new message,
+// so the chat doesn't accumulate a "prompt" + a separate "result" message per delete. ---
+
+test('handleCallbackQuery: "del:cancel" WITH a message_id edits the ORIGINAL prompt in place, no new message', async () => {
+  const { deps, sent, edited, answered } = baseDeps();
+  await handleCallbackQuery({ id: 'cbE1', data: 'del:cancel', message: withMessageId(9, 700) }, deps);
+  assert.strictEqual(sent.length, 0, 'no new message — the original prompt is edited instead');
+  assert.strictEqual(edited.length, 1);
+  assert.strictEqual(edited[0].chatId, 9);
+  assert.strictEqual(edited[0].messageId, 700);
+  assert.match(edited[0].text, /kept it/i);
+  assert.strictEqual(answered.length, 1);
+});
+
+test('handleCallbackQuery: confirming delete WITH a message_id edits the ORIGINAL prompt to "Deleted: ...", no new message', async () => {
+  const { deps, sent, edited, softDeleteCalls } = baseDeps({
+    sbSelect: async () => [{ id: 'exp-9', rep_chat_id: '9', merchant: 'Tesco', amount: 30, currency: 'MYR', deleted_at: null }],
+  });
+  await handleCallbackQuery({ id: 'cbE2', data: 'del:exp-9', message: withMessageId(9, 701) }, deps);
+  assert.deepStrictEqual(softDeleteCalls, [{ table: 'expenses', id: 'exp-9' }]);
+  assert.strictEqual(sent.length, 0);
+  assert.strictEqual(edited.length, 1);
+  assert.strictEqual(edited[0].messageId, 701);
+  assert.match(edited[0].text, /Deleted.*Tesco/s);
+});
+
+test('handleCallbackQuery: an already-deleted row WITH a message_id still edits in place (not a new message)', async () => {
+  const { deps, sent, edited } = baseDeps({
+    sbSelect: async () => [{ id: 'exp-9', rep_chat_id: '9', deleted_at: '2026-07-03T00:00:00Z' }],
+  });
+  await handleCallbackQuery({ id: 'cbE3', data: 'del:exp-9', message: withMessageId(9, 702) }, deps);
+  assert.strictEqual(sent.length, 0);
+  assert.match(edited[0].text, /already deleted/i);
+});
+
+test('handleCallbackQuery: a delete callback with NO message_id (defensive fallback) still sends a normal new message, no crash', async () => {
+  const { deps, sent, edited } = baseDeps({
+    sbSelect: async () => [{ id: 'exp-9', rep_chat_id: '9', merchant: 'Tesco', amount: 30, currency: 'MYR', deleted_at: null }],
+  });
+  await handleCallbackQuery({ id: 'cbE4', data: 'del:exp-9', message: { chat: { id: 9 } } }, deps);
+  assert.strictEqual(edited.length, 0);
+  assert.strictEqual(sent.length, 1);
   assert.match(sent[0].text, /Tesco/);
 });
 

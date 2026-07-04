@@ -28,47 +28,51 @@ test('loadMemory degrades gracefully when the table is missing (sbSelect -> [])'
   } finally { supabase.sbSelect = orig; }
 });
 
-test('recordCorrection upserts a merchant AND a description signal', async () => {
+// Issue #14 fix (2026-07-04): recordCorrection now calls the atomic
+// upsert_category_correction Postgres function via sbRpc instead of a racy
+// select-then-insert-or-update. The actual atomic increment is a DB-level guarantee
+// (the SQL function itself, schema.sql) — these JS unit tests verify recordCorrection
+// calls sbRpc with the right function name and args, and degrades gracefully.
+
+test('recordCorrection upserts a merchant AND a description signal via sbRpc, scoped to the account', async () => {
   const calls = [];
-  const os = supabase.sbSelect, oi = supabase.sbInsert, ou = supabase.sbUpdate;
-  supabase.sbSelect = async () => ([]);
-  supabase.sbInsert = async (t, row) => { calls.push(row.match_type); };
-  supabase.sbUpdate = async () => ([]);
+  const or_ = supabase.sbRpc;
+  supabase.sbRpc = async (fn, args) => { calls.push({ fn, args }); };
   try {
     await recordCorrection('Shell', 'Diesel fuel', 'Fuel & Auto');
-    assert.ok(calls.includes('merchant'));
-    assert.ok(calls.includes('description'));
-  } finally { supabase.sbSelect = os; supabase.sbInsert = oi; supabase.sbUpdate = ou; }
+    assert.strictEqual(calls.length, 2);
+    assert.ok(calls.every(c => c.fn === 'upsert_category_correction'));
+    assert.ok(calls.some(c => c.args.p_match_type === 'merchant' && c.args.p_match_value === 'shell'));
+    assert.ok(calls.some(c => c.args.p_match_type === 'description' && c.args.p_match_value === 'diesel fuel'));
+    assert.ok(calls.every(c => c.args.p_category === 'Fuel & Auto' && c.args.p_account));
+  } finally { supabase.sbRpc = or_; }
 });
 
-test('recordCorrection increments hit_count when a signal already exists', async () => {
-  let patched = null;
-  const os = supabase.sbSelect, oi = supabase.sbInsert, ou = supabase.sbUpdate;
-  supabase.sbSelect = async () => ([{ id: 'x1', hit_count: 4 }]);
-  supabase.sbUpdate = async (t, sel, patch) => { patched = patch; return []; };
-  supabase.sbInsert = async () => { throw new Error('should not insert when a row exists'); };
+test('recordCorrection with only a merchant (no description) makes exactly one RPC call', async () => {
+  const calls = [];
+  const or_ = supabase.sbRpc;
+  supabase.sbRpc = async (fn, args) => { calls.push(args); };
   try {
     await recordCorrection('Shell', null, 'Fuel & Auto');
-    assert.strictEqual(patched.hit_count, 5);
-    assert.strictEqual(patched.category, 'Fuel & Auto');
-  } finally { supabase.sbSelect = os; supabase.sbInsert = oi; supabase.sbUpdate = ou; }
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].p_match_type, 'merchant');
+  } finally { supabase.sbRpc = or_; }
 });
 
-test('recordCorrection is best-effort: swallows DB errors (never throws)', async () => {
-  const os = supabase.sbSelect;
-  supabase.sbSelect = async () => { throw new Error('db down'); };
+test('recordCorrection is best-effort: swallows DB/RPC errors (never throws)', async () => {
+  const or_ = supabase.sbRpc;
+  supabase.sbRpc = async () => { throw new Error('function or table does not exist yet'); };
   try {
-    await recordCorrection('Shell', 'Diesel', 'Fuel & Auto');
-    assert.ok(true);
-  } finally { supabase.sbSelect = os; }
+    await assert.doesNotReject(() => recordCorrection('Shell', 'Diesel', 'Fuel & Auto'));
+  } finally { supabase.sbRpc = or_; }
 });
 
-test('recordCorrection with no category is a no-op', async () => {
+test('recordCorrection with no category is a no-op — sbRpc is never called', async () => {
   let touched = false;
-  const os = supabase.sbSelect;
-  supabase.sbSelect = async () => { touched = true; return []; };
+  const or_ = supabase.sbRpc;
+  supabase.sbRpc = async () => { touched = true; };
   try {
     await recordCorrection('Shell', 'Diesel', '');
     assert.strictEqual(touched, false);
-  } finally { supabase.sbSelect = os; }
+  } finally { supabase.sbRpc = or_; }
 });

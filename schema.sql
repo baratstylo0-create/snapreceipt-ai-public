@@ -108,6 +108,25 @@ create index if not exists category_corrections_lookup
   on category_corrections (account_id, match_type, match_value);
 
 -- ============================================================================
+-- Migration M2-P4c: atomic upsert for category_corrections (issue #14)
+-- Barat · 2026-07-04 · folded in from db/2026-07-04-category-corrections-upsert.sql
+-- Closes a select-then-write race in recordCorrection() — see the dated file for the
+-- full explanation. Exposed to the app via PostgREST's RPC endpoint (lib/supabase.js's
+-- sbRpc), consumed by lib/categoryMemory.js.
+-- ============================================================================
+create or replace function upsert_category_correction(
+  p_account text, p_match_type text, p_match_value text, p_category text
+) returns category_corrections language sql as $$
+  insert into category_corrections (account_id, match_type, match_value, category, hit_count, updated_at)
+  values (p_account, p_match_type, p_match_value, p_category, 1, now())
+  on conflict (account_id, match_type, match_value)
+  do update set category   = excluded.category,
+                hit_count  = category_corrections.hit_count + 1,
+                updated_at = excluded.updated_at
+  returning *;
+$$;
+
+-- ============================================================================
 -- Migration M2-P4b: voucher / human-readable reference number (ADR-017)
 -- Barat · 2026-07-03 · folded in from db/2026-07-03-voucher-reference-number.sql
 -- Every expense gets a short, human-quotable reference like RC-2026-0041,
