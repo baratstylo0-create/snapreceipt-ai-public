@@ -1447,24 +1447,31 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
    native zoom. Overrides the base rules above via source order; same
    selectors, no !important needed.
    ═══════════════════════════════════════════════════════════════════════════ */
-body { font-size: 13.5px; line-height: 1.5; }
-.app-header { padding: 14px 20px 6px; max-width: 1180px; }
-.app-main { padding: 10px 20px 26px; max-width: 1180px; }
-.nav { gap: 14px; padding: 8px 14px; }
-.nav-link, .nav-theme { padding: 6px 13px; }
-.nav-emblem { width: 28px; height: 28px; }
-.nav-emblem svg { width: 17px; height: 17px; }
-.nav-wordmark { font-size: 15px; }
+body { font-size: 12px; line-height: 1.45; }
+.app-header { padding: 10px 16px 5px; max-width: 1040px; }
+.app-main { padding: 8px 16px 20px; max-width: 1040px; }
+.nav { gap: 10px; padding: 6px 11px; }
+.nav-link, .nav-theme { padding: 5px 11px; font-size: 12px; }
+.nav-emblem { width: 24px; height: 24px; border-radius: 9px 9px 9px 3px; }
+.nav-emblem svg { width: 14px; height: 14px; }
+.nav-wordmark { font-size: 13px; }
+.nav-greeting, .rm-chip { font-size: 11.5px; }
 
-.view { padding: 18px; margin-top: 14px; }
-.view-title { font-size: 17px; margin-bottom: 12px; }
+.view { padding: 14px; margin-top: 10px; border-radius: 14px; }
+.view-title { font-size: 15px; margin-bottom: 9px; }
 
-.ov-kpis { gap: 10px; margin-bottom: 18px; }
-.ov-kpi { padding: 12px 14px; }
-.ov-kpi-label { font-size: 10.5px; margin-bottom: 6px; }
-.ov-kpi-value { font-size: 19px; }
+.ov-kpis { gap: 8px; margin-bottom: 14px; }
+.ov-kpi { padding: 9px 11px; border-radius: 10px; }
+.ov-kpi-label { font-size: 9.5px; margin-bottom: 4px; }
+.ov-kpi-value { font-size: 16px; }
 
-.set-row { padding: 9px 0; }
-.collapsible-head { padding: 10px 14px; }
-.collapsible-body { padding: 2px 14px 11px; }
-.collapsible.is-open .collapsible-body { padding-top: 9px; }
+.set-row { padding: 7px 0; }
+.set-label { font-size: 12px; }
+.set-desc { font-size: 10.5px; }
+.collapsible-head { padding: 8px 12px; }
+.collapsible-title { font-size: 10px; }
+.collapsible-body { padding: 2px 12px 9px; }
+.collapsible.is-open .collapsible-body { padding-top: 7px; }
+
+.act-card, .up-zone, .rp-toolbar, .tp-file-zone { border-radius: 12px; }
+button, .btn, select, input { font-size: inherit; }
