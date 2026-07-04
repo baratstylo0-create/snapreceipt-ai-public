@@ -451,6 +451,13 @@
   // their FieldSpec, else the current hardcoded English fallback. `status` is
   // a system concept, never part of any customer FieldSpec, so it is NOT
   // looked up here — always the hardcoded label.
+  // The human-readable reference number for a row (RC-2026-0041), or '—' when a row
+  // has none yet (pre-migration / not-yet-assigned). Pure; safe on null/garbage rows.
+  function refDisplay(r) {
+    var v = r && r.voucher_no;
+    return (typeof v === 'string' && v.trim()) ? v.trim() : '—';
+  }
+
   function columnLabels(fieldSpec) {
     return {
       merchant: labelFor('merchant', fieldSpec, 'Merchant'),
@@ -466,6 +473,7 @@
     var table = el('table', 'act-table');
     var thead = el('thead');
     var htr = el('tr');
+    htr.appendChild(textCell('th', 'act-th act-th--ref', 'Ref'));
     htr.appendChild(textCell('th', 'act-th', labels.merchant));
     htr.appendChild(sortableTh(labels.expense_date, 'date', state, handlers.onChange));
     htr.appendChild(sortableTh(labels.amount, 'amount', state, handlers.onChange));
@@ -479,6 +487,10 @@
       var tr = el('tr', 'act-row');
       tr.setAttribute('tabindex', '0');
       tr.setAttribute('role', 'button');
+
+      // Reference number (RC-2026-0041). Falls back to '—' for a row that predates
+      // the voucher migration (or if it's not applied yet) — never a blank cell.
+      tr.appendChild(textCell('td', 'act-td act-td--ref', refDisplay(r)));
 
       var mCell = el('td', 'act-td act-td--merchant');
       mCell.appendChild(textCell('span', 'act-merchant', r.merchant));
@@ -538,6 +550,7 @@
     var amt = el('span', 'act-card-amount');
     Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
     meta.appendChild(amt);
+    if (refDisplay(r) !== '—') meta.appendChild(textCell('span', 'act-card-ref muted', refDisplay(r)));
     body.appendChild(meta);
 
     body.appendChild(textCell('span', 'act-card-status act-td--status', r.status));
@@ -600,6 +613,9 @@
     close.addEventListener('click', function () { handlers.onClose(); });
     head.appendChild(close);
     drawer.appendChild(head);
+
+    // Reference number subtitle (read-only — assigned by the DB, never user-edited).
+    if (refDisplay(rowObj) !== '—') drawer.appendChild(textCell('p', 'act-drawer-ref muted', 'Ref: ' + refDisplay(rowObj)));
 
     // Editable fields form
     var form = el('form', 'act-edit-form');
@@ -981,6 +997,7 @@
     resolveCategories: resolveCategories,
     labelFor: labelFor,
     awaitingCategoryRows: awaitingCategoryRows,
+    refDisplay: refDisplay,
     patchBody: patchBody,
     receiptPath: receiptPath,
     normaliseViewMode: normaliseViewMode,
