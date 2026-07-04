@@ -189,6 +189,12 @@
     var nav = Nav.buildNav({ onSelect: select, onToggleTheme: toggleTheme });
     if (header && nav) { header.textContent = ''; header.appendChild(nav.el); }
 
+    // QA report #1: after a dashboard upload, the user had no way to jump to what was
+    // just saved. `select` (below) is the real switcher (updates the nav pill + lazy-
+    // loads the target view's data) — shared with every mounted view via `deps` so e.g.
+    // Upload's "View in Activity" button can call deps.switchView('activity').
+    deps.switchView = select;
+
     // Rate-limit "% used" meter — a header chip that reads Barat's RateLimit-* trip
     // (via Api.onRateLimit) and warns near the edge. Hidden until the first limited
     // response arrives. Optional (older cached bundles may lack it) so it never blocks boot.

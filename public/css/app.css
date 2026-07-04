@@ -652,6 +652,21 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .up-zone:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .up-zone.is-dragover { border-color: var(--accent); background: #388bfd1a; color: var(--txt); }
 .up-zone-text { margin: 0; font-size: 15px; }
+
+/* Manage: CSV-file drop zone (same affordance as the main Upload screen) */
+.tp-file-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+.tp-file-zone.is-dragover { border-color: var(--accent); background: #388bfd1a; }
+.tp-file-zone-text { margin: 0; font-size: 13px; }
 .up-browse {
   padding: 6px 14px;
   background: var(--accent);
@@ -770,6 +785,21 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .up-result--flagged { border-left-color: #d29922; }
 .up-result--failed { border-left-color: #f85149; }
+.up-result--saved { border-left-color: #3fb950; }
+
+.up-view-activity {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.up-view-activity:hover { background: var(--accent-strong); }
 
 /* --- shared accent-button hover polish (matches the reference's brand color) --- */
 .token-gate-submit:hover,

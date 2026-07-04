@@ -74,6 +74,9 @@
     var failed = Array.isArray(r.failed) ? r.failed : [];
     var flagged = Array.isArray(r.flagged) ? r.flagged : [];
     var truncated = Array.isArray(r.truncated_images) ? r.truncated_images : [];
+    // QA report #1: what was actually extracted (merchant/amount/category), so a clean
+    // save doesn't just say "1 saved" with no way to tell it read the receipt correctly.
+    var savedItems = Array.isArray(r.saved_items) ? r.saved_items : [];
     return {
       images: toInt(r.images),
       receipts: toInt(r.receipts),
@@ -85,6 +88,7 @@
       truncatedImages: truncated.length,
       hasTruncatedImages: truncated.length > 0,
       pagesTruncated: r.pages_truncated === true,
+      savedItems: savedItems,
     };
   }
 
@@ -162,6 +166,7 @@
     if (!hasDom() || !section) return null;
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
+    var switchView = typeof opts.switchView === 'function' ? opts.switchView : null;
 
     var rootEl = el('div', 'up-root');
     section.appendChild(rootEl);
@@ -348,6 +353,31 @@
       }
       if (vm.pagesTruncated) {
         summaryArea.appendChild(msg('up-notice', 'Some PDF pages were skipped (page limit reached).'));
+      }
+
+      // QA report #1: show WHAT was actually read off each saved receipt (merchant,
+      // amount, category, reference number) instead of a bare count — a clean "1 saved"
+      // with nothing else read as "maybe it didn't upload" / "did it read this right?".
+      if (vm.savedItems.length) {
+        summaryArea.appendChild(textHead('up-list-title', 'Saved'));
+        var sv = el('ul', 'up-result-list');
+        vm.savedItems.forEach(function (it) {
+          var li = el('li', 'up-result up-result--saved');
+          var line = str(it && it.merchant) || 'Receipt';
+          if (it && it.amount != null) line += ' — ' + Format.formatMoney(it.amount) + ' ' + str(it.currency);
+          if (it && it.category) line += ' · ' + str(it.category);
+          if (it && it.voucher_no) line += ' · ' + str(it.voucher_no);
+          Escape.setText(li, line);   // merchant/category are untrusted OCR/AI text -> escaped
+          sv.appendChild(li);
+        });
+        summaryArea.appendChild(sv);
+        if (switchView) {
+          var viewBtn = el('button', 'up-view-activity');
+          viewBtn.type = 'button';
+          Escape.setText(viewBtn, 'View in Activity');
+          viewBtn.addEventListener('click', function () { switchView('activity'); });
+          summaryArea.appendChild(viewBtn);
+        }
       }
 
       if (vm.flaggedCount) {
