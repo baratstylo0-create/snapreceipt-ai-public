@@ -3,6 +3,36 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
+## ⚡ SESSION END — Claude-J2. READ THIS FIRST. (2026-07-04, LATEST-4 — voucher LIVE, dashboard fully driven, security reviewed, receipt-image storage foundation shipped)
+
+**main ≈ `3a07e9d`** (Merge #87), **856 tests**. `npm install` first. **GOTCHA: repo `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.** Preview server may be running on :3001.
+
+### ⚠️ BEFORE DEMO/HANDOFF: see `docs/PRE-DEMO-CHECKLIST.md` (new)
+Deferred-but-required: **rotate `DASHBOARD_TOKEN` + Groq keys** (pasted into chat this session — fine while internal-only, rotate before demo), return demo rate-limits to prod values. Full security review recorded there (verdict: **no critical breach**).
+
+### Landed this session (main)
+- **Voucher migration APPLIED to live DB** (Owner ran the SQL in Supabase editor) + **verified**: all rows numbered `RC-YYYY-NNNN`, and the trigger auto-numbers new inserts (tested a row → `RC-2026-0015` → soft-deleted). Feature is LIVE.
+- **Merged:** #77, #78, #80 (earlier) + **#82** (uuid audit=0), **#83** (categorizer hardening #14, partial), **#84** (runBatch per-image meta #31), **#85** (human-readable field labels — Manage shows friendly names, not machine keys), **#86** (voucher `RC-` column in dashboard), **#87** (receipt-image storage foundation `lib/storage.js` + private `receipts` bucket, live round-trip proven).
+- **Dashboard driven live end-to-end** (preview): Overview, Activity (+Ref column), Reports (+Excel + category breakdown), Upload, Manage, **Agent now works** (added backup Groq key to `GROQ_KEYS` pool + raised limits in local `.env` + restarted → answered via live tool-calling). All MYR.
+- **Fixed my own mistake:** during agent UI testing a stray form-submit clobbered the `field_templates` default with junk fields — **restored** to Merchant/Date/Amount/Currency/Category.
+
+### 🎯 NEXT FOCUSED TASK — finish receipt-image storage (ADR-018, spec #81; foundation = #87 merged)
+Wire the proven `lib/storage.js` into the pipeline so images actually display (dashboard-upload path is 100% broken today — primary win). Small, precisely scoped:
+1. `routes/upload.js` (Jeevan) — upload each decoded image via `uploadReceiptImage`, pass the returned path as `receipt_url` per-image via `runBatch`'s `metas[]`/`metaForImage` seam (already built in #84).
+2. **`lib/ocr.js` `assembleExpense` (BARAT's lane) — the ONE thing Barat does here:** a 1-line additive passthrough so the built `expense` includes `receipt_url` from its args (defaults undefined → unchanged for every existing caller). Loop him in (or he does it); flag in WORKLOG like #79.
+3. `routes/receipt.js` — serve from Storage by expense id (look up `receipt_url`, `fetchReceiptObject`, stream, `checkDash`-gated, `private,no-store`); fall back to today's Telegram proxy for old rows.
+4. `public/js/components/activity.js` — render the image when `receipt_url` is present (currently only `if (r.receipt_file_id)`).
+Then live-verify: dashboard-upload a receipt → image displays.
+
+### Other open / pending
+- **PR #88 (Barat)** — persistent bot menu bar. Not reviewed by me; review + merge when Owner directs.
+- Barat: **restart his live pipeline** (currency MYR — still his action) + the #81 step-2 line above + #14 upsert (his migration) + #31 Telegram adapter wiring.
+- Mugi still BLOCKED; M2 deferred until Owner signs off personal is top-tier.
+
+### Merge authority
+Delegated to J1/J2 but the classifier blocks self-authored merges without explicit Owner direction — Owner names each, or do a full read-diff+test review of a teammate's PR first.
+
+---
 ## ⚡ SESSION END — Claude-J2 (handoff to J1). READ THIS FIRST. (2026-07-03, LATEST-3 — Owner wants full personal-account E2E testing; images broken; voucher signed off)
 
 **main = e183181, 764 tests green.** `npm install` first. **GOTCHA: repo-root `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.** A local server may still be running on `:3001`.
