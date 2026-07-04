@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-menu-buttons (4th commit, same branch)
+- **Files:** `lib/bot.js` (`handleCallbackQuery`'s `del:`/`del:cancel` branch), `tests/bot.delete.test.js` (+4).
+- **What changed — Owner request from a live screenshot:** tapping "Yes, delete it"/"Cancel" on the delete-confirm prompt used to send a SEPARATE new message ("Deleted: ...") on top of the original prompt, leaving both in the chat. Now edits the SAME prompt message in place — same `tgEditMessage` edit-in-place pattern already used for the category-picker (PR #78). A small local `reply(text)` helper picks `edit` vs `send` depending on whether the update carries a `message_id` (every real Telegram tap does; `send` is a defensive fallback only). Applied uniformly to all 5 reply points in this branch (cancel, already-gone, not-yours, confirmed-deleted, and the catch-error case) for consistency.
+- **Tests: 881/881** (+4: cancel edits in place; confirmed-delete edits to "Deleted: ..." in place; already-deleted-row still edits in place; the no-`message_id` defensive fallback still sends normally).
+- **What's next:** pushed as an additional commit to the still-open PR #90.
+- **Assumptions:** none new — identical reasoning/pattern to the category-picker's edit-in-place work.
+
 ## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-menu-buttons (3rd commit, same branch)
 - **Files:** `lib/ocr.js` (`assembleExpense` accepts an optional `receipt_url`), `lib/supabase.js` (new `sbRpc`), `lib/categoryMemory.js` (`recordCorrection` now atomic), `db/2026-07-04-category-corrections-upsert.sql` (new), `schema.sql` (folded in), `tests/ingest.test.js` (+2), `tests/categoryMemory.test.js` (rewritten for the new call shape), `tests/supabase.insertreturning.test.js` (+2).
 - **What changed — 2 of Jeevan's 3 requests (the currency restart was already done, see below):**
