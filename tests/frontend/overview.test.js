@@ -4,7 +4,11 @@
 // Written TDD first. Escaping of labels is asserted separately from the numeric math.
 const test = require('node:test');
 const assert = require('node:assert');
-const { chartModel, kpiModel, topCategory, overviewReportsPath } = require('../../public/js/components/overview');
+const {
+  chartModel, kpiModel, topCategory, overviewReportsPath,
+  monthlySeries, categoryPercentBreakdown, categoryColor, formatPercent, allTimeReportsPath,
+  smoothPathD, donutSlicePath,
+} = require('../../public/js/components/overview');
 
 // Overview scopes its report to the current year (fixes the all-years-mixed chart bug).
 test('overviewReportsPath scopes to the given clock year (Jan1–Dec31, month buckets)', () => {
@@ -114,4 +118,121 @@ test('kpiModel is defensive against null/undefined input', () => {
   assert.doesNotThrow(() => kpiModel(undefined));
   const cards = kpiModel(null);
   assert.ok(Array.isArray(cards) && cards.length >= 3);
+});
+
+// --- allTimeReportsPath -------------------------------------------------------
+
+test('allTimeReportsPath: no date bounds (unlike overviewReportsPath)', () => {
+  assert.strictEqual(allTimeReportsPath(), '/api/reports?period=year');
+});
+
+// --- monthlySeries -------------------------------------------------------------
+
+test('monthlySeries: 12 rows Jan..Dec, zero-filled, real data overlaid', () => {
+  const rows = monthlySeries(sample, 2026);
+  assert.strictEqual(rows.length, 12);
+  assert.deepStrictEqual(rows[0], { label: 'Jan', value: 0 });
+  assert.deepStrictEqual(rows[4], { label: 'May', value: 100 });
+  assert.deepStrictEqual(rows[5], { label: 'Jun', value: 200 });
+});
+
+test('monthlySeries: never throws on garbage input', () => {
+  assert.doesNotThrow(() => monthlySeries(null, null));
+  assert.doesNotThrow(() => monthlySeries({}, 'nope'));
+  assert.strictEqual(monthlySeries(null, 2026).length, 12);
+});
+
+// --- categoryPercentBreakdown --------------------------------------------------
+
+test('categoryPercentBreakdown: sorted desc, pct + exact frac sum to the whole', () => {
+  // Food = 60+150=210, Software=50, Petrol=40 -> total 300.
+  const rows = categoryPercentBreakdown(sample);
+  assert.deepStrictEqual(rows.map((r) => r.name), ['Food', 'Software', 'Petrol']);
+  assert.strictEqual(rows[0].total, 210);
+  assert.strictEqual(rows[0].pct, 70);
+  assert.ok(Math.abs(rows[0].frac - 210 / 300) < 1e-9);
+  const fracSum = rows.reduce((s, r) => s + r.frac, 0);
+  assert.ok(Math.abs(fracSum - 1) < 1e-9);
+});
+
+test('categoryPercentBreakdown: [] when there is no positive category spend', () => {
+  assert.deepStrictEqual(categoryPercentBreakdown({ buckets: [] }), []);
+  assert.deepStrictEqual(categoryPercentBreakdown(null), []);
+  assert.deepStrictEqual(categoryPercentBreakdown({ buckets: [{ key: 'x', byCategory: { Food: -5 } }] }), []);
+});
+
+test('categoryPercentBreakdown: keeps raw (unescaped) names for the render layer to escape', () => {
+  const rows = categoryPercentBreakdown({ buckets: [{ key: 'x', byCategory: { '<script>evil</script>': 5 } }] });
+  assert.strictEqual(rows[0].name, '<script>evil</script>');
+});
+
+// --- categoryColor ---------------------------------------------------------------
+
+test('categoryColor: deterministic, same category always gets the same slot', () => {
+  assert.strictEqual(categoryColor('Food'), categoryColor('Food'));
+  assert.strictEqual(categoryColor('Food'), categoryColor('  food  ')); // trim + case-insensitive
+});
+
+test('categoryColor: empty/blank/"Others" (any case) -> the neutral "others" slot', () => {
+  assert.strictEqual(categoryColor(''), 'others');
+  assert.strictEqual(categoryColor(null), 'others');
+  assert.strictEqual(categoryColor(undefined), 'others');
+  assert.strictEqual(categoryColor('Others'), 'others');
+  assert.strictEqual(categoryColor('  OTHERS '), 'others');
+});
+
+test('categoryColor: a real category never lands on "others"', () => {
+  assert.notStrictEqual(categoryColor('Fuel & Auto'), 'others');
+});
+
+// --- formatPercent -----------------------------------------------------------
+
+test('formatPercent: one decimal + a % sign, tolerant of garbage', () => {
+  assert.strictEqual(formatPercent(70), '70%');
+  assert.strictEqual(formatPercent(33.333), '33.3%');
+  assert.strictEqual(formatPercent('nope'), '0%');
+  assert.strictEqual(formatPercent(null), '0%');
+});
+
+// --- smoothPathD (line-chart geometry) ------------------------------------------
+
+test('smoothPathD: starts with M and has one C segment per gap between points', () => {
+  const pts = [{ x: 0, y: 0 }, { x: 10, y: 20 }, { x: 20, y: 5 }];
+  const d = smoothPathD(pts);
+  assert.match(d, /^M0,0/);
+  assert.strictEqual((d.match(/C/g) || []).length, 2); // 3 points -> 2 segments
+});
+
+test('smoothPathD: 0 or 1 point degrades gracefully (no C segments)', () => {
+  assert.strictEqual(smoothPathD([]), '');
+  assert.strictEqual(smoothPathD([{ x: 5, y: 5 }]), 'M5,5');
+});
+
+test('smoothPathD: never throws on garbage input', () => {
+  assert.doesNotThrow(() => smoothPathD(null));
+  assert.doesNotThrow(() => smoothPathD(undefined));
+  assert.doesNotThrow(() => smoothPathD('nope'));
+});
+
+// --- donutSlicePath (donut-chart geometry) --------------------------------------
+
+test('donutSlicePath: a quarter slice (0deg-90deg) starts at the top and sweeps clockwise', () => {
+  const d = donutSlicePath(100, 100, 80, 40, 0, 90);
+  // Outer start at the top of the circle: (cx, cy-rO) = (100, 20).
+  assert.match(d, /^M100,20/);
+  assert.match(d, /A80,80/);
+  assert.match(d, /A40,40/);
+});
+
+test('donutSlicePath: uses the large-arc flag for a span over 180deg', () => {
+  const small = donutSlicePath(50, 50, 40, 20, 0, 90);
+  const large = donutSlicePath(50, 50, 40, 20, 0, 270);
+  assert.match(small, /A40,40 0 0 1/);
+  assert.match(large, /A40,40 0 1 1/);
+});
+
+test('donutSlicePath: a zero/negative span -> "" (never throws)', () => {
+  assert.strictEqual(donutSlicePath(50, 50, 40, 20, 90, 90), '');
+  assert.strictEqual(donutSlicePath(50, 50, 40, 20, 90, 10), '');
+  assert.doesNotThrow(() => donutSlicePath(null, null, null, null, null, null));
 });

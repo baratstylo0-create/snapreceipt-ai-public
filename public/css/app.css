@@ -284,6 +284,109 @@ body.theme-dark {
   overflow-wrap: anywhere;
 }
 
+/* --- Overview: top row (KPI grid + the all-time "spending until now" box) --- */
+.ov-top-row {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.ov-top-row .ov-kpis { flex: 3 1 420px; margin-bottom: 0; }
+
+.ov-alltime {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--honey);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+}
+.ov-alltime-label {
+  color: var(--honey);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.ov-alltime-value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+/* --- Overview: charts row (vertical line chart + category donut) --- */
+.ov-charts-row {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.ov-linechart { flex: 1 1 320px; position: relative; min-width: 0; }
+.ov-linechart-svg { width: 100%; height: auto; display: block; }
+.ov-chart-area { fill: var(--moss-bg); }
+.ov-chart-line { stroke: var(--accent); stroke-width: 2.5; }
+.ov-chart-dot { fill: var(--panel); stroke: var(--accent); stroke-width: 2; cursor: pointer; }
+.ov-chart-dot:hover, .ov-chart-dot:focus { fill: var(--accent); outline: none; }
+
+.ov-chart-tip {
+  position: absolute;
+  display: none;
+  transform: translate(-100%, -130%);
+  background: var(--txt);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 7px;
+  pointer-events: none;
+  z-index: 5;
+}
+.ov-chart-tip.is-visible { display: block; }
+
+.ov-donut-wrap { flex: 1 1 260px; min-width: 0; }
+.ov-donut-body { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.ov-donut-svg { width: 168px; height: 168px; flex-shrink: 0; }
+.ov-donut-center-value { font-family: var(--font-display); font-size: 15px; font-weight: 700; fill: var(--txt); }
+.ov-donut-center-caption { font-size: 8px; font-weight: 700; letter-spacing: 0.1em; fill: var(--muted); }
+
+.ov-donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1 1 150px;
+  min-width: 140px;
+}
+.ov-donut-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ov-donut-legend-name { flex: 1; overflow-wrap: anywhere; }
+.ov-donut-legend-pct { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--txt); }
+.ov-donut-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+/* Donut slice + legend swatch fills — same palette + hash mapping as the
+   Activity screen's category pills (.act-pill--c0..c9), so a category's
+   colour is consistent everywhere in the app. */
+.ov-donut-slice--c0, .ov-donut-swatch--c0 { fill: var(--moss);  background: var(--moss); }
+.ov-donut-slice--c1, .ov-donut-swatch--c1 { fill: var(--teal);  background: var(--teal); }
+.ov-donut-slice--c2, .ov-donut-swatch--c2 { fill: var(--honey); background: var(--honey); }
+.ov-donut-slice--c3, .ov-donut-swatch--c3 { fill: var(--clay);  background: var(--clay); }
+.ov-donut-slice--c4, .ov-donut-swatch--c4 { fill: var(--bark);  background: var(--bark); }
+.ov-donut-slice--c5, .ov-donut-swatch--c5 { fill: var(--teal);  background: var(--teal); }
+.ov-donut-slice--c6, .ov-donut-swatch--c6 { fill: var(--bark);  background: var(--bark); }
+.ov-donut-slice--c7, .ov-donut-swatch--c7 { fill: var(--moss);  background: var(--moss); }
+.ov-donut-slice--c8, .ov-donut-swatch--c8 { fill: var(--clay);  background: var(--clay); }
+.ov-donut-slice--c9, .ov-donut-swatch--c9 { fill: var(--honey); background: var(--honey); }
+.ov-donut-slice--others, .ov-donut-swatch--others { fill: var(--muted); background: var(--muted); }
+
 /* --- Overview: P&L bar chart --- */
 .ov-chart {
   margin: 0;
