@@ -595,6 +595,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-pill--pending { background: #d29922; color: #1c1300; }
 
 .act-review-title { margin: 28px 0 10px; font-size: 16px; }
+.act-review-note { margin: -6px 0 12px; font-size: 12.5px; }
 .act-review-item {
   display: grid;
   grid-template-columns: 1fr auto;
