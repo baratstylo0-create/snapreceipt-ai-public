@@ -329,3 +329,16 @@ test('a hostile field name survives buildCsvHeader -> buildImportBody as inert p
   assert.doesNotMatch(safe, /<script>/);
   assert.strictEqual(safe, '&lt;script&gt;alert(1)&lt;/script&gt;');
 });
+
+// --- fieldDisplayName (human-readable field names for non-technical staff) ---
+test('fieldDisplayName: prefers the human label', () => {
+  assert.strictEqual(Templates.fieldDisplayName({ key: 'merchant', label: 'Merchant' }), 'Merchant');
+});
+test('fieldDisplayName: prettifies a bare machine key (no raw snake_case shown)', () => {
+  assert.strictEqual(Templates.fieldDisplayName({ key: 'and_how_much' }), 'And how much');
+  assert.strictEqual(Templates.fieldDisplayName({ key: 'which_category-do_i' }), 'Which category do i');
+});
+test('fieldDisplayName: empty/garbage never throws, returns ""', () => {
+  assert.strictEqual(Templates.fieldDisplayName(null), '');
+  assert.strictEqual(Templates.fieldDisplayName({}), '');
+});
