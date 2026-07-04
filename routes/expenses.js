@@ -24,6 +24,41 @@ function safeTokenEqual(presented, secret) {
   return crypto.timingSafeEqual(a, b);
 }
 
+// Server-side validation for PATCH /api/expenses (security checklist: "no server-side
+// validation" / "reject anything unexpected"). Only the allow-listed fields are considered
+// (account_id / id / voucher_no / receipt_url etc. can NEVER be set from the client). Money
+// fields must be FINITE numbers — an object/array/boolean/NaN/Infinity is rejected, never
+// written (the DB numeric column is a backstop, but defense-in-depth validates here too).
+// `status` must be a known workflow value (no arbitrary status). Text fields must be strings
+// and are length-bounded (untrusted text, DoS-adjacent). Pure + never throws.
+const PATCH_ALLOW = ['merchant', 'expense_date', 'amount', 'currency', 'category', 'status', 'remark', 'subtotal', 'tax'];
+const MONEY_FIELDS = new Set(['amount', 'subtotal', 'tax']);
+const VALID_STATUS = new Set(['saved', 'needs_review', 'approved', 'rejected', 'awaiting_category', 'awaiting_remark']);
+const MAX_TEXT_LEN = 2000;
+function sanitizeExpensePatch(rawBody) {
+  const src = (rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody)) ? rawBody : {};
+  const body = {};
+  for (const k of PATCH_ALLOW) {
+    if (!(k in src)) continue;
+    const v = src[k];
+    if (MONEY_FIELDS.has(k)) {
+      const n = Number(v);
+      // typeof object catches null AND arrays AND objects; boolean coerces to 0/1 so reject it too.
+      if (v === null || typeof v === 'object' || typeof v === 'boolean' || !Number.isFinite(n)) {
+        return { ok: false, error: 'invalid value for ' + k + ' (must be a finite number)' };
+      }
+      body[k] = n;
+    } else if (k === 'status') {
+      if (typeof v !== 'string' || !VALID_STATUS.has(v)) return { ok: false, error: 'invalid status' };
+      body[k] = v;
+    } else {
+      if (typeof v !== 'string') return { ok: false, error: 'invalid value for ' + k + ' (must be text)' };
+      body[k] = v.slice(0, MAX_TEXT_LEN);
+    }
+  }
+  return { ok: true, body };
+}
+
 // API gate. Moved from server.js:220-225; hardened P6 (§4.3 — was fail-OPEN: any request
 // was let through when DASHBOARD_TOKEN was unset, on every route that reuses this gate,
 // including the receipt-image proxy). Now fail-CLOSED in production:
@@ -76,9 +111,9 @@ module.exports = function mountExpenses(app) {
   app.patch('/api/expenses/:id', checkDash, express.json({ limit: '1mb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
-      const allow = ['merchant', 'expense_date', 'amount', 'currency', 'category', 'status', 'remark', 'subtotal', 'tax'];
-      const body = {};
-      for (const k of allow) if (req.body && k in req.body) body[k] = req.body[k];
+      const clean = sanitizeExpensePatch(req.body);
+      if (!clean.ok) return res.status(400).json({ error: clean.error });
+      const body = clean.body;
       if (!Object.keys(body).length) return res.status(400).json({ error: 'no fields to update' });
       const rows = await sbUpdate('expenses', { id: req.params.id }, body);
       // #6 learning: a manual category edit is ground truth — remember it for future receipts
@@ -109,3 +144,4 @@ module.exports = function mountExpenses(app) {
 
 module.exports.checkDash = checkDash;
 module.exports.dashOrigin = dashOrigin;
+module.exports.sanitizeExpensePatch = sanitizeExpensePatch;
