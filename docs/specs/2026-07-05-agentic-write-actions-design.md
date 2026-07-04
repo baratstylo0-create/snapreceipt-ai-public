@@ -1,6 +1,6 @@
 # Spec — Agentic write actions for the dashboard agent (#9 Phase 2)
 
-> **Decision:** ADR-019 (proposed). **Status:** Draft for sign-off — brainstormed with the Owner 2026-07-05, all 5 sections approved.
+> **Decision:** ADR-019. **Status:** ✅ **CTO-reviewed and approved 2026-07-05** — brainstormed + all 5 sections approved with the Owner; then independently re-checked against the current codebase (`sanitizeExpensePatch`'s exact export shape, `routes/review.js`'s status guard, `runAgent`'s `tool_choice` loop, the existing per-route rate-limiter pattern). Three hardenings added during that pass: `crypto.randomUUID()` proposal ids + lazy expiry-cleanup, reusing the existing `agentLimiter` on the new confirm route, and an explicit no-PII audit-log line. Cleared to build.
 > **Owner:** Jeevan (`lib/agent.js`, `routes/agent.js` are already his lane; the two small extractions below touch only his own `routes/expenses.js` / `routes/review.js`, no cross-lane edits).
 > **Requested by:** Owner (QA report item #8) — "the agent should be agentic, able to do everything in the dashboard, with a confirmation step like Claude, or an auto-mode."
 > **Tier:** Tier-2 (writes financial data via a new pathway). Additive — the existing 3 read-only tools (`getReport`/`listExpenses`/`topMerchants`) are completely unchanged.
@@ -48,12 +48,17 @@ User: "change the Bonda receipt to Meals & Entertainment"
 
 ### Pending-proposal store
 An in-memory `Map<proposalId, {kind, args, expiresAt}>` inside `lib/agent.js`, TTL ~10 minutes, single-account v1 (no per-user partitioning — matches the app's existing single-account posture). Consistent with the existing documented design: *"the server holds no [long-lived] conversation state"* — this is short-lived, in-process, and expires on its own. A server restart before a Confirm click loses the pending proposal; acceptable for an interactive same-session chat flow (this is NOT the bot's async multi-hour-later confirm pattern, which durably stores state on the row itself for that reason).
+- `proposalId` is a `crypto.randomUUID()` (same primitive the bot's own client-generated-id precedent already uses) — never a sequential/guessable id, even though every route here already sits behind `checkDash`.
+- Expired/actioned entries are deleted **lazily on lookup** (checked-and-removed the next time anything tries to read that id) — no separate sweep/timer needed at this app's single-account scale; the Map cannot grow unbounded because every entry is touched (and thus reaped once stale) or explicitly cleared on confirm.
 
 ### New tools added to `lib/agent.js`'s `TOOLS` array
 `proposeEditExpense`, `proposeDeleteExpense`, `proposeReviewDecision`, `proposeAddTemplateField` — each follows the exact same `{ name, parameters, validate(args), run(a, deps) }` shape the 3 existing read tools already use. `run()` for every propose tool returns a pending-proposal object; it never calls a write function itself.
 
 ### New confirm endpoint
-`POST /api/agent/confirm` (in `routes/agent.js`, `checkDash`-gated like every other API route) — looks up the proposal by id, checks not expired, re-validates, executes, clears the entry. Errors (expired/not-found/already-actioned/re-validation-failed) return the same safe, generic-message pattern the rest of the app already uses (SOP §7.2 — never leak internals).
+`POST /api/agent/confirm` (in `routes/agent.js`, `checkDash`-gated like every other API route, and **behind the same `agentLimiter` that already guards `POST /api/agent`** — reused as-is, not a new env knob, since this is the same class of chat-driven traffic) — looks up the proposal by id, checks not expired, re-validates, executes, clears the entry. Errors (expired/not-found/already-actioned/re-validation-failed) return the same safe, generic-message pattern the rest of the app already uses (SOP §7.2 — never leak internals).
+
+### Audit logging
+Every propose/confirm/cancel gets a `console.log`/`console.warn` line — `kind`, `decision` (confirmed/cancelled/auto), and a timestamp only. **Never** the full expense row, receipt image, or any secret — matching the logging discipline already used everywhere else in this app (ADR-002). No new DB table; this is stdout-level, same as every other operational log line in the codebase today.
 
 ## Auto-mode — decided server-side, never by the model
 A real Settings toggle: **"Agent auto-mode — skip confirmation for edits & review decisions."** Persisted to `sessionStorage` (same pattern as theme/token today), sent as `autoMode: boolean` on every `POST /api/agent` request.
