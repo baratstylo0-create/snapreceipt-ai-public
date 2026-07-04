@@ -1439,3 +1439,32 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   .sora-btn svg { width: 66px; height: 66px; }
   .sora-chat { bottom: 96px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPACT DENSITY PASS — the layout felt "zoomed in" on high-DPI displays even
+   at 100% browser zoom (large base font + generous card padding). This shrinks
+   the page itself (not a browser/OS zoom hack) so more fits on screen at
+   native zoom. Overrides the base rules above via source order; same
+   selectors, no !important needed.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body { font-size: 13.5px; line-height: 1.5; }
+.app-header { padding: 14px 20px 6px; max-width: 1180px; }
+.app-main { padding: 10px 20px 26px; max-width: 1180px; }
+.nav { gap: 14px; padding: 8px 14px; }
+.nav-link, .nav-theme { padding: 6px 13px; }
+.nav-emblem { width: 28px; height: 28px; }
+.nav-emblem svg { width: 17px; height: 17px; }
+.nav-wordmark { font-size: 15px; }
+
+.view { padding: 18px; margin-top: 14px; }
+.view-title { font-size: 17px; margin-bottom: 12px; }
+
+.ov-kpis { gap: 10px; margin-bottom: 18px; }
+.ov-kpi { padding: 12px 14px; }
+.ov-kpi-label { font-size: 10.5px; margin-bottom: 6px; }
+.ov-kpi-value { font-size: 19px; }
+
+.set-row { padding: 9px 0; }
+.collapsible-head { padding: 10px 14px; }
+.collapsible-body { padding: 2px 14px 11px; }
+.collapsible.is-open .collapsible-body { padding-top: 9px; }
