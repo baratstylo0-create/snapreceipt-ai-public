@@ -15,14 +15,44 @@
   'use strict';
 
   // Canonical section order. id is used as the view key; label is display text.
+  // Phase 2 (Mugi's Treehouse concept): the Agent is no longer a nav tab — it
+  // lives in the floating "Falc" assistant (components/falc.js), so it's dropped
+  // here. A dedicated Settings view takes its place.
   var SECTIONS = [
     { id: 'overview', label: 'Overview' },
     { id: 'activity', label: 'Activity' },
     { id: 'upload', label: 'Upload' },
     { id: 'manage', label: 'Manage' },
     { id: 'reports', label: 'Reports' },
-    { id: 'agent', label: 'Agent' },
+    { id: 'settings', label: 'Settings' },
   ];
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // Build Mugi's "Treehouse" brand emblem (a leaf mark) as inline SVG via
+  // createElementNS — never innerHTML — so the strict no-inline CSP holds.
+  // Returns the emblem <span> wrapper (or null outside a browser).
+  function buildEmblem() {
+    if (typeof document === 'undefined') return null;
+    var wrap = document.createElement('span');
+    wrap.className = 'nav-emblem';
+    wrap.setAttribute('aria-hidden', 'true');
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    var leaf = document.createElementNS(SVG_NS, 'path');
+    leaf.setAttribute('d', 'M12 3C8 8 5 11 5 15a7 7 0 0014 0c0-4-3-7-7-12z');
+    leaf.setAttribute('fill', 'var(--accent-contrast)');
+    var vein = document.createElementNS(SVG_NS, 'path');
+    vein.setAttribute('d', 'M12 9v9');
+    vein.setAttribute('stroke', 'var(--accent)');
+    vein.setAttribute('stroke-width', '1.4');
+    vein.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(leaf);
+    svg.appendChild(vein);
+    wrap.appendChild(svg);
+    return wrap;
+  }
 
   // Build the nav bar. onSelect(id) fires when a section button is clicked;
   // onToggleTheme() fires when the dark/light toggle is clicked. Returns the
@@ -36,9 +66,16 @@
     var nav = document.createElement('nav');
     nav.className = 'nav';
 
+    // Brand block: Mugi's leaf emblem + wordmark. The emblem is decorative
+    // (aria-hidden); the wordmark carries the accessible name.
     var brand = document.createElement('span');
     brand.className = 'nav-brand';
-    brand.textContent = 'Receipt Analyser';
+    var emblem = buildEmblem();
+    if (emblem) brand.appendChild(emblem);
+    var wordmark = document.createElement('span');
+    wordmark.className = 'nav-wordmark';
+    wordmark.textContent = 'AutoReceipt';
+    brand.appendChild(wordmark);
     nav.appendChild(brand);
 
     var links = document.createElement('div');
@@ -80,5 +117,5 @@
     return { el: nav, setActive: setActive };
   }
 
-  return { buildNav: buildNav, SECTIONS: SECTIONS };
+  return { buildNav: buildNav, buildEmblem: buildEmblem, SECTIONS: SECTIONS };
 });

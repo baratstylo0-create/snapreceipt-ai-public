@@ -37,6 +37,8 @@
         if (name === 'Templates') return require('./components/templates');
         if (name === 'Reports') return require('./components/reports');
         if (name === 'Agent') return require('./components/agent');
+        if (name === 'Settings') return require('./components/settings');
+        if (name === 'Falc') return require('./components/falc');
         if (name === 'RateMeter') return require('./components/ratemeter');
       } catch (e) { return null; }
     }
@@ -69,10 +71,30 @@
   }
   function toggleTheme() {
     var next = (storedTheme() === 'light') ? 'dark' : 'light';
+    setTheme(next);
+    return next;
+  }
+  // Set an explicit theme (used by the Settings view's Light/Dark picker).
+  // Persists to sessionStorage and applies immediately.
+  function setTheme(theme) {
+    var next = theme === 'dark' ? 'dark' : 'light';
     var s = ss();
     try { if (s) s.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
     applyTheme(next);
     return next;
+  }
+
+  // Clear the dashboard token from this browser and re-run the boot flow, which
+  // re-shows the token gate when auth is required. Never logs the token.
+  function logout() {
+    var s = ss();
+    try { if (s) s.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
+    try { var api = dep('Api'); if (api && api.setToken) api.setToken(null); } catch (e) { /* ignore */ }
+    reloadPage();
+  }
+  // Best-effort full reload (guarded so Node require() can't throw).
+  function reloadPage() {
+    try { if (root && root.location && typeof root.location.reload === 'function') root.location.reload(); } catch (e) { /* ignore */ }
   }
 
   // --- view switching: show one mount section, hide the rest ---
@@ -119,6 +141,9 @@
 
   // Registry mapping a section id to its view component module. Each component
   // exposes mount(section, deps) -> { load? }. Add future views here.
+  // NB (Phase 2): 'agent' is no longer a nav view — the Agent chat now lives in
+  // the floating Falc assistant (mounted globally in enterApp), and a Settings
+  // view takes the freed nav slot.
   function viewComponents(deps) {
     return {
       overview: (deps && deps.Overview) || dep('Overview'),
@@ -126,7 +151,7 @@
       upload: (deps && deps.Upload) || dep('Upload'),
       manage: (deps && deps.Templates) || dep('Templates'),
       reports: (deps && deps.Reports) || dep('Reports'),
-      agent: (deps && deps.Agent) || dep('Agent'),
+      settings: (deps && deps.Settings) || dep('Settings'),
     };
   }
 
@@ -201,7 +226,21 @@
     var RateMeter = deps.RateMeter;
     if (header && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(header, deps);
 
+    // Expose the real theme setter / logout / clear-local to view components
+    // (the Settings view uses these) via the shared deps object.
+    deps.setTheme = setTheme;
+    deps.logout = logout;
+    deps.onClearLocal = reloadPage;
+
     var instances = mount ? buildViews(Nav, mount, deps) : {};
+
+    // Falc — the floating expense assistant (Phase 2). Mounted once, globally,
+    // so it floats over every view. It reuses the Agent chat module internally.
+    // Optional (older cached bundles may lack it) so it never blocks boot.
+    var Falc = deps.Falc;
+    if (Falc && typeof Falc.mount === 'function') {
+      Falc.mount({ Agent: deps.Agent, Api: deps.Api, apiFetch: deps.Api && deps.Api.apiFetch });
+    }
 
     function select(id) {
       showView(id);
@@ -222,6 +261,7 @@
       Escape: dep('Escape'), Api: dep('Api'), AuthGate: dep('AuthGate'), Nav: dep('Nav'),
       Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
+      Settings: dep('Settings'), Falc: dep('Falc'),
       RateMeter: dep('RateMeter'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
