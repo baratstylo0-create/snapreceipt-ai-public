@@ -3,7 +3,7 @@
 // to echo a DB-generated column (voucher_no, assigned by a trigger) to the caller.
 const test = require('node:test');
 const assert = require('node:assert');
-const { sbInsertReturning } = require('../lib/supabase');
+const { sbInsertReturning, sbRpc } = require('../lib/supabase');
 
 function stubFetch(respond) {
   const realFetch = global.fetch;
@@ -39,5 +39,28 @@ test('sbInsertReturning returns null if the response is not an array (e.g. an er
   try {
     const row = await sbInsertReturning('expenses', { merchant: 'X' });
     assert.strictEqual(row, null);
+  } finally { stub.restore(); }
+});
+
+// --- sbRpc (issue #14): calls a Postgres function via PostgREST's /rpc/<fn> endpoint.
+// Unlike the table helpers, does NOT auto-inject account_id — the caller supplies exactly
+// the args its target function declares (e.g. `p_account`, function-specific naming). ---
+
+test('sbRpc POSTs the args as-is to /rpc/<fnName>, with NO account_id auto-injected', async () => {
+  const stub = stubFetch(() => ({ id: 'row1', hit_count: 2 }));
+  try {
+    const result = await sbRpc('upsert_category_correction', { p_account: 'default', p_match_type: 'merchant', p_match_value: 'shell', p_category: 'Fuel & Auto' });
+    assert.match(stub.seen().url, /\/rpc\/upsert_category_correction$/);
+    assert.deepStrictEqual(stub.seen().body, { p_account: 'default', p_match_type: 'merchant', p_match_value: 'shell', p_category: 'Fuel & Auto' });
+    assert.ok(!('account_id' in stub.seen().body), 'sbRpc must not auto-inject a generic account_id key');
+    assert.deepStrictEqual(result, { id: 'row1', hit_count: 2 });
+  } finally { stub.restore(); }
+});
+
+test('sbRpc defaults to an empty args object when none is given', async () => {
+  const stub = stubFetch(() => ({ ok: true }));
+  try {
+    await sbRpc('some_fn');
+    assert.deepStrictEqual(stub.seen().body, {});
   } finally { stub.restore(); }
 });

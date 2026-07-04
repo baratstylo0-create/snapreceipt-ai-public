@@ -238,6 +238,25 @@ test('ADR-017: insertExpense returning null (sbInsertReturning\'s own safe-fallb
   await assert.doesNotReject(() => assembleExpense(goodInput(), deps({ insertExpense: async () => null })));
 });
 
+// ADR-018 (Jeevan's receipt-image feature, foundation merged in #87): assembleExpense
+// accepts an optional receipt_url arg and passes it straight into the inserted row.
+// Additive — every existing caller that doesn't pass it gets undefined (dropped from the
+// JSON insert body entirely, so it never overwrites/nulls an existing column value).
+test('ADR-018: an explicit receipt_url is passed through onto the inserted/returned expense', async () => {
+  let inserted = null;
+  const { expense } = await assembleExpense(
+    { ...goodInput(), receipt_url: 'https://storage.example/receipts/abc.jpg' },
+    deps({ insertExpense: async (row) => { inserted = row; } }),
+  );
+  assert.strictEqual(expense.receipt_url, 'https://storage.example/receipts/abc.jpg');
+  assert.strictEqual(inserted.receipt_url, 'https://storage.example/receipts/abc.jpg');
+});
+
+test('ADR-018: no receipt_url passed (every existing caller) -> stays undefined, no crash, not fabricated', async () => {
+  const { expense } = await assembleExpense(goodInput(), deps());
+  assert.strictEqual(expense.receipt_url, undefined);
+});
+
 // A photo the model couldn't read as a receipt at all (no merchant, no positive amount —
 // e.g. a selfie) must never be saved, from ANY caller, not just the single-photo path.
 test('a non-receipt (no merchant, no amount) is skipped: not inserted, no downstream work', async () => {

@@ -8,7 +8,8 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   handleUpdate, handleTodayBills, handleTodayExpenses, handleWeeklyRecord,
-  todayISO_MYT, weekStartISO_MYT, MAIN_MENU_KEYBOARD, BOT_GUIDE_TEXT,
+  todayISO_MYT, weekStartISO_MYT, mytDayBoundsUTC, mytWeekStartBoundUTC,
+  MAIN_MENU_KEYBOARD, BOT_GUIDE_TEXT,
 } = require('../lib/bot');
 
 // --- todayISO_MYT / weekStartISO_MYT (pure date math) ---
@@ -41,6 +42,29 @@ test('weekStartISO_MYT: Sunday (the dow===0 edge case) rolls back 6 days to Mond
   assert.strictEqual(weekStartISO_MYT(t), '2024-01-01');
 });
 
+// --- mytDayBoundsUTC / mytWeekStartBoundUTC (the created_at query-bound helpers) ---
+
+test('mytDayBoundsUTC: MYT midnight for a given day is UTC 16:00 the PREVIOUS day, and the window is exactly 24h', () => {
+  const t = Date.parse('2024-01-01T15:59:00Z'); // still 2024-01-01 in MYT (just before rollover)
+  const { startUTC, endUTC } = mytDayBoundsUTC(t);
+  assert.strictEqual(startUTC, '2023-12-31T16:00:00.000Z', 'MYT midnight on Jan 1 = UTC 16:00 on Dec 31');
+  assert.strictEqual(endUTC, '2024-01-01T16:00:00.000Z');
+  assert.strictEqual(Date.parse(endUTC) - Date.parse(startUTC), 24 * 3600 * 1000);
+});
+
+test('mytDayBoundsUTC: a timestamp right at the UTC 16:00 boundary belongs to the NEXT MYT day\'s bounds', () => {
+  const t = Date.parse('2024-01-01T16:00:00Z'); // exactly MYT midnight on Jan 2
+  const { startUTC } = mytDayBoundsUTC(t);
+  assert.strictEqual(startUTC, '2024-01-01T16:00:00.000Z');
+});
+
+test('mytWeekStartBoundUTC: matches mytDayBoundsUTC\'s start for the Monday of that MYT week', () => {
+  const t = Date.parse('2024-01-03T20:00:00Z'); // MYT Thursday, Jan 4
+  const weekStart = mytWeekStartBoundUTC(t);
+  const mondayBounds = mytDayBoundsUTC(Date.parse('2024-01-01T04:00:00Z')); // MYT Monday, Jan 1
+  assert.strictEqual(weekStart, mondayBounds.startUTC, 'the week boundary must line up exactly with that Monday\'s day-start boundary');
+});
+
 // --- handleTodayBills ---
 
 function baseDeps(over = {}) {
@@ -51,6 +75,10 @@ function baseDeps(over = {}) {
     sbSelect: async () => [],
     todayISO: () => '2026-07-04',
     weekStartISO: () => '2026-06-29',
+    // BUG FIX 2026-07-04: Today/Weekly filter by created_at (capture time), not
+    // expense_date (the date printed on the receipt) — see lib/bot.js's fix note.
+    dayBounds: () => ({ startUTC: '2026-07-03T16:00:00.000Z', endUTC: '2026-07-04T16:00:00.000Z' }),
+    weekStartBoundUTC: () => '2026-06-28T16:00:00.000Z',
     ...over,
   };
   return { deps, sent };
@@ -74,13 +102,26 @@ test('handleTodayBills: lists each bill and gives every one its own delete-ask b
     sbSelect: async (table, opts) => { eqSeen.push(opts); return rows; },
   });
   await handleTodayBills(100, deps);
-  assert.match(eqSeen[0].extra, /expense_date=eq\.2026-07-04/, 'scoped to MYT today');
+  // BUG FIX 2026-07-04: must scope by created_at (capture time), NOT expense_date (the
+  // date printed on the receipt) — a receipt dated weeks ago but uploaded today must
+  // still show up. Live QA caught the old expense_date-based version missing exactly this.
+  assert.match(eqSeen[0].extra, /created_at=gte\..*created_at=lt\./, 'scoped to the MYT-today created_at window, not expense_date');
+  assert.ok(!/expense_date=/.test(eqSeen[0].extra), 'must NOT filter by expense_date (the printed date), only by created_at (capture time)');
   assert.match(sent[0].text, /Shell/);
   assert.match(sent[0].text, /Starbucks/);
   const btns = sent[0].replyMarkup.inline_keyboard.flat();
   assert.strictEqual(btns.length, 2);
   assert.strictEqual(btns[0].callback_data, 'delask:e1');
   assert.strictEqual(btns[1].callback_data, 'delask:e2');
+});
+
+test('handleTodayBills: a receipt CAPTURED today but PRINTED-dated weeks ago still shows up (the exact live-QA bug: 4 receipts uploaded today, all dated March-June, invisible under the old expense_date filter)', async () => {
+  const { deps, sent } = baseDeps({
+    sbSelect: async () => [{ id: 'e9', merchant: 'Safeguards', amount: 449, currency: 'MYR', category: 'Bank & Fees', expense_date: '2026-05-14' }],
+  });
+  await handleTodayBills(1, deps);
+  assert.match(sent[0].text, /Safeguards/, 'must list a receipt captured today regardless of its printed expense_date');
+  assert.ok(!/Nothing captured yet today/i.test(sent[0].text));
 });
 
 test('handleTodayBills: a lookup failure never throws, safe reply, no internals leak', async () => {
@@ -100,15 +141,23 @@ test('handleTodayExpenses: sums today\'s bills into one total', async () => {
   assert.match(sent[0].text, /30/);
 });
 
-test('handleWeeklyRecord: queries a gte/lte date range (Monday to today) and sums the total', async () => {
+test('handleWeeklyRecord: queries created_at from Monday\'s MYT midnight onward (NOT expense_date) and sums the total', async () => {
   const eqSeen = [];
   const { deps, sent } = baseDeps({
     sbSelect: async (table, opts) => { eqSeen.push(opts); return [{ amount: 100, currency: 'MYR' }]; },
   });
   await handleWeeklyRecord(1, deps);
-  assert.match(eqSeen[0].extra, /expense_date=gte\.2026-06-29/);
-  assert.match(eqSeen[0].extra, /expense_date=lte\.2026-07-04/);
+  assert.match(eqSeen[0].extra, /created_at=gte\./);
+  assert.ok(!/expense_date=/.test(eqSeen[0].extra), 'must NOT filter by expense_date — a receipt captured this week but dated earlier must still count');
   assert.match(sent[0].text, /100/);
+});
+
+test('handleWeeklyRecord: a receipt CAPTURED this week but PRINTED-dated months ago still counts (the exact bug scenario)', async () => {
+  const { deps, sent } = baseDeps({
+    sbSelect: async () => [{ amount: 449, currency: 'MYR', expense_date: '2026-05-14' }], // printed date is old; captured this week
+  });
+  await handleWeeklyRecord(1, deps);
+  assert.match(sent[0].text, /449/, 'a receipt with an old printed date must still be counted, since it was captured this week');
 });
 
 // --- Text-routing priority + /start keyboard ---
