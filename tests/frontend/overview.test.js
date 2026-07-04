@@ -4,7 +4,16 @@
 // Written TDD first. Escaping of labels is asserted separately from the numeric math.
 const test = require('node:test');
 const assert = require('node:assert');
-const { chartModel, kpiModel, topCategory } = require('../../public/js/components/overview');
+const { chartModel, kpiModel, topCategory, overviewReportsPath } = require('../../public/js/components/overview');
+
+// Overview scopes its report to the current year (fixes the all-years-mixed chart bug).
+test('overviewReportsPath scopes to the given clock year (Jan1–Dec31, month buckets)', () => {
+  assert.strictEqual(overviewReportsPath(Date.UTC(2026, 4, 15)), '/api/reports?period=month&from=2026-01-01&to=2026-12-31');
+  assert.strictEqual(overviewReportsPath(Date.UTC(2024, 0, 1)), '/api/reports?period=month&from=2024-01-01&to=2024-12-31');
+});
+test('overviewReportsPath uses the real clock with no arg (never throws)', () => {
+  assert.match(overviewReportsPath(), /^\/api\/reports\?period=month&from=\d{4}-01-01&to=\d{4}-12-31$/);
+});
 
 // A representative /api/reports response shape (see lib/reports.js buildReport).
 const sample = {

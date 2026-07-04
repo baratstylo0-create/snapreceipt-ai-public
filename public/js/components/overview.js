@@ -194,6 +194,15 @@
     container.appendChild(renderChart(rows));
   }
 
+  // Overview scopes to the CURRENT YEAR. A monthly bar chart pulled with no date range
+  // buckets every year in the data side-by-side (2018-01, 2023-12, 2024-04, 2026-05…) —
+  // meaningless at a glance. The Reports screen's Year selector is where other years are
+  // explored; the Overview is "this year so far". Pure, injectable clock for testing.
+  function overviewReportsPath(now) {
+    var y = new Date(typeof now === 'number' ? now : Date.now()).getFullYear();
+    return '/api/reports?period=month&from=' + y + '-01-01&to=' + y + '-12-31';
+  }
+
   // Mount point wired by app.js. Builds the section content: a loading state,
   // then fetches /api/reports and swaps in data / empty / error. Idempotent:
   // only fetches once unless force===true.
@@ -212,7 +221,7 @@
       state.loading = true;
       clear(container);
       container.appendChild(renderMessage('ov-loading muted', 'Loading overview…'));
-      apiFetch('/api/reports').then(function (reports) {
+      apiFetch(overviewReportsPath()).then(function (reports) {
         state.loading = false;
         state.loaded = true;
         renderInto(container, reports);
@@ -232,6 +241,7 @@
     chartModel: chartModel,
     kpiModel: kpiModel,
     topCategory: topCategory,
+    overviewReportsPath: overviewReportsPath,
     // render (browser)
     mount: mount,
     renderInto: renderInto,
