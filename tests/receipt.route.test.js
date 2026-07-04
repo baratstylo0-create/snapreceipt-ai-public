@@ -78,3 +78,79 @@ test('Cache-Control is never the old public/max-age value, even on error paths',
     assert.notStrictEqual(headers.get('cache-control'), 'public, max-age=86400');
   } finally { cfg.DASHBOARD_TOKEN = saved; }
 });
+
+// --- ADR-018: serve BY EXPENSE ID (look the row up server-side, never hand the browser
+//     the raw storage path). Prefers durable Storage (receipt_url), falls back to the
+//     Telegram proxy for old rows (receipt_file_id). ---
+
+test('by-id: row with receipt_url streams from Storage (never touches Telegram)', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  let tgCalled = false;
+  try {
+    const app = appWith({
+      sbSelect: async (_t, q) => (q.eq.id === 'e1' ? [{ id: 'e1', receipt_url: 'default/u.png', receipt_file_id: 'fidX' }] : []),
+      fetchReceiptObject: async (path) => (path === 'default/u.png' ? Buffer.from('stored-png-bytes') : null),
+      tgFileUrl: async () => { tgCalled = true; return { url: 'http://x', path: 'a.jpg' }; },
+    });
+    const { status, headers, buf } = await get(app, '/receipt/by-id/e1', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(buf.toString(), 'stored-png-bytes');
+    assert.strictEqual(headers.get('content-type'), 'image/png');
+    assert.strictEqual(headers.get('cache-control'), 'private, no-store');
+    assert.strictEqual(tgCalled, false, 'receipt_url present -> must not fall back to Telegram');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('by-id: row with only receipt_file_id falls back to the Telegram proxy', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  try {
+    const app = appWith({
+      sbSelect: async () => [{ id: 'e2', receipt_url: null, receipt_file_id: 'fid2' }],
+      tgFileUrl: async (fid) => (fid === 'fid2' ? { url: 'http://x', path: 'a.jpg' } : null),
+      hreq: async () => Buffer.from('telegram-jpeg-bytes'),
+    });
+    const { status, buf } = await get(app, '/receipt/by-id/e2', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(buf.toString(), 'telegram-jpeg-bytes');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('by-id: row with neither image -> 404', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  try {
+    const app = appWith({ sbSelect: async () => [{ id: 'e3', receipt_url: null, receipt_file_id: null }] });
+    const { status } = await get(app, '/receipt/by-id/e3', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 404);
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('by-id: unknown expense id -> 404, never touches Storage/Telegram', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  let touched = false;
+  try {
+    const app = appWith({
+      sbSelect: async () => [],
+      fetchReceiptObject: async () => { touched = true; return Buffer.from('x'); },
+      tgFileUrl: async () => { touched = true; return { url: 'http://x', path: 'a.jpg' }; },
+    });
+    const { status } = await get(app, '/receipt/by-id/nope', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 404);
+    assert.strictEqual(touched, false);
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('by-id: is checkDash-gated (401 with no token when one is configured)', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  let looked = false;
+  try {
+    const app = appWith({ sbSelect: async () => { looked = true; return []; } });
+    const { status } = await get(app, '/receipt/by-id/e1');
+    assert.strictEqual(status, 401);
+    assert.strictEqual(looked, false, 'must not query the DB when unauthenticated');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});

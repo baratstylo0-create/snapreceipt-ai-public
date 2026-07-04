@@ -5,6 +5,7 @@ const { runBatch: realRunBatch } = require('../lib/massupload');
 const ocr = require('../lib/ocr');
 const templates = require('../lib/templates');
 const pdf = require('../lib/pdf');
+const storage = require('../lib/storage');
 const { createRateLimiter } = require('../lib/ratelimit');
 
 const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
@@ -64,6 +65,7 @@ module.exports = function mountUpload(app, deps = {}) {
   const assembleExpense = ('assembleExpense' in deps) ? deps.assembleExpense : ocr.assembleExpense;
   const getFieldSpec = deps.getFieldSpec || templates.getFieldSpec;
   const rasterizePdf = deps.rasterizePdf || pdf.rasterizePdf;
+  const uploadReceiptImage = deps.uploadReceiptImage || storage.uploadReceiptImage;
 
   app.post('/api/upload', uploadLimiter, checkDash, express.json({ limit: '10mb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
@@ -106,7 +108,16 @@ module.exports = function mountUpload(app, deps = {}) {
 
       const fieldSpec = await getFieldSpec();
       const meta = { repName: 'Dashboard', fileId: null };
-      const summary = await runBatch(expanded, fieldSpec, { extractReceipts, assembleExpense, meta });
+      // ADR-018: upload each image (a PDF is already rasterized to a page image here) to the
+      // private `receipts` bucket and carry its object path per-image as `receipt_url`, so
+      // assembleExpense stores a durable URL — the dashboard-upload path had NO image before.
+      // Fail-safe: uploadReceiptImage never throws (null on error) -> receipt_url null -> row
+      // still saves imageless. Parallel; order preserved so metas[i] aligns with expanded[i].
+      const metas = await Promise.all(expanded.map(async (buf) => {
+        const path = await uploadReceiptImage(buf);
+        return { ...meta, receipt_url: path || null };
+      }));
+      const summary = await runBatch(expanded, fieldSpec, { extractReceipts, assembleExpense, meta, metas });
       if (summary.failed && summary.failed.length) console.error('[api/upload] failures:', JSON.stringify(summary.failed));
       const out = sanitizeSummary(summary);
       if (pagesTruncated) out.pages_truncated = true;
