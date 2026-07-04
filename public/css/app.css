@@ -1,35 +1,79 @@
-/* app.css — visual language for the reference frontend (Owner-supplied Finexy-style
-   draft as the look-and-feel reference: light, card-based, orange accent, soft
-   shadows). Values only — every existing className hook is preserved so no
-   component JS changes. A strict CSP (no inline styles) is enforced, so all CSS
-   lives in this external stylesheet. */
+/* app.css — "Treehouse" cozy-forest design system (Mugi's frontend concept, ported
+   onto the working modular app). This is a TOKEN + primitive re-theme: every existing
+   className hook is preserved, so no component JS changes and every test stays green.
+   Strict CSP (no inline styles); the Spectral/Nunito Sans faces load via <link> in
+   index.html (CSP style-src/font-src allow the Google Fonts hosts). */
 
 :root {
-  --bg: #eef0f4;
-  --panel: #ffffff;
-  --panel-shadow: 0 1px 2px rgba(20, 22, 30, 0.04), 0 8px 24px rgba(20, 22, 30, 0.06);
-  --line: #e7e9ee;
-  --txt: #14161a;
-  --muted: #7a828d;
-  --accent: #ff6b3d;
-  --accent-strong: #f0552a;
-  --accent-contrast: #ffffff;
-  --radius: 18px;
-  --radius-sm: 10px;
+  /* Treehouse palette (light) mapped onto the app's existing token names so every
+     component re-skins automatically. */
+  --bg: #e6e1ce;              /* paper */
+  --bg-2: #eee9d6;            /* paper-2 */
+  --panel: #f4efdf;           /* paper-3 (cards/panels) */
+  --panel-shadow: 0 9px 22px rgba(54, 52, 34, 0.12);
+  --line: rgba(43, 51, 42, 0.13);
+  --line-2: rgba(43, 51, 42, 0.23);
+  --txt: #2b332a;             /* ink */
+  --txt-soft: #5d6450;        /* ink-soft */
+  --muted: #8a8d75;           /* ink-faint */
+  --accent: #5f7a47;          /* moss */
+  --accent-strong: #6f8c54;
+  --accent-contrast: #f6f3e6;
+  --radius: 20px;
+  --radius-sm: 13px;
+
+  /* Mugi's category/status palette — consumed by the pill/status/badge rules below. */
+  --moss: #5f7a47;  --moss-bg: rgba(95, 122, 71, 0.14);
+  --teal: #41716b;  --teal-bg: rgba(65, 113, 107, 0.14);
+  --honey: #bb8f46; --honey-bg: rgba(187, 143, 70, 0.16);
+  --clay: #b06746;  --clay-bg: rgba(176, 103, 70, 0.15);
+  --bark: #8a6a44;  --bark-bg: rgba(138, 106, 68, 0.14);
+  --glow-top: rgba(95, 122, 71, 0.16);
+  --glow-warm: rgba(187, 143, 70, 0.12);
+  --hill: rgba(63, 96, 72, 0.10);
+  --shadow: 24px 26px 54px rgba(54, 52, 34, 0.16);
+
+  --font-display: 'Spectral', Georgia, 'Times New Roman', serif;
+  --font-body: 'Nunito Sans', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
-  padding: 0;
-}
+html, body { margin: 0; padding: 0; }
+html { color-scheme: light dark; }
 
 body {
   background: var(--bg);
   color: var(--txt);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
   min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  transition: background 0.5s ease, color 0.5s ease;
+}
+/* Treehouse ambient background: soft canopy glow up top + low hills along the bottom. */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(900px 420px at 50% -12%, var(--glow-top), transparent 70%),
+    radial-gradient(620px 460px at 96% 8%, var(--glow-warm), transparent 72%);
+}
+body::after {
+  content: ''; position: fixed; left: 0; right: 0; bottom: 0; height: 34vh; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(58% 100% at 14% 100%, var(--hill) 0 60%, transparent 62%),
+    radial-gradient(62% 104% at 72% 100%, var(--hill) 0 60%, transparent 62%),
+    radial-gradient(46% 78% at 96% 100%, var(--hill) 0 58%, transparent 60%);
+}
+
+/* Spectral serif for titles/headings — the Treehouse identity. */
+h1, h2, h3, h4,
+.view-title, .ov-kpi-value, .act-card-merchant, .act-drawer-title,
+.rp-categories-title, .act-review-title, .act-await-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
 }
 
 .app-header,
@@ -48,20 +92,33 @@ body {
 .app-modal {
   position: fixed;
   inset: 0;
-  background: rgba(20, 22, 30, 0.45);
+  background: rgba(22, 26, 18, 0.45);
 }
 
-/* --- theme (visual only; app.js toggles a body class + persists in sessionStorage) --- */
+/* --- theme (visual only; app.js toggles a body class + persists it) --- */
 body.theme-dark {
-  --bg: #0e1117;
-  --panel: #161b22;
-  --panel-shadow: none;
-  --line: #28303e;
-  --txt: #e6edf3;
-  --muted: #8b97a7;
-  --accent: #ff8452;
-  --accent-strong: #ff6b3d;
+  --bg: #1a201a;
+  --bg-2: #212720;
+  --panel: #283026;
+  --panel-shadow: 0 9px 24px rgba(0, 0, 0, 0.42);
+  --line: rgba(236, 230, 210, 0.10);
+  --line-2: rgba(236, 230, 210, 0.20);
+  --txt: #ece6d2;
+  --txt-soft: #a7a88e;
+  --muted: #70745f;
+  --accent: #88a266;
+  --accent-strong: #9ab37a;
   --accent-contrast: #14161a;
+
+  --moss: #88a266;  --moss-bg: rgba(136, 162, 102, 0.16);
+  --teal: #61998f;  --teal-bg: rgba(97, 153, 143, 0.16);
+  --honey: #d3ac64; --honey-bg: rgba(211, 172, 100, 0.16);
+  --clay: #cd8059;  --clay-bg: rgba(205, 128, 89, 0.16);
+  --bark: #a9854f;  --bark-bg: rgba(169, 133, 79, 0.16);
+  --glow-top: rgba(97, 153, 143, 0.10);
+  --glow-warm: rgba(211, 172, 100, 0.12);
+  --hill: rgba(120, 150, 110, 0.10);
+  --shadow: 24px 26px 58px rgba(0, 0, 0, 0.5);
 }
 
 /* --- top nav: a floating rounded bar, dark "pill" for the active section --- */
@@ -111,11 +168,10 @@ body.theme-dark {
 
 .nav-link.is-active {
   color: var(--accent-contrast);
-  background: var(--txt);
-  border-color: var(--txt);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
 }
-
-body.theme-dark .nav-link.is-active { color: var(--bg); }
 
 .nav-greeting {
   margin-left: auto;
@@ -387,30 +443,29 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 /* category pills */
 .act-pill {
   display: inline-block;
-  padding: 2px 10px;
+  padding: 3px 11px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #0e1117;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 /* Deterministic 10-colour palette (dynamic categories, see activity.js
-   categoryColor): any category string hashes to one of c0-c9 rather than a
-   hardcoded per-name class, so it scales past the 5-name stub to the real
-   18-category chart of accounts without drifting again. Kept in the same
-   Finexy/GitHub-dark hue family as the rest of the dashboard (accent orange,
-   the badge/status reds-ambers-greens-blues below). .act-pill--others stays
-   the dedicated neutral grey fallback for empty/unknown/"Others". */
-.act-pill--c0 { background: #7ee787; }
-.act-pill--c1 { background: #ffa657; }
-.act-pill--c2 { background: #79c0ff; }
-.act-pill--c3 { background: #d2a8ff; }
-.act-pill--c4 { background: #f8949c; }
-.act-pill--c5 { background: #d29922; }
-.act-pill--c6 { background: #56d4dd; }
-.act-pill--c7 { background: #f0a6ca; }
-.act-pill--c8 { background: #a5d6ff; }
-.act-pill--c9 { background: #8dd68f; }
-.act-pill--others { background: #8b97a7; }
+   categoryColor): any category string hashes to one of c0-c9. Treehouse scheme —
+   a soft tinted background + the matching earthy ink (moss/teal/honey/clay/bark),
+   rotating so adjacent categories stay visually distinct. .act-pill--others is the
+   neutral fallback for empty/unknown/"Others". */
+.act-pill--c0 { background: var(--moss-bg);  color: var(--moss); }
+.act-pill--c1 { background: var(--teal-bg);  color: var(--teal); }
+.act-pill--c2 { background: var(--honey-bg); color: var(--honey); }
+.act-pill--c3 { background: var(--clay-bg);  color: var(--clay); }
+.act-pill--c4 { background: var(--bark-bg);  color: var(--bark); }
+.act-pill--c5 { background: var(--moss-bg);  color: var(--teal); }
+.act-pill--c6 { background: var(--honey-bg); color: var(--bark); }
+.act-pill--c7 { background: var(--teal-bg);  color: var(--moss); }
+.act-pill--c8 { background: var(--clay-bg);  color: var(--bark); }
+.act-pill--c9 { background: var(--honey-bg); color: var(--clay); }
+.act-pill--others { background: var(--line); color: var(--txt-soft); }
 
 /* badges */
 .act-badges { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
@@ -423,9 +478,9 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.act-badge--anomaly { background: #f85149; color: #fff; cursor: help; }
-.act-badge--low-confidence { background: #d29922; color: #0e1117; }
-.act-badge--converted { background: #388bfd33; color: var(--accent); cursor: help; }
+.act-badge--anomaly { background: var(--clay-bg); color: var(--clay); cursor: help; }
+.act-badge--low-confidence { background: var(--honey-bg); color: var(--honey); }
+.act-badge--converted { background: var(--teal-bg); color: var(--teal); cursor: help; }
 
 /* card view — same panel/shadow/radius language as .view/.nav */
 .act-card-grid {
@@ -555,7 +610,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   color: var(--txt);
   cursor: pointer;
 }
-.act-delete.is-confirming { background: #f85149; border-color: #f85149; color: #fff; }
+.act-delete.is-confirming { background: var(--clay); border-color: var(--clay); color: #fff; }
 .act-drawer-msg { grid-column: 1 / -1; margin: 6px 0 0; font-size: 13px; }
 
 .act-lineitems { margin-top: 16px; }
@@ -582,7 +637,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   margin-bottom: 10px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-left: 3px solid #d29922;
+  border-left: 3px solid var(--honey);
   border-radius: var(--radius);
 }
 .act-await-merchant { font-weight: 600; }
@@ -590,9 +645,9 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-await-note { grid-column: 1 / -1; margin: 0; font-size: 13px; }
 .act-await-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .act-await-select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--txt); }
-.act-await-save { padding: 6px 14px; background: #d29922; color: #1c1300; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.act-await-save { padding: 6px 14px; background: var(--honey); color: #1c1300; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
 .act-await-save:disabled { opacity: .6; cursor: default; }
-.act-pill--pending { background: #d29922; color: #1c1300; }
+.act-pill--pending { background: var(--honey); color: #1c1300; }
 
 .act-review-title { margin: 28px 0 10px; font-size: 16px; }
 .act-review-note { margin: -6px 0 12px; font-size: 12.5px; }
@@ -605,7 +660,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   margin-bottom: 10px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-left: 3px solid #f85149;
+  border-left: 3px solid var(--clay);
   border-radius: var(--radius);
 }
 .act-review-merchant { font-weight: 600; }
@@ -614,7 +669,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-review-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 .act-review-approve {
   padding: 6px 14px;
-  background: #2ea043;
+  background: var(--moss);
   border: 0;
   border-radius: 8px;
   color: #fff;
@@ -650,7 +705,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   transition: border-color 0.15s, background 0.15s;
 }
 .up-zone:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
-.up-zone.is-dragover { border-color: var(--accent); background: #388bfd1a; color: var(--txt); }
+.up-zone.is-dragover { border-color: var(--accent); background: var(--moss-bg); color: var(--txt); }
 .up-zone-text { margin: 0; font-size: 15px; }
 
 /* Manage: CSV-file drop zone (same affordance as the main Upload screen) */
@@ -665,7 +720,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   border-radius: var(--radius-sm);
   transition: border-color 0.15s, background 0.15s;
 }
-.tp-file-zone.is-dragover { border-color: var(--accent); background: #388bfd1a; }
+.tp-file-zone.is-dragover { border-color: var(--accent); background: var(--moss-bg); }
 .tp-file-zone-text { margin: 0; font-size: 13px; }
 .up-browse {
   padding: 6px 14px;
@@ -681,8 +736,8 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   margin: 0;
   padding: 8px 12px;
   font-size: 13px;
-  background: #d2992222;
-  border: 1px solid #d29922;
+  background: var(--honey-bg);
+  border: 1px solid var(--honey);
   border-radius: 8px;
   color: var(--txt);
 }
@@ -705,8 +760,8 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   border-radius: 4px;
   color: #0e1117;
 }
-.up-file-kind--pdf { background: #ffa657; }
-.up-file-kind--img { background: #79c0ff; }
+.up-file-kind--pdf { background: var(--clay); }
+.up-file-kind--img { background: var(--teal); }
 .up-file-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .up-file-size { flex: none; font-size: 13px; }
 .up-file-remove {
@@ -758,20 +813,20 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .up-count-num { font-size: 22px; font-weight: 700; color: var(--txt); }
 .up-count-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.up-count--saved .up-count-num { color: #7ee787; }
-.up-count--failed .up-count-num { color: #f85149; }
-.up-count--flagged .up-count-num { color: #d29922; }
+.up-count--saved .up-count-num { color: var(--moss); }
+.up-count--failed .up-count-num { color: var(--clay); }
+.up-count--flagged .up-count-num { color: var(--honey); }
 
 .up-notice {
   margin: 0;
   padding: 8px 12px;
   font-size: 13px;
-  background: #d2992222;
-  border: 1px solid #d29922;
+  background: var(--honey-bg);
+  border: 1px solid var(--honey);
   border-radius: 8px;
   color: var(--txt);
 }
-.up-notice--ok { background: #7ee78722; border-color: #7ee787; }
+.up-notice--ok { background: var(--moss-bg); border-color: var(--moss); }
 
 .up-list-title { margin: 4px 0 0; font-size: 14px; color: var(--txt); }
 .up-result-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -783,9 +838,9 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   background: var(--panel);
   word-break: break-word;
 }
-.up-result--flagged { border-left-color: #d29922; }
-.up-result--failed { border-left-color: #f85149; }
-.up-result--saved { border-left-color: #3fb950; }
+.up-result--flagged { border-left-color: var(--honey); }
+.up-result--failed { border-left-color: var(--clay); }
+.up-result--saved { border-left-color: var(--moss); }
 
 .up-view-activity {
   align-self: flex-start;
@@ -906,7 +961,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .tp-submit:disabled { opacity: 0.5; cursor: default; }
 .tp-msg { margin: 0; font-size: 13px; }
-.tp-msg--ok { color: #2ea043; }
+.tp-msg--ok { color: var(--moss); }
 .tp-msg--err { color: var(--muted); }
 
 /* --- Manage: visual field builder (additive, zero-CSV-knowledge path) ----- */
@@ -1165,8 +1220,8 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .rm-text { position: relative; z-index: 1; }
 .rm-chip--ok .rm-fill { background: var(--line); }
-.rm-chip--warn { color: var(--txt); border-color: #d29922; }
-.rm-chip--warn .rm-fill { background: #d2992255; }
+.rm-chip--warn { color: var(--txt); border-color: var(--honey); }
+.rm-chip--warn .rm-fill { background: var(--honey)55; }
 .rm-chip--critical { color: #fff; border-color: var(--accent-strong); }
 .rm-chip--critical .rm-fill { background: var(--accent); opacity: 0.9; }
 

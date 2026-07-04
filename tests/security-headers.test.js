@@ -37,6 +37,15 @@ test('sets CSP + hardening headers on a normal (non-api) path', () => {
   assert.strictEqual(res.headers['Cache-Control'], undefined, 'no no-store on a page path');
 });
 
+test("CSP allows the Google Fonts hosts (style-src googleapis, font-src gstatic) but NOT unsafe-inline", () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/index.html' }, res, () => {});
+  const csp = res.headers['Content-Security-Policy'];
+  assert.match(csp, /style-src [^;]*https:\/\/fonts\.googleapis\.com/);
+  assert.match(csp, /font-src [^;]*https:\/\/fonts\.gstatic\.com/);
+  assert.ok(!/unsafe-inline/.test(csp), 'must not weaken to unsafe-inline');
+});
+
 test("img-src allows blob: — receipt images render via fetchBlob -> object URL (ADR-018)", () => {
   // The dashboard fetches every receipt image with an auth'd XHR and renders the bytes as
   // a browser-generated blob: object URL in a real <img> (never a raw cross-origin URL).

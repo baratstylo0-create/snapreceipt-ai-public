@@ -4,7 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Receipt Analyser</title>
-  <!-- All styling lives in external CSS; a strict CSP (no inline styles) is added later. -->
+  <!-- Treehouse typefaces (Mugi's design): Spectral (serif display) + Nunito Sans (body).
+       CSP allows fonts.googleapis.com (style-src) + fonts.gstatic.com (font-src). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,500&family=Nunito+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- All styling lives in external CSS; a strict CSP (no inline styles) is enforced. -->
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
