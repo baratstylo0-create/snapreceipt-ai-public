@@ -124,15 +124,31 @@
   //   { kind:'anomaly', reason }              — needs-review anomaly
   //   { kind:'low-confidence' }               — some field flagged "low"
   //   { kind:'converted', original, amountOriginal, fxRate } — FX-converted
+  // Shared, defensive reader for the real anomaly shape: { flagged, reasons: [{type,
+  // detail, severity}, ...] }. Joins every reason's `detail` into one readable string;
+  // tolerates a missing/non-array `reasons` (never throws) -> generic fallback text.
+  function anomalyReasonText(anomaly) {
+    var list = anomaly && Array.isArray(anomaly.reasons) ? anomaly.reasons : [];
+    var details = list.map(function (r) { return r && typeof r === 'object' ? str(r.detail) : ''; })
+      .filter(function (s) { return s !== ''; });
+    return details.length ? details.join('; ') : 'Flagged for review';
+  }
+
   function badgesFor(rowObj) {
     if (!rowObj || typeof rowObj !== 'object') return [];
     var out = [];
 
+    // Bug fix (QA report #10b): the real shape written by lib/ocr.js/lib/anomaly.js is
+    // `{ flagged, reasons: [{type, detail, severity}, ...] }` — there has never been a
+    // singular `.reason` field. Reading `a.reason` was always undefined, so the badge
+    // tooltip and the review-queue card have ALWAYS shown a generic "Flagged for review"
+    // instead of the real reason (duplicate / outlier / low-confidence / personal-spend),
+    // which is exactly why it wasn't obvious what the badges meant or that duplicate
+    // detection was already working. anomalyReasonText() is the shared, defensive reader.
     var a = rowObj.anomaly;
     if (a && typeof a === 'object' && !Array.isArray(a)) {
-      // Flagged when flagged===true OR a reason is present without an explicit false.
-      var flagged = a.flagged === true || (a.flagged !== false && a.reason != null && a.reason !== '');
-      if (flagged) out.push({ kind: 'anomaly', reason: str(a.reason) });
+      var flagged = a.flagged === true;
+      if (flagged) out.push({ kind: 'anomaly', reason: anomalyReasonText(a) });
     }
 
     var c = rowObj.confidence;
@@ -292,6 +308,31 @@
   function hasDom() { return typeof document !== 'undefined'; }
   function el(tag, className) { var n = document.createElement(tag); if (className) n.className = className; return n; }
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
+
+  // Bug fix (QA report #3): every keystroke in the search box triggered a full table
+  // re-render, which rebuilds the toolbar (a BRAND NEW <input> element) from scratch —
+  // the browser can't keep focus on a node that no longer exists, so the user had to
+  // click back into the search box after every single letter. Fix: snapshot which
+  // element inside `container` is focused (by class, since it's rebuilt) + its cursor
+  // position before clearing, then restore both after the new node is in the DOM.
+  function captureFocus(container) {
+    var active = document.activeElement;
+    if (!active || !container || !container.contains(active)) return null;
+    var cls = active.className || '';
+    if (typeof cls !== 'string' || cls.indexOf('act-search') === -1) return null;
+    var sel = null;
+    try { sel = { start: active.selectionStart, end: active.selectionEnd }; } catch (e) { sel = null; }
+    return { className: 'act-search', selection: sel };
+  }
+  function restoreFocus(container, captured) {
+    if (!captured) return;
+    var target = container && container.querySelector('.' + captured.className);
+    if (!target) return;
+    target.focus();
+    if (captured.selection && typeof target.setSelectionRange === 'function') {
+      try { target.setSelectionRange(captured.selection.start, captured.selection.end); } catch (e) { /* not all input types support it */ }
+    }
+  }
   function msg(className, text) { var p = el('p', className); Escape.setText(p, text); return p; }
 
   function textCell(tag, className, value) {
@@ -328,6 +369,7 @@
         if (b.reason) { chip.setAttribute('title', Escape.stripControls(b.reason)); } // title is text, not HTML
       } else if (b.kind === 'low-confidence') {
         Escape.setText(chip, 'low conf');
+        chip.setAttribute('title', 'The AI wasn’t fully confident reading one or more required fields on this receipt — worth a quick double-check.');
       } else if (b.kind === 'converted') {
         Escape.setText(chip, 'fx');
         var parts = [];
@@ -753,7 +795,7 @@
     Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
     card.appendChild(amt);
 
-    var reason = (rowObj.anomaly && typeof rowObj.anomaly === 'object' && rowObj.anomaly.reason) || 'Flagged for review';
+    var reason = anomalyReasonText(rowObj.anomaly);
     card.appendChild(textCell('p', 'act-review-reason', reason));  // untrusted reason -> escaped
 
     var actions = el('div', 'act-review-actions');
@@ -833,6 +875,10 @@
     var reviewArea = el('div', 'act-review-area');
     var reviewHead = textCell('h3', 'act-review-title', 'Review queue');
     rootEl.appendChild(reviewHead);
+    // Discoverability fix (QA report #7): nothing is ever deleted by Approve/Reject —
+    // both just set a status. Nobody knew that, so a mis-click felt like data loss.
+    rootEl.appendChild(msg('act-review-note muted',
+      'Approve or Reject just changes the status — nothing is deleted. Find any decision later in Activity → status filter (Approved / Rejected) to undo it.'));
     rootEl.appendChild(reviewArea);
 
     // DYNAMIC CATEGORIES: reuse the config already fetched at boot (app.js's
@@ -851,10 +897,12 @@
     var reviewState = { loading: false, loaded: false, rows: [] };
 
     function renderTable() {
+      var focused = captureFocus(tableArea);
       clear(tableArea);
       if (state.loading) { tableArea.appendChild(msg('act-loading muted', 'Loading expenses…')); return; }
       if (state.error) { tableArea.appendChild(msg('act-error', 'Could not load your expenses. Please try again shortly.')); return; }
       tableArea.appendChild(buildToolbar(state, onChange));
+      restoreFocus(tableArea, focused); // must run right after the toolbar exists, before any early return below
       tableArea.appendChild(buildViewToggle(state, onChange));
       renderAwaiting(); // independent of table filters/pagination — reflects ALL pending rows
       var pageData = filterSortPage(state.rows, state);
@@ -1011,6 +1059,7 @@
     labelFor: labelFor,
     awaitingCategoryRows: awaitingCategoryRows,
     refDisplay: refDisplay,
+    anomalyReasonText: anomalyReasonText,
     patchBody: patchBody,
     receiptPath: receiptPath,
     receiptByIdPath: receiptByIdPath,

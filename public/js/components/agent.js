@@ -124,6 +124,32 @@
 
   function hasDom() { return typeof document !== 'undefined'; }
   function el(tag, className) { var n = document.createElement(tag); if (className) n.className = className; return n; }
+
+  // QA report #5 ("I need chat memory like Claude") — the transcript already survives
+  // WITHIN one open tab (the client resends it every turn, server is stateless), but a
+  // page refresh wiped it since it only ever lived in a JS variable. Persist it in
+  // sessionStorage — same lifetime as the dashboard auth token (cleared when the tab
+  // closes), so a refresh doesn't lose the conversation but it's not kept forever either.
+  // Never throws (private browsing / storage quota / no sessionStorage e.g. in Node).
+  var TRANSCRIPT_KEY = 'agent_transcript';
+  function loadPersistedTranscript() {
+    try {
+      if (typeof sessionStorage === 'undefined') return [];
+      var raw = sessionStorage.getItem(TRANSCRIPT_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
+  }
+  function persistTranscript(transcript) {
+    try {
+      if (typeof sessionStorage === 'undefined') return;
+      sessionStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(Array.isArray(transcript) ? transcript : []));
+    } catch (e) { /* private browsing / quota exceeded — the chat still works, just isn't persisted */ }
+  }
+  function clearPersistedTranscript() {
+    try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(TRANSCRIPT_KEY); } catch (e) { /* ignore */ }
+  }
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
   function msg(className, text) { var p = el('p', className); Escape.setText(p, text); return p; }
 
@@ -188,8 +214,9 @@
     form.appendChild(actions);
     rootEl.appendChild(form);
 
-    // Client owns the running transcript; the server is stateless.
-    var transcript = [];
+    // Client owns the running transcript; the server is stateless. Restored from
+    // sessionStorage on mount (e.g. after a page refresh) so the conversation survives.
+    var transcript = loadPersistedTranscript();
     var busy = false;
 
     function setBusy(b) {
@@ -212,10 +239,14 @@
 
     function resetConversation() {
       transcript = [];
+      clearPersistedTranscript();
       setNotice('');
       clear(list);
       textarea.value = '';
     }
+
+    // Show whatever was restored from sessionStorage (if anything) right away.
+    if (transcript.length) renderTranscript();
 
     clearBtn.addEventListener('click', function () {
       if (busy) return;
@@ -239,6 +270,7 @@
 
       setNotice('');
       transcript = next;
+      persistTranscript(transcript);
       textarea.value = '';
       renderTranscript();
 
@@ -258,6 +290,7 @@
         // transcript with it rather than manually appending.
         var updated = response && Array.isArray(response.messages) ? response.messages : transcript;
         transcript = updated;
+        persistTranscript(transcript);
         var toolsLabel = toolsUsedLabel(response && response.toolCalls);
         renderTranscript(toolsLabel);
       }).catch(function (err) {
@@ -289,6 +322,9 @@
     exceedsCaps: exceedsCaps,
     toolsUsedLabel: toolsUsedLabel,
     agentErrorMessage: agentErrorMessage,
+    loadPersistedTranscript: loadPersistedTranscript,
+    persistTranscript: persistTranscript,
+    clearPersistedTranscript: clearPersistedTranscript,
     // render (browser)
     mount: mount,
   };

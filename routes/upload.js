@@ -117,9 +117,25 @@ module.exports = function mountUpload(app, deps = {}) {
         const path = await uploadReceiptImage(buf);
         return { ...meta, receipt_url: path || null };
       }));
-      const summary = await runBatch(expanded, fieldSpec, { extractReceipts, assembleExpense, meta, metas });
+      // QA report #1: the dashboard upload result only ever showed bare counts (1 SAVED /
+      // 0 FAILED...) with no indication of WHAT was actually read off the receipt — users
+      // couldn't tell whether the extraction was even correct, which read as "maybe it
+      // didn't upload". The bot's own batch summary already lists merchant/amount/category
+      // per saved receipt (lib/bot.js's captureAssemble) — mirror that same wrapper here so
+      // the dashboard can show it too, plus the row id for a "View in Activity" link.
+      const savedItems = [];
+      const captureAssemble = async (args) => {
+        const result = await assembleExpense(args);
+        if (result && result.expense && !result.skipped) {
+          const e = result.expense;
+          savedItems.push({ id: e.id, merchant: e.merchant, amount: e.amount, currency: e.currency, category: e.category, voucher_no: e.voucher_no });
+        }
+        return result;
+      };
+      const summary = await runBatch(expanded, fieldSpec, { extractReceipts, assembleExpense: captureAssemble, meta, metas });
       if (summary.failed && summary.failed.length) console.error('[api/upload] failures:', JSON.stringify(summary.failed));
       const out = sanitizeSummary(summary);
+      out.saved_items = savedItems;
       if (pagesTruncated) out.pages_truncated = true;
       res.json(out);
     } catch (e) {
