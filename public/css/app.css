@@ -378,6 +378,11 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .act-td--amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .act-merchant { font-weight: 500; }
+/* voucher / reference number (RC-2026-0041) */
+.act-th--ref, .act-td--ref { white-space: nowrap; }
+.act-td--ref { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.85em; }
+.act-card-ref { font-variant-numeric: tabular-nums; }
+.act-drawer-ref { margin: -0.25rem 0 0.5rem; font-variant-numeric: tabular-nums; }
 
 /* category pills */
 .act-pill {
