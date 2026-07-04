@@ -1029,6 +1029,19 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   color: var(--txt);
   font: inherit;
 }
+.rp-year-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rp-year-select {
+  padding: 7px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
 
 .rp-export-btn {
   margin-left: auto;

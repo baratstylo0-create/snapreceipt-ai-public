@@ -19,7 +19,8 @@ const assert = require('node:assert');
 
 const Reports = require('../../public/js/components/reports');
 const Escape = require('../../public/js/escape');
-const { chartModel, categoryBreakdown, buildReportsQuery, excelFilename, exportErrorMessage } = Reports;
+const { chartModel, categoryBreakdown, buildReportsQuery, excelFilename, exportErrorMessage,
+  yearRange, yearsFromReport, pickDefaultYear } = Reports;
 
 // A representative /api/reports response shape (mirrors overview.test.js's sample).
 const sample = {
@@ -164,6 +165,76 @@ test('buildReportsQuery: malformed from/to are dropped', () => {
 test('buildReportsQuery: never throws on garbage input', () => {
   assert.doesNotThrow(() => buildReportsQuery({}, [], 42));
   assert.doesNotThrow(() => buildReportsQuery(undefined, undefined, undefined));
+  assert.doesNotThrow(() => buildReportsQuery('month', '', '', {}));
+});
+
+// --- year scoping (bug: month/week were bucketed across ALL years at once) --------
+
+test('buildReportsQuery: month + year auto-scopes to that year (Jan 1 – Dec 31)', () => {
+  assert.deepStrictEqual(buildReportsQuery('month', '', '', '2026'),
+    { period: 'month', from: '2026-01-01', to: '2026-12-31' });
+});
+
+test('buildReportsQuery: week + year auto-scopes to that year', () => {
+  assert.deepStrictEqual(buildReportsQuery('week', '', '', '2024'),
+    { period: 'week', from: '2024-01-01', to: '2024-12-31' });
+});
+
+test('buildReportsQuery: day + year auto-scopes to that year', () => {
+  assert.deepStrictEqual(buildReportsQuery('day', '', '', '2023'),
+    { period: 'day', from: '2023-01-01', to: '2023-12-31' });
+});
+
+test('buildReportsQuery: YEAR period is NOT year-scoped (it compares across years)', () => {
+  assert.deepStrictEqual(buildReportsQuery('year', '', '', '2026'), { period: 'year' });
+});
+
+test('buildReportsQuery: an explicit from/to range overrides the year scope', () => {
+  assert.deepStrictEqual(buildReportsQuery('month', '2026-03-01', '2026-03-31', '2026'),
+    { period: 'month', from: '2026-03-01', to: '2026-03-31' });
+});
+
+test('buildReportsQuery: a partial explicit range (from only) still overrides — no year injected', () => {
+  assert.deepStrictEqual(buildReportsQuery('month', '2026-03-01', '', '2026'),
+    { period: 'month', from: '2026-03-01' });
+});
+
+test('buildReportsQuery: an invalid/missing year leaves the query unscoped (today’s behaviour)', () => {
+  assert.deepStrictEqual(buildReportsQuery('month', '', '', 'nope'), { period: 'month' });
+  assert.deepStrictEqual(buildReportsQuery('month', '', '', ''), { period: 'month' });
+  assert.deepStrictEqual(buildReportsQuery('month', '', ''), { period: 'month' });
+});
+
+// --- yearRange -------------------------------------------------------------------
+
+test('yearRange builds Jan1–Dec31 for a 4-digit year string, null otherwise', () => {
+  assert.deepStrictEqual(yearRange('2026'), { from: '2026-01-01', to: '2026-12-31' });
+  assert.strictEqual(yearRange('26'), null);
+  assert.strictEqual(yearRange('abcd'), null);
+  assert.strictEqual(yearRange(2026), null); // query values are strings; reject numbers
+  assert.strictEqual(yearRange(null), null);
+});
+
+// --- yearsFromReport (populate the selector from a period=year report) -----------
+
+test('yearsFromReport: 4-digit year keys only, sorted descending', () => {
+  const r = { buckets: [{ key: '2018' }, { key: '2026' }, { key: '2023' }, { key: '2024' }] };
+  assert.deepStrictEqual(yearsFromReport(r), ['2026', '2024', '2023', '2018']);
+});
+
+test('yearsFromReport: tolerant of junk / empty / missing (never throws)', () => {
+  assert.deepStrictEqual(yearsFromReport(null), []);
+  assert.deepStrictEqual(yearsFromReport({}), []);
+  assert.deepStrictEqual(yearsFromReport({ buckets: [{ key: '2026-05' }, { key: 'x' }, { key: '2026' }] }), ['2026']);
+});
+
+// --- pickDefaultYear -------------------------------------------------------------
+
+test('pickDefaultYear: current year if present, else the latest available, else current', () => {
+  assert.strictEqual(pickDefaultYear(['2026', '2024', '2018'], 2026), '2026');
+  assert.strictEqual(pickDefaultYear(['2024', '2018'], 2026), '2024');
+  assert.strictEqual(pickDefaultYear([], 2026), '2026');
+  assert.strictEqual(pickDefaultYear(null, 2026), '2026');
 });
 
 // --- excelFilename -------------------------------------------------------
