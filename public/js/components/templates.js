@@ -49,6 +49,18 @@
 
   function str(v) { return v === null || v === undefined ? '' : String(v); }
   function isPlainObject(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  // Human-facing field name for the template view: prefer the label; if only a machine key
+  // exists, prettify it ("and_how_much" -> "And how much") so non-technical staff never see
+  // raw snake_case. Pure/deterministic — returns '' for an empty field.
+  function fieldDisplayName(col) {
+    col = isPlainObject(col) ? col : {};
+    var label = str(col.label).trim();
+    if (label) return label;
+    var key = str(col.key).trim();
+    if (!key) return '';
+    var words = key.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return words ? words.charAt(0).toUpperCase() + words.slice(1) : '';
+  }
 
   // Build the POST body from the pasted/loaded CSV text + an optional template
   // name. Trims csvText; blank (after trim) -> {ok:false, reason:'empty'}. Name
@@ -172,7 +184,10 @@
     var table = el('table', 'tp-table');
     var thead = el('thead');
     var headRow = el('tr');
-    ['Key', 'Label', 'Type', 'Required'].forEach(function (h) {
+    // Non-technical staff only ever see the human-readable field name — the machine `key`
+    // (e.g. "and_how_much") is intentionally NOT shown here. It's still used under the hood
+    // for OCR/DB; this view is for people, not engineers.
+    ['Field', 'Type', 'Required'].forEach(function (h) {
       var th = el('th');
       Escape.setText(th, h);
       headRow.appendChild(th);
@@ -185,12 +200,11 @@
       var col = isPlainObject(c) ? c : {};
       var tr = el('tr');
 
-      var tdKey = el('td');
-      Escape.setText(tdKey, str(col.key));
-      tr.appendChild(tdKey);
-
       var tdLabel = el('td');
-      Escape.setText(tdLabel, str(col.label));   // untrusted (customer CSV) -> escaped
+      // Show the human label; if a template ever has only a machine key, prettify it
+      // ("and_how_much" -> "And how much") so staff never see raw snake_case. Untrusted
+      // (customer CSV) -> escaped via Escape.setText.
+      Escape.setText(tdLabel, fieldDisplayName(col));
       tr.appendChild(tdLabel);
 
       var tdType = el('td');
@@ -538,6 +552,7 @@
     namedFields: namedFields,
     buildCsvHeader: buildCsvHeader,
     canSaveBuilder: canSaveBuilder,
+    fieldDisplayName: fieldDisplayName,
     FIELD_TYPES: FIELD_TYPES,
     // render (browser)
     mount: mount,
