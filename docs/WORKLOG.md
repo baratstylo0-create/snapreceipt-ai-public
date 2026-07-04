@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-menu-buttons (bug fix, same open PR #88)
+- **Files:** `lib/bot.js` (new `mytDayBoundsUTC`/`mytWeekStartBoundUTC`; the 3 report handlers switched from filtering `expense_date` to `created_at`), `tests/bot.menu.test.js` (+7).
+- **What changed — live QA caught a real bug within minutes of shipping #88:** Barat uploaded 4 receipts; "Today Bills" said "Nothing captured yet today" even though "Weekly Record" showed 5 bills. Root cause: the report handlers filtered by **`expense_date`** — the date OCR read OFF the receipt itself — not by when the receipt was actually uploaded. All 4 receipts had real printed dates from March–June (a common case: photographing an old receipt today). Fixed: **Today Bills/Today Expenses/Weekly Record now filter by `created_at`** (the actual insert timestamp), via two new pure helpers computing the UTC instant bounds of the current MYT calendar day/week (`mytDayBoundsUTC`, `mytWeekStartBoundUTC`) for a `created_at gte/lt` PostgREST filter — display text still shows the friendly MYT calendar date/range via the existing `todayISO_MYT`/`weekStartISO_MYT`.
+- **Verified against the LIVE Supabase data before shipping** (not just the test suite): re-ran the fixed query directly — Today Bills now correctly shows all 6 bills captured today (was 0), Weekly Record shows 15 (was 5, undercounting because it too used to filter by the wrong date field).
+- **Tests: 873/873** (+7: the two new UTC-bound helpers incl. the midnight-boundary edge case and a week-start/day-start consistency check; both report handlers' updated filter-shape assertions; and — the important one — a direct regression test reproducing the exact bug: a receipt captured today but printed-dated months ago must still appear/count).
+- **What's next:** pushed as an additional commit to the still-open PR #88. Restarting the local bot; Barat should re-tap Today Bills / Weekly Record to confirm live.
+- **Assumptions:** none new. "Captured" (per the Owner's own wording requesting this feature) means insertion time, not the receipt's own printed date — the printed date remains what's shown per-line in the Today Bills list and is still the correct field for `lib/reports.js`'s period-based financial reporting (a different, legitimate use case, untouched by this fix).
+
 ## 2026-07-04 · Claude-B1 (for Barat) · feat/barat-menu-buttons
 - **Files:** `lib/bot.js` (`MAIN_MENU_KEYBOARD`, `BOT_GUIDE_TEXT`, `todayISO_MYT`/`weekStartISO_MYT`, `handleTodayBills`/`handleTodayExpenses`/`handleWeeklyRecord`, new `delask:` callback branch, text-routing for the 4 button labels, `/start` now attaches the keyboard), `tests/bot.menu.test.js` (new), `tests/bot.delask.test.js` (new).
 - **What changed — Owner request, a persistent menu bar (reference screenshot: a 2×N grid of rounded text buttons):**
