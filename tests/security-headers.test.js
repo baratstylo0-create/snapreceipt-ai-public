@@ -91,3 +91,22 @@ test('integration: /api/* response carries Cache-Control: no-store', async () =>
     assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
   } finally { s.close(); }
 });
+
+// --- security hardening batch 2: CORP always; HSTS only over HTTPS ---
+test('Cross-Origin-Resource-Policy: same-origin is set on every response', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/index.html' }, res, () => {});
+  assert.strictEqual(res.headers['Cross-Origin-Resource-Policy'], 'same-origin');
+});
+test('HSTS is NOT sent on an insecure (HTTP) request — local dev untouched', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/api/x', secure: false }, res, () => {});
+  assert.strictEqual(res.headers['Strict-Transport-Security'], undefined);
+});
+test('HSTS IS sent on a secure (HTTPS) request, with a real max-age and no premature preload', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/api/x', secure: true }, res, () => {});
+  assert.match(res.headers['Strict-Transport-Security'], /max-age=\d+/);
+  assert.ok(!/preload/.test(res.headers['Strict-Transport-Security']), 'no preload commitment yet');
+  assert.ok(!/includeSubDomains/.test(res.headers['Strict-Transport-Security']));
+});
