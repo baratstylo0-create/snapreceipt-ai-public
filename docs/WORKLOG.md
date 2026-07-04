@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-04 · Claude-J1 (for Jeevan) · docs/jeevan-relay-barat-post91 — 📨 RELAY TO BARAT + state note
+> Owner-directed relay (Barat reads the WORKLOG on session start). Nothing code changed here.
+
+**Landed since your last note (all on `main` now):** PR #90 (yours) MERGED — reviewed clean: `receipt_url` echo, the Today/Weekly `created_at` bug fix, and #14 atomic upsert. PR #91 (mine) MERGED — the receipt-image storage *wiring* on top of your `receipt_url` echo (routes/upload upload+`metas[]`, new `/receipt/by-id/:id` serve route, frontend render). **Dashboard receipt images now display end-to-end (live-verified).**
+
+**⚠️ Two DB migrations need a manual SQL Editor run on `xurnpvesgcybrnilxszf` (neither J1 nor you has a DDL tool; idempotent):**
+1. `db/2026-07-04-category-corrections-upsert.sql` (your #14) — until run, `recordCorrection` stays on its old no-op-on-error path.
+2. `db/2026-07-03-voucher-reference-number.sql` (voucher) — still not applied; `voucher_no` isn't assigned live until it is.
+
+**Your next steps (your lane):**
+- (a) **Telegram durable receipt copy (spec §3):** pass the already-downloaded photo bytes from `expenseFromPhoto`/`lib/bot.js` into `assembleExpense` (via a `metas[]`/arg seam like the dashboard path) + `uploadReceiptImage`, so bot receipts also get a permanent Storage copy instead of the live Telegram proxy. **Note:** my CSP `img-src … blob:` fix (in #91, merged) was the real reason *no* receipt image rendered — so once you wire this, Telegram receipts will actually show now.
+- (b) **Restart your live pipeline for MYR** — you said done; flagging per the handoff in case a stale process lingers (boot banner should show `currency=MYR`).
+- (c) **#31 Telegram-adapter wiring** — still pending on your side per the handoff (per-image `metaForImage`/`metas[]` is merged as #84; the bot adapter that feeds it isn't wired yet).
+
+**Housekeeping (done by J1):** soft-deleted the synthetic verification row (`KEDAI KOPI AH SENG`) + deleted 2 orphan Storage objects from testing. Live `expenses` is clean.
+
 ## 2026-07-04 · Claude-J1 (for Jeevan) · feat/jeevan-receipt-image-storage-wiring (ADR-018 / spec #81)
 - **Files:** `routes/upload.js` (upload each image to Storage, carry `receipt_url` per-image via `metas[]`), `routes/receipt.js` (new `/receipt/by-id/:id` serve route), `public/js/components/activity.js` (frontend — `receiptByIdPath`/`hasReceiptImage`, render via by-id), `lib/security-headers.js` (**CSP `img-src` fix — see below**), tests (`receipt.route`/`upload.route`/`frontend/activity`/`security-headers`), this WORKLOG. **NOTE:** the `assembleExpense` `receipt_url` echo is **Barat's (#90, merged)** — this PR consumes that seam; my duplicate `lib/ocr.js` edit + `ocr.receipturl.test.js` were dropped on the rebase in favour of his canonical version.
 - **What — wires the receipt-image storage foundation (#87 `lib/storage.js`) end-to-end** so dashboard-uploaded receipts finally display (they stored NO image before). Flow: `routes/upload.js` uploads each decoded image (a PDF is already a rasterized page image here) to the private `receipts` bucket via `uploadReceiptImage`, and passes its object path as `receipt_url` per-image through `runBatch`'s `metas[]` (#84) → Barat's `assembleExpense` echo → stored in the existing `expenses.receipt_url`. Serve: new `GET /receipt/by-id/:id` (checkDash) looks the row up **server-side** (browser never sees the raw storage path), streams the durable Storage copy, and **falls back to the Telegram proxy** for old rows (`receipt_file_id`). Frontend renders the image whenever either field is present, fetching by expense id.
