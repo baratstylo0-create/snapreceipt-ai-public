@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-04 · Claude-J1 (for Jeevan) · fix/jeevan-reports-year-scoping
+- **Files:** `public/js/components/reports.js` (pure helpers `yearRange`/`yearsFromReport`/`pickDefaultYear` + `buildReportsQuery` gains a `year` arg; render layer gains a Year `<select>`), `public/css/app.css` (`.rp-year-group`/`.rp-year-select`), `tests/frontend/reports.test.js` (+13 TDD), this WORKLOG.
+- **Bug (Owner-reported):** the Reports chart's **Month** view showed bucket labels spanning EVERY year mixed together (`2018-01, 2023-12, 2024-04, 2026-05, …`) instead of one year's Jan–Dec; same for **Week**. **Root cause:** `lib/reports.js buildReport()` correctly buckets by `YYYY-MM`, but the client sent NO date range, so it aggregated across all years at once. **`lib/reports.js` is pure + correct — left untouched.**
+- **Fix (client-side):** added a **Year selector** to the Reports toolbar, populated from the account's real years (a one-time `period=year` discovery fetch → `yearsFromReport`), defaulting to the current year (or the latest present — `pickDefaultYear`). `buildReportsQuery(period, from, to, year)` now auto-scopes **day/week/month** to that year's `Jan 1 – Dec 31` when no explicit from/to is set; the **year** period stays unscoped (it's the cross-year comparison view); an explicit from/to range still overrides. The selector is hidden for the `year` period.
+- **Live-verified** (real Supabase, data spans 2018/2023/2024/2026): reproduced the bug (unscoped month = `2018-01…2026-07` mixed), then confirmed the fix — Month view scoped to 2026 shows only `2026-03…2026-07`; switching the Year dropdown to 2024 shows only `2024-04`. Screenshot in the PR.
+- **Tests: 916/916** (+13 TDD, all pure: `buildReportsQuery` year auto-scope for day/week/month, year-period-not-scoped, explicit/partial-range override, invalid-year ignored; `yearRange`; `yearsFromReport`; `pickDefaultYear`). Existing `buildReportsQuery` tests unchanged (the `year` arg is optional/backward-compatible).
+- **What's next / flagged:** the **Overview** page's chart has the SAME year-mixing (it also queries with no range) — a separate component (`public/js/components/overview.js`), not fixed here to keep this PR tight; good candidate to fold into the #9 Reports/Overview work. `day` period scoped to a full year can be many bars (365) — acceptable for v1; the from/to inputs remain as a finer override.
+- **Assumptions:** fix stays client-side (`buildReport` is a correct pure aggregator — the bug was the caller sending no window); year discovery via one `period=year` fetch; default = current year, falling back to latest-present.
+
 ## 2026-07-04 · Claude-J1 (for Jeevan) · docs/jeevan-relay-barat-post91 — 📨 RELAY TO BARAT + state note
 > Owner-directed relay (Barat reads the WORKLOG on session start). Nothing code changed here.
 

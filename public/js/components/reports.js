@@ -93,14 +93,57 @@
   var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   function isIsoShaped(v) { return typeof v === 'string' && ISO_DATE_RE.test(v); }
 
+  var YEAR_RE = /^\d{4}$/;
+  // A 4-digit year STRING (query values are strings) -> that year's full-calendar range.
+  // Anything else (2-digit, non-numeric, a number, null) -> null. Never throws.
+  function yearRange(year) {
+    if (typeof year !== 'string' || !YEAR_RE.test(year)) return null;
+    return { from: year + '-01-01', to: year + '-12-31' };
+  }
+
+  // Pull the distinct 4-digit year keys out of a period=year report's buckets, sorted
+  // descending (newest first) — used to populate the Year selector from real data.
+  // Tolerant of junk/empty/missing; never throws.
+  function yearsFromReport(report) {
+    var bs = report && Array.isArray(report.buckets) ? report.buckets : [];
+    var seen = {};
+    var out = [];
+    bs.forEach(function (b) {
+      var k = b && b.key !== undefined && b.key !== null ? String(b.key) : '';
+      if (YEAR_RE.test(k) && !seen[k]) { seen[k] = true; out.push(k); }
+    });
+    out.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; }); // desc
+    return out;
+  }
+
+  // Which year the selector should default to: the current year if the data has it,
+  // otherwise the most recent year present, otherwise the current year. Never throws.
+  function pickDefaultYear(years, currentYear) {
+    var list = Array.isArray(years) ? years : [];
+    var cur = String(currentYear);
+    if (list.indexOf(cur) !== -1) return cur;
+    return list.length ? list[0] : cur;
+  }
+
   // Validate period (day/week/month/year, default 'month') and from/to
   // (YYYY-MM-DD-shaped strings, dropped if malformed/missing). Returns a
   // query-string-ready object. Never throws on garbage input.
-  function buildReportsQuery(period, from, to) {
+  //
+  // BUG FIX (2026-07-04): month/week (and day) with NO explicit range used to bucket
+  // across EVERY year in the data at once (e.g. 2018-01, 2024-04, 2026-05 side by side).
+  // When a `year` is supplied and the caller hasn't set an explicit from/to, scope the
+  // query to that whole year (Jan 1 – Dec 31) so the chart shows ONE year's periods.
+  // The `year` period itself is deliberately NOT scoped — it exists to compare years.
+  function buildReportsQuery(period, from, to, year) {
     var p = PERIODS.indexOf(period) !== -1 ? period : 'month';
     var q = { period: p };
-    if (isIsoShaped(from)) q.from = from;
-    if (isIsoShaped(to)) q.to = to;
+    var hasFrom = isIsoShaped(from), hasTo = isIsoShaped(to);
+    if (hasFrom) q.from = from;
+    if (hasTo) q.to = to;
+    if (!hasFrom && !hasTo && p !== 'year') {
+      var yr = yearRange(year);
+      if (yr) { q.from = yr.from; q.to = yr.to; }
+    }
     return q;
   }
 
@@ -350,6 +393,19 @@
     });
     toolbar.appendChild(periodGroup);
 
+    // --- Year selector (bug fix): scopes day/week/month to one year so the chart
+    // shows that year's periods, not every year's mixed together. Hidden for the
+    // 'year' period (which compares across years). Populated from real data on load. ---
+    var yearGroup = el('div', 'rp-year-group');
+    var yearLabel = el('label', 'rp-range-label');
+    yearLabel.setAttribute('for', 'rp-year-select');
+    Escape.setText(yearLabel, 'Year');
+    var yearSelect = el('select', 'rp-year-select');
+    yearSelect.id = 'rp-year-select';
+    yearGroup.appendChild(yearLabel);
+    yearGroup.appendChild(yearSelect);
+    toolbar.appendChild(yearGroup);
+
     var rangeGroup = el('div', 'rp-range-group');
 
     var fromLabel = el('label', 'rp-range-label');
@@ -391,11 +447,46 @@
       });
     }
 
-    var state = { loaded: false, loading: false, period: 'month' };
+    var state = { loaded: false, loading: false, period: 'month', year: String(new Date().getFullYear()), yearsLoaded: false };
     setActivePeriod(state.period);
 
+    // The Year selector is meaningful for the sub-year granularities; hidden for 'year'
+    // (which is the cross-year comparison view) — mirrors buildReportsQuery's scoping rule.
+    function updateYearVisibility() {
+      yearGroup.style.display = (state.period === 'year') ? 'none' : '';
+    }
+    updateYearVisibility();
+
+    function populateYearSelect(years) {
+      clear(yearSelect);
+      var list = (years && years.length) ? years : [String(new Date().getFullYear())];
+      list.forEach(function (y) {
+        var opt = el('option'); opt.value = y; Escape.setText(opt, y); yearSelect.appendChild(opt);
+      });
+    }
+
+    // Discover which years the account actually has data in (one period=year query),
+    // populate the selector, and default to the current year (or the latest present).
+    // Runs once; subsequent calls invoke the callback immediately.
+    function ensureYearsLoaded(cb) {
+      if (state.yearsLoaded || !apiFetch) { cb(); return; }
+      apiFetch('/api/reports?period=year').then(function (report) {
+        state.yearsLoaded = true;
+        var years = yearsFromReport(report);
+        populateYearSelect(years);
+        state.year = pickDefaultYear(years, new Date().getFullYear());
+        yearSelect.value = state.year;
+        cb();
+      }).catch(function () {
+        state.yearsLoaded = true;                 // don't wedge the screen on a discovery failure
+        populateYearSelect([state.year]);
+        yearSelect.value = state.year;
+        cb();
+      });
+    }
+
     function currentQuery() {
-      return buildReportsQuery(state.period, fromInput.value, toInput.value);
+      return buildReportsQuery(state.period, fromInput.value, toInput.value, state.year);
     }
 
     function fetchAndRender() {
@@ -403,21 +494,28 @@
       state.loading = true;
       clear(body);
       body.appendChild(msg('ov-loading muted', 'Loading report…'));
-      var q = currentQuery();
-      var params = [];
-      Object.keys(q).forEach(function (k) { params.push(k + '=' + encodeURIComponent(q[k])); });
-      var path = '/api/reports' + (params.length ? '?' + params.join('&') : '');
-      apiFetch(path).then(function (reports) {
-        state.loading = false;
-        state.loaded = true;
-        renderInto(body, reports);
-      }).catch(function () {
-        state.loading = false;
-        clear(body);
-        body.appendChild(msg('ov-error', 'Could not load your report. Please try again shortly.'));
+      ensureYearsLoaded(function () {
+        updateYearVisibility();
+        var q = currentQuery();
+        var params = [];
+        Object.keys(q).forEach(function (k) { params.push(k + '=' + encodeURIComponent(q[k])); });
+        var path = '/api/reports' + (params.length ? '?' + params.join('&') : '');
+        apiFetch(path).then(function (reports) {
+          state.loading = false;
+          state.loaded = true;
+          renderInto(body, reports);
+        }).catch(function () {
+          state.loading = false;
+          clear(body);
+          body.appendChild(msg('ov-error', 'Could not load your report. Please try again shortly.'));
+        });
       });
     }
 
+    yearSelect.addEventListener('change', function () {
+      state.year = yearSelect.value;
+      fetchAndRender();
+    });
     fromInput.addEventListener('change', fetchAndRender);
     toInput.addEventListener('change', fetchAndRender);
 
@@ -453,6 +551,9 @@
     chartModel: chartModel,
     categoryBreakdown: categoryBreakdown,
     buildReportsQuery: buildReportsQuery,
+    yearRange: yearRange,
+    yearsFromReport: yearsFromReport,
+    pickDefaultYear: pickDefaultYear,
     excelFilename: excelFilename,
     exportErrorMessage: exportErrorMessage,
     // render (browser)
