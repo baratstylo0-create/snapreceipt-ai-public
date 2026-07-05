@@ -23,6 +23,8 @@ const {
   exceedsCaps,
   toolsUsedLabel,
   agentErrorMessage,
+  diffPairs,
+  hasProposal,
 } = Agent;
 
 // --- appendUserMessage -------------------------------------------------------
@@ -204,6 +206,71 @@ test('agentErrorMessage: status-only signature (never leaks body contents)', () 
   // Mirrors upload.js's errorMessage / reports.js's exportErrorMessage design:
   // the function only accepts a status, so there is no way to surface body text.
   assert.strictEqual(agentErrorMessage.length, 1);
+});
+
+// --- diffPairs (ADR-019 write-proposal diff formatting) --------------------
+
+test('diffPairs: flattens a diff object into ordered {label, value} pairs (key order preserved)', () => {
+  const diff = { merchant: 'Old Co → New Co', amount: '10.00 → 12.00' };
+  assert.deepStrictEqual(diffPairs(diff), [
+    { label: 'merchant', value: 'Old Co → New Co' },
+    { label: 'amount', value: '10.00 → 12.00' },
+  ]);
+});
+
+test('diffPairs: renders whatever keys are present (e.g. the template-add caveat), no fixed key set', () => {
+  const diff = { caveat: 'This adds a new field to every future receipt.' };
+  assert.deepStrictEqual(diffPairs(diff), [
+    { label: 'caveat', value: 'This adds a new field to every future receipt.' },
+  ]);
+});
+
+test('diffPairs: coerces non-string values to strings (never leaks null/undefined text)', () => {
+  const pairs = diffPairs({ a: 42, b: null, c: undefined, d: true });
+  assert.deepStrictEqual(pairs, [
+    { label: 'a', value: '42' },
+    { label: 'b', value: '' },
+    { label: 'c', value: '' },
+    { label: 'd', value: 'true' },
+  ]);
+});
+
+test('diffPairs: missing/non-object diff -> [] (never throws)', () => {
+  assert.deepStrictEqual(diffPairs(undefined), []);
+  assert.deepStrictEqual(diffPairs(null), []);
+  assert.deepStrictEqual(diffPairs('nope'), []);
+  assert.deepStrictEqual(diffPairs(42), []);
+  assert.deepStrictEqual(diffPairs([1, 2]), []); // arrays are not a diff object
+  assert.deepStrictEqual(diffPairs({}), []);
+});
+
+test('diffPairs: never throws on garbage input', () => {
+  assert.doesNotThrow(() => diffPairs(null));
+  assert.doesNotThrow(() => diffPairs(42));
+  assert.doesNotThrow(() => diffPairs([{}]));
+});
+
+// --- hasProposal (present-and-actionable check) ----------------------------
+
+test('hasProposal: true for a well-formed proposal with a non-empty id', () => {
+  assert.strictEqual(hasProposal({ id: 'p_123', kind: 'edit', summary: 's', diff: {} }), true);
+});
+
+test('hasProposal: false when absent/omitted (server omits it entirely, never null)', () => {
+  assert.strictEqual(hasProposal(undefined), false);
+  assert.strictEqual(hasProposal(null), false);
+});
+
+test('hasProposal: false without a usable id (can\'t POST the confirm)', () => {
+  assert.strictEqual(hasProposal({ kind: 'edit' }), false);       // no id
+  assert.strictEqual(hasProposal({ id: '' }), false);             // empty id
+  assert.strictEqual(hasProposal({ id: 42 }), false);             // non-string id
+});
+
+test('hasProposal: never throws on garbage input', () => {
+  assert.doesNotThrow(() => hasProposal(42));
+  assert.doesNotThrow(() => hasProposal('nope'));
+  assert.doesNotThrow(() => hasProposal([]));
 });
 
 // --- defense in depth: a hostile agent answer is inert once escaped --------
