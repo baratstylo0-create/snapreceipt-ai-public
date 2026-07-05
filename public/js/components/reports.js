@@ -314,20 +314,36 @@
 
   // Plain inline SVG bar chart — SAME technique as overview.js's renderChart
   // (no library; bars scaled to the max value; label/value via textContent).
+  // Owner request 2026-07-05: show every bar's exact total as an always-visible
+  // pill above the bar (not just an on-hover <title>), matching the Overview
+  // line chart's callouts.
   function renderChart(rows) {
     var figure = el('figure', 'ov-chart');
     var caption = el('figcaption', 'ov-chart-caption');
     Escape.setText(caption, 'Spend by period');
     figure.appendChild(caption);
 
-    var width = 640, height = 260, padL = 8, padR = 8, padTop = 8, padBottom = 30;
+    var width = 640, height = 260, padL = 8, padR = 8, padBottom = 30;
+    // calloutZone: headroom above the tallest bar so its value pill has room
+    // to sit above the bar instead of overlapping it.
+    var calloutZone = 30;
+    var padTop = 8 + calloutZone;
     var plotW = width - padL - padR;
     var plotH = height - padTop - padBottom;
     var max = rows.reduce(function (m, r) { return r.value > m ? r.value : m; }, 0);
-    var denom = max > 0 ? max : 1;
+    // Owner report 2026-07-05: on a view with a single bar (e.g. the Week tab
+    // showing just "W1"), that one bar IS the max by definition, so it always
+    // filled the entire plot height — looking oversized/exaggerated compared
+    // to views with several bars. Reserve a fixed 25% headroom above the
+    // tallest bar on EVERY view (1 bar or 12), so a lone bar renders at the
+    // same "standard" scale instead of always maxing out the chart.
+    var denom = max > 0 ? max / 0.75 : 1;
     var n = rows.length;
     var slot = n > 0 ? plotW / n : plotW;
-    var barW = Math.max(1, slot * 0.6);
+    // Cap bar width too — with 1 slot, 60% of the full plot width is still a
+    // huge block; clamp so a lone bar matches the width a bar would have in a
+    // normal multi-bar view instead of ballooning to fill the space.
+    var barW = Math.max(1, Math.min(slot * 0.6, 70));
 
     var svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
@@ -366,6 +382,36 @@
       lbl.setAttribute('text-anchor', 'middle');
       Escape.setText(lbl, r.label);
       svg.appendChild(lbl);
+
+      // Always-visible value pill above the bar (skip a true-zero bar — nothing
+      // to show above an invisible bar, and it would sit right on the axis).
+      if (r.value > 0) {
+        var text = Format.formatMoney(r.value).replace(/\.00$/, '');
+        var pillW = Math.max(28, text.length * 7.5 + 12);
+        var pillH = 18;
+        var pillX = Math.min(Math.max(x + barW / 2 - pillW / 2, 0), width - pillW);
+        var pillY = Math.max(y - pillH - 8, 0);
+
+        var group = document.createElementNS(SVG_NS, 'g');
+        group.setAttribute('class', 'ov-chart-callout');
+        var pill = document.createElementNS(SVG_NS, 'rect');
+        pill.setAttribute('x', pillX);
+        pill.setAttribute('y', pillY);
+        pill.setAttribute('width', pillW);
+        pill.setAttribute('height', pillH);
+        pill.setAttribute('rx', 5);
+        pill.setAttribute('class', 'ov-chart-callout-bg');
+        group.appendChild(pill);
+
+        var plabel = document.createElementNS(SVG_NS, 'text');
+        plabel.setAttribute('x', pillX + pillW / 2);
+        plabel.setAttribute('y', pillY + pillH / 2 + 3.5);
+        plabel.setAttribute('text-anchor', 'middle');
+        plabel.setAttribute('class', 'ov-chart-callout-text ov-chart-callout-text--sm');
+        Escape.setText(plabel, text);
+        group.appendChild(plabel);
+        svg.appendChild(group);
+      }
     });
 
     figure.appendChild(svg);
@@ -426,7 +472,7 @@
 
     container.appendChild(renderKpis([
       { label: 'Total spend', value: Format.formatMoney(reports.total) },
-      { label: 'Expenses', value: Format.formatCount(reports.count) },
+      { label: 'Total bills', value: Format.formatCount(reports.count) },
     ]));
     if (period !== 'day') container.appendChild(renderChart(rowsForPeriod(period, reports, anchor)));
     container.appendChild(renderCategoryBreakdown(categoryBreakdown(reports)));

@@ -927,7 +927,16 @@
       renderTable();
     }
 
-    function closeDrawer() { clear(drawerHost); }
+    // The drawer now renders as a centered modal popup (drawerHost is a fixed
+    // full-screen overlay in CSS — see .act-drawer-host) instead of appending
+    // inline after the table, which used to force a scroll down the page to
+    // see it. Closes via the × button, clicking the dimmed backdrop, or Esc.
+    function onDrawerKeydown(ev) { if (ev.key === 'Escape') closeDrawer(); }
+
+    function closeDrawer() {
+      clear(drawerHost);
+      document.removeEventListener('keydown', onDrawerKeydown);
+    }
 
     function openDrawer(rowObj) {
       clear(drawerHost);
@@ -957,7 +966,14 @@
             .catch(function () { Escape.setText(statusEl, 'Delete failed. Please try again.'); });
         },
       }, { categories: state.categories, fieldSpec: state.fieldSpec }));
+      document.addEventListener('keydown', onDrawerKeydown);
     }
+
+    // Click on the dimmed backdrop itself (not a bubbled click from inside the
+    // dialog) closes the modal — the standard "click outside to dismiss" affordance.
+    drawerHost.addEventListener('click', function (ev) {
+      if (ev.target === drawerHost) closeDrawer();
+    });
 
     // Awaiting-category picker: derived live from the loaded expenses (no extra fetch).
     // Hidden entirely when nothing is pending. Resolves via the same PATCH the drawer uses.

@@ -30,6 +30,8 @@
 
   // ---- pure helpers: numbers / shapes -------------------------------------
 
+  function str(v) { return v === null || v === undefined ? '' : String(v); }
+
   function toNum(v) {
     if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
     if (typeof v === 'string' && v.trim() !== '') {
@@ -78,9 +80,13 @@
     var top = topCategory(r);
     return [
       { label: 'Total spend', value: Format.formatMoney(r.total) },
-      { label: 'Expenses', value: Format.formatCount(r.count) },
+      // "Expenses" was ambiguous (expenses as in cost, or as in a count?) —
+      // Owner request 2026-07-05: make plain that this counts saved receipts.
+      { label: 'Total bills', value: Format.formatCount(r.count) },
       { label: 'Top category', value: top ? top.name : '—' },
-      { label: 'Periods', value: Format.formatCount(buckets(r).length) },
+      // "Periods: 4" gave no clue what a period even was. Overview always
+      // buckets by month for the current year, so spell that out directly.
+      { label: 'Months with expenses', value: Format.formatCount(buckets(r).length) },
     ];
   }
 
@@ -139,10 +145,42 @@
     for (var i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
     return Math.abs(h);
   }
+  // Shared key normalisation (trim + lowercase) — used both by categoryColor's
+  // hash AND by the custom-colour override map below, so "Rent & Lease" and
+  // " rent & lease " always resolve to the exact same override entry.
+  function normaliseCategoryKey(name) {
+    return String(name === null || name === undefined ? '' : name).trim().toLowerCase();
+  }
   function categoryColor(name) {
-    var key = String(name === null || name === undefined ? '' : name).trim().toLowerCase();
+    var key = normaliseCategoryKey(name);
     if (key === '' || key === 'others') return 'others';
     return 'c' + (hashString(key) % PALETTE_SIZE);
+  }
+
+  // ---- custom category colours (Owner request 2026-07-05) -----------------
+  // Lets a user override the auto-assigned donut/legend colour per category by
+  // clicking its swatch. Stored client-side (localStorage) as {normalisedName:
+  // '#hexcolor'}, so it persists across visits on this device/browser without
+  // needing a backend column + migration for what is a per-user display
+  // preference. Pure lookup/merge helpers here; localStorage I/O lives in the
+  // render layer (hasDom-gated) below.
+  var COLOR_OVERRIDES_KEY = 'ov_category_colors';
+
+  // A curated set of picker choices (10 palette defaults + a few extras) shown
+  // in the popup, plus a native colour input for anything else.
+  var COLOR_PRESETS = [
+    '#3f8fd1', '#5a6bd8', '#8a5fd6', '#b558c9', '#d858a8',
+    '#e0567e', '#e0574f', '#e88a2f', '#e0b21f', '#a3a821',
+    '#41716b', '#5f7a47', '#8a6a44', '#b06746', '#6b6b6b',
+  ];
+
+  // name -> resolved hex colour, or null if no override is set for it (falls
+  // back to the default hashed palette in that case). Never throws.
+  function resolveCategoryOverride(name, overrides) {
+    var map = overrides && typeof overrides === 'object' ? overrides : {};
+    var key = normaliseCategoryKey(name);
+    var v = key && typeof map[key] === 'string' ? map[key].trim() : '';
+    return /^#[0-9a-f]{6}$/i.test(v) ? v : null;
   }
 
   function formatPercent(v) { return (Math.round(toNum(v) * 10) / 10) + '%'; }
@@ -210,6 +248,21 @@
 
   function hasDom() { return typeof document !== 'undefined'; }
 
+  // Guarded localStorage access — same defensive pattern as activity.js's ss()
+  // (privacy mode / disabled storage can make these throw; never let a
+  // display-preference feature break the page). Returns {} / no-ops on failure.
+  function loadColorOverrides() {
+    try {
+      var raw = (typeof localStorage !== 'undefined') ? localStorage.getItem(COLOR_OVERRIDES_KEY) : null;
+      var parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (e) { return {}; }
+  }
+  function saveColorOverrides(map) {
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(COLOR_OVERRIDES_KEY, JSON.stringify(map)); }
+    catch (e) { /* ignore — storage full/disabled, override just won't persist */ }
+  }
+
   function el(tag, className) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -227,58 +280,53 @@
     return p;
   }
 
-  function renderKpis(cards) {
-    var wrap = el('div', 'ov-kpis');
-    cards.forEach(function (c) {
-      var card = el('div', 'ov-kpi');
-      var label = el('div', 'ov-kpi-label');
-      Escape.setText(label, c.label);
-      var value = el('div', 'ov-kpi-value');
-      Escape.setText(value, c.value);        // untrusted (e.g. category name) -> escaped
-      card.appendChild(label);
-      card.appendChild(value);
-      wrap.appendChild(card);
-    });
-    return wrap;
+  // One KPI card as its own grid cell. `areaClass` places it in the Overview
+  // grid (grid-template-areas); `accent` gives the hero card the filled-accent
+  // treatment. Big number renders above its label (reference-dashboard style).
+  // Untrusted text (e.g. a category name) is escaped.
+  function renderKpiCard(card, areaClass, accent) {
+    var node = el('div', 'ov-kpi' + (areaClass ? ' ' + areaClass : '') + (accent ? ' ov-kpi--accent' : ''));
+    var value = el('div', 'ov-kpi-value');
+    Escape.setText(value, card.value);
+    var label = el('div', 'ov-kpi-label');
+    Escape.setText(label, card.label);
+    node.appendChild(value);
+    node.appendChild(label);
+    return node;
   }
 
-  // The small "Total spending until now" box — a lifetime total, distinct from
-  // the (current-year) "Total spend" KPI above it.
-  function renderAllTimeBox(total) {
-    var card = el('div', 'ov-alltime');
-    var label = el('div', 'ov-alltime-label');
-    Escape.setText(label, 'Total spending until now');
-    var value = el('div', 'ov-alltime-value');
-    Escape.setText(value, Format.formatMoney(total));
-    card.appendChild(label);
-    card.appendChild(value);
-    return card;
-  }
+  // Horizontal smooth line/area chart (reference-dashboard style): months run
+  // left-to-right along the x-axis (Jan..Dec), spend rises up the y-axis. Soft
+  // horizontal gridlines + a rounded y-axis scale give it the "Visitors" look.
+  // Each point's exact amount shows in a popup on hover/focus (a <title> is also
+  // present as an accessible fallback for keyboard/AT users who can't hover).
+  var lineChartClipCounter = 0;
 
-  // Vertical smooth line/area chart: months run down the y-axis (top-to-bottom,
-  // Jan..Dec), spend runs left-to-right along x. No numeric x-axis scale is
-  // drawn — the caption above carries the title, and each point's exact amount
-  // shows in a popup on hover/focus (a <title> is also present as an
-  // accessible fallback for keyboard/AT users who can't hover).
   function renderLineChart(rows, year) {
     var figure = el('figure', 'ov-linechart');
     var caption = el('figcaption', 'ov-chart-caption');
     Escape.setText(caption, 'Expenses by Month — ' + year);
     figure.appendChild(caption);
 
-    var width = 460, height = 520;
-    var padTop = 14, padBottom = 14, padLeft = 44, padRight = 20;
+    var width = 720, height = 300;
+    // calloutZone is dedicated headroom ABOVE the plotted line so a peak's value
+    // pill never has to overlap its own dot (bug: "449 hidden on dot") — the
+    // pill has real room to sit above the highest point instead of being
+    // clamped against the top of the viewBox.
+    var calloutZone = 34;
+    var padTop = 10, padBottom = 28, padLeft = 46, padRight = 16;
     var plotW = width - padLeft - padRight;
-    var plotH = height - padTop - padBottom;
+    var plotTop = padTop + calloutZone;
+    var plotH = height - plotTop - padBottom;
+    var baseY = plotTop + plotH;
     var n = rows.length;
-    var rowH = n > 0 ? plotH / n : plotH;
     var max = rows.reduce(function (m, r) { return r.value > m ? r.value : m; }, 0);
     var denom = max > 0 ? max : 1;
 
     var points = rows.map(function (r, i) {
       return {
-        x: padLeft + (r.value / denom) * plotW,
-        y: padTop + i * rowH + rowH / 2,
+        x: n > 1 ? padLeft + (i / (n - 1)) * plotW : padLeft + plotW / 2,
+        y: plotTop + plotH - (r.value / denom) * plotH,
         label: r.label,
         value: r.value,
       };
@@ -288,22 +336,50 @@
     svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
     svg.setAttribute('class', 'ov-linechart-svg');
     svg.setAttribute('role', 'img');
-    svg.setAttribute('preserveAspectRatio', 'none');
 
-    // baseline (the "$0" vertical line every point measures out from)
-    var axis = document.createElementNS(SVG_NS, 'line');
-    axis.setAttribute('x1', padLeft); axis.setAttribute('y1', padTop);
-    axis.setAttribute('x2', padLeft); axis.setAttribute('y2', padTop + plotH);
-    axis.setAttribute('class', 'ov-chart-axis');
-    svg.appendChild(axis);
+    // Bug fix: the Catmull-Rom smoothing (smoothPathD) can overshoot past a
+    // zero-value point when the neighbouring month is a big spike, drawing the
+    // curve/area a few px BELOW the x-axis line ("graph flow go under x axis
+    // line"). Clip the line+area to the plot rectangle so nothing ever renders
+    // past the baseline. A per-render id avoids collisions if this ever mounts
+    // more than once on the same page.
+    var clipId = 'ov-line-clip-' + (++lineChartClipCounter);
+    var clipPath = document.createElementNS(SVG_NS, 'clipPath');
+    clipPath.setAttribute('id', clipId);
+    var clipRect = document.createElementNS(SVG_NS, 'rect');
+    clipRect.setAttribute('x', padLeft);
+    clipRect.setAttribute('y', plotTop);
+    clipRect.setAttribute('width', plotW);
+    clipRect.setAttribute('height', plotH);
+    clipPath.appendChild(clipRect);
+    svg.appendChild(clipPath);
 
-    // month row labels — the "y-axis" list of months.
+    // horizontal gridlines + a rounded y-axis value scale (5 steps)
+    var STEPS = 4;
+    for (var s = 0; s <= STEPS; s++) {
+      var gy = baseY - (s / STEPS) * plotH;
+      var grid = document.createElementNS(SVG_NS, 'line');
+      grid.setAttribute('x1', padLeft); grid.setAttribute('y1', gy);
+      grid.setAttribute('x2', padLeft + plotW); grid.setAttribute('y2', gy);
+      grid.setAttribute('class', 'ov-chart-grid');
+      svg.appendChild(grid);
+
+      var vlbl = document.createElementNS(SVG_NS, 'text');
+      vlbl.setAttribute('x', padLeft - 8);
+      vlbl.setAttribute('y', gy + 3);
+      vlbl.setAttribute('class', 'ov-bar-label');
+      vlbl.setAttribute('text-anchor', 'end');
+      Escape.setText(vlbl, String(Math.round((s / STEPS) * max)));
+      svg.appendChild(vlbl);
+    }
+
+    // month labels along the bottom (x-axis)
     points.forEach(function (p) {
       var lbl = document.createElementNS(SVG_NS, 'text');
-      lbl.setAttribute('x', padLeft - 8);
-      lbl.setAttribute('y', p.y + 4);
+      lbl.setAttribute('x', p.x);
+      lbl.setAttribute('y', baseY + 18);
       lbl.setAttribute('class', 'ov-bar-label');
-      lbl.setAttribute('text-anchor', 'end');
+      lbl.setAttribute('text-anchor', 'middle');
       Escape.setText(lbl, p.label);
       svg.appendChild(lbl);
     });
@@ -311,10 +387,11 @@
     var lineD = smoothPathD(points);
     if (points.length > 1) {
       var last = points[points.length - 1], first = points[0];
-      var areaD = lineD + ' L' + padLeft + ',' + last.y + ' L' + padLeft + ',' + first.y + ' Z';
+      var areaD = lineD + ' L' + last.x + ',' + baseY + ' L' + first.x + ',' + baseY + ' Z';
       var area = document.createElementNS(SVG_NS, 'path');
       area.setAttribute('d', areaD);
       area.setAttribute('class', 'ov-chart-area');
+      area.setAttribute('clip-path', 'url(#' + clipId + ')');
       svg.appendChild(area);
     }
 
@@ -322,16 +399,46 @@
     line.setAttribute('d', lineD);
     line.setAttribute('class', 'ov-chart-line');
     line.setAttribute('fill', 'none');
+    line.setAttribute('clip-path', 'url(#' + clipId + ')');
     svg.appendChild(line);
 
     figure.appendChild(svg);
 
-    // Custom popup — a real DOM overlay (not just the native <title> tooltip),
-    // positioned in percentage coordinates so it tracks the SVG's scaled size
-    // without a resize observer. Shown on hover AND keyboard focus.
-    var tip = el('div', 'ov-chart-tip');
-    tip.setAttribute('role', 'status');
-    figure.appendChild(tip);
+    // Always-visible value callouts (reference-dashboard style): a small
+    // rounded pill sits above every point showing its exact amount, all the
+    // time — not just on hover. Built as one SVG <g> per point so the pill
+    // scales and positions together with its little pointer/tail.
+    points.forEach(function (p) {
+      var text = Format.formatMoney(p.value).replace(/\.00$/, '');
+      var pillW = Math.max(30, text.length * 8.5 + 14);
+      var pillH = 22;
+      var pillX = Math.min(Math.max(p.x - pillW / 2, padLeft), padLeft + plotW - pillW);
+      // Clamp against the top of the reserved calloutZone (not 0) so the pill
+      // never rides up over the dot at the highest point on the chart.
+      var pillY = Math.max(p.y - pillH - 14, padTop);
+
+      var group = document.createElementNS(SVG_NS, 'g');
+      group.setAttribute('class', 'ov-chart-callout');
+
+      var pill = document.createElementNS(SVG_NS, 'rect');
+      pill.setAttribute('x', pillX);
+      pill.setAttribute('y', pillY);
+      pill.setAttribute('width', pillW);
+      pill.setAttribute('height', pillH);
+      pill.setAttribute('rx', 6);
+      pill.setAttribute('class', 'ov-chart-callout-bg');
+      group.appendChild(pill);
+
+      var label = document.createElementNS(SVG_NS, 'text');
+      label.setAttribute('x', pillX + pillW / 2);
+      label.setAttribute('y', pillY + pillH / 2 + 4);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('class', 'ov-chart-callout-text');
+      Escape.setText(label, text);
+      group.appendChild(label);
+
+      svg.appendChild(group);
+    });
 
     points.forEach(function (p) {
       var dot = document.createElementNS(SVG_NS, 'circle');
@@ -343,18 +450,6 @@
       var title = document.createElementNS(SVG_NS, 'title');
       Escape.setText(title, p.label + ': ' + Format.formatMoney(p.value));
       dot.appendChild(title);
-
-      function showTip() {
-        Escape.setText(tip, p.label + ': ' + Format.formatMoney(p.value));
-        tip.style.left = ((p.x / width) * 100) + '%';
-        tip.style.top = ((p.y / height) * 100) + '%';
-        tip.classList.add('is-visible');
-      }
-      function hideTip() { tip.classList.remove('is-visible'); }
-      dot.addEventListener('pointerenter', showTip);
-      dot.addEventListener('pointerleave', hideTip);
-      dot.addEventListener('focus', showTip);
-      dot.addEventListener('blur', hideTip);
       svg.appendChild(dot);
     });
 
@@ -364,7 +459,16 @@
   // Category-breakdown donut: percent share of this year's spend, with the
   // year's total in the center (matches the reference design) and a legend
   // list (colour swatch + name + percent) below/beside it.
-  function renderDonut(rows, yearTotal, year) {
+  //
+  // opts.overrides: {normalisedName: '#hex'} custom colours (Owner request
+  // 2026-07-05) — when set for a category, it wins over the default hashed
+  // palette class, applied as an inline style (so it overrides the CSS class
+  // regardless of specificity) on BOTH the slice and its legend swatch.
+  // opts.onSwatchClick(name, swatchEl): called when the user clicks a legend
+  // swatch — the mount()-level caller owns opening the colour-picker popup.
+  function renderDonut(rows, yearTotal, year, opts) {
+    opts = opts || {};
+    var overrides = opts.overrides || {};
     var wrap = el('div', 'ov-donut-wrap');
     var caption = el('figcaption', 'ov-chart-caption');
     Escape.setText(caption, 'Spend by category — ' + year);
@@ -387,9 +491,11 @@
     var angle = 0;
     rows.forEach(function (r) {
       var span = r.frac * 360;
+      var custom = resolveCategoryOverride(r.name, overrides);
       var path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('d', donutSlicePath(cx, cy, rO, rI, angle, angle + span));
       path.setAttribute('class', 'ov-donut-slice ov-donut-slice--' + categoryColor(r.name));
+      if (custom) path.style.fill = custom;
       var title = document.createElementNS(SVG_NS, 'title');
       Escape.setText(title, r.name + ': ' + formatPercent(r.pct));
       path.appendChild(title);
@@ -416,7 +522,21 @@
     var legend = el('ul', 'ov-donut-legend');
     rows.forEach(function (r) {
       var li = el('li', 'ov-donut-legend-row');
-      li.appendChild(el('span', 'ov-donut-swatch ov-donut-swatch--' + categoryColor(r.name)));
+      var custom = resolveCategoryOverride(r.name, overrides);
+
+      // The swatch is a real <button> now (was a plain <span>) — clicking it
+      // opens the colour-picker popup so the user can set their own colour
+      // for this category, instead of only ever getting the auto palette.
+      var swatch = el('button', 'ov-donut-swatch ov-donut-swatch--' + categoryColor(r.name));
+      swatch.type = 'button';
+      swatch.setAttribute('aria-label', 'Change colour for ' + str(r.name));
+      swatch.title = 'Click to choose a colour for ' + str(r.name);
+      if (custom) swatch.style.background = custom;
+      if (typeof opts.onSwatchClick === 'function') {
+        swatch.addEventListener('click', function () { opts.onSwatchClick(r.name, swatch); });
+      }
+      li.appendChild(swatch);
+
       var name = el('span', 'ov-donut-legend-name');
       Escape.setText(name, r.name);           // untrusted (customer FieldSpec) -> escaped
       li.appendChild(name);
@@ -431,9 +551,75 @@
     return wrap;
   }
 
+  // Small popup anchored under a clicked legend swatch: a grid of preset
+  // colour choices, a native colour input for anything else, and a "Use
+  // default" reset. Owner request 2026-07-05: "put multiple color option on
+  // categories name when user click the small color icon, popup small
+  // multiple color window so user can set own colors". Dismiss via the
+  // transparent backdrop, Escape, or picking a colour (which also dismisses).
+  function openColorPicker(anchorEl, currentColor, onPick, onReset) {
+    var backdrop = el('div', 'ov-colorpick-backdrop');
+    var pop = el('div', 'ov-colorpick');
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', 'Choose a colour');
+
+    var grid = el('div', 'ov-colorpick-grid');
+    COLOR_PRESETS.forEach(function (hex) {
+      var swatchBtn = el('button', 'ov-colorpick-swatch');
+      swatchBtn.type = 'button';
+      swatchBtn.style.background = hex;
+      swatchBtn.setAttribute('aria-label', hex);
+      if (currentColor && currentColor.toLowerCase() === hex.toLowerCase()) swatchBtn.classList.add('is-selected');
+      swatchBtn.addEventListener('click', function () { onPick(hex); close(); });
+      grid.appendChild(swatchBtn);
+    });
+    pop.appendChild(grid);
+
+    var customRow = el('div', 'ov-colorpick-custom');
+    var customLabel = el('label', 'ov-colorpick-custom-label');
+    Escape.setText(customLabel, 'Custom:');
+    var customInput = el('input', 'ov-colorpick-input');
+    customInput.type = 'color';
+    customInput.value = currentColor || '#5f7a47';
+    customInput.addEventListener('input', function () { onPick(customInput.value); });
+    customLabel.appendChild(customInput);
+    customRow.appendChild(customLabel);
+    pop.appendChild(customRow);
+
+    var resetBtn = el('button', 'ov-colorpick-reset');
+    resetBtn.type = 'button';
+    Escape.setText(resetBtn, 'Use default colour');
+    resetBtn.addEventListener('click', function () { onReset(); close(); });
+    pop.appendChild(resetBtn);
+
+    backdrop.appendChild(pop);
+    document.body.appendChild(backdrop);
+
+    // Position the popup just under the swatch that was clicked, clamped so
+    // it never runs off the right edge of the viewport.
+    var rect = anchorEl.getBoundingClientRect();
+    var popW = 216;
+    var left = Math.min(rect.left, (typeof window !== 'undefined' ? window.innerWidth : 1024) - popW - 16);
+    pop.style.position = 'fixed';
+    pop.style.top = (rect.bottom + 8) + 'px';
+    pop.style.left = Math.max(8, left) + 'px';
+
+    function onKeydown(ev) { if (ev.key === 'Escape') close(); }
+    function close() {
+      if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+      document.removeEventListener('keydown', onKeydown);
+    }
+    document.addEventListener('keydown', onKeydown);
+    backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) close(); });
+  }
+
   // Render the whole Overview into `container` from a (year-scoped) reports
-  // object plus the separately-fetched all-time total.
-  function renderInto(container, reports, allTimeTotal) {
+  // object. `allTimeTotal` is accepted (and ignored) for backward-compat with
+  // callers that still pass it — Owner request 2026-07-05 removed the
+  // "Total spending until now" box entirely, freeing that space for a taller
+  // category donut. `donutOpts` ({overrides, onSwatchClick}) is forwarded
+  // straight to renderDonut for the custom-colour picker.
+  function renderInto(container, reports, allTimeTotal, donutOpts) {
     if (!hasDom() || !container) return;
     clear(container);
     var rows = chartModel(reports);
@@ -450,15 +636,17 @@
     var year = (reports && typeof reports.from === 'string' && reports.from.length >= 4)
       ? reports.from.slice(0, 4) : String(new Date().getFullYear());
 
-    var topRow = el('div', 'ov-top-row');
-    topRow.appendChild(renderKpis(kpiModel(reports)));
-    topRow.appendChild(renderAllTimeBox(allTimeTotal));
-    container.appendChild(topRow);
-
-    var chartsRow = el('div', 'ov-charts-row');
-    chartsRow.appendChild(renderLineChart(monthlySeries(reports, Number(year)), year));
-    chartsRow.appendChild(renderDonut(categoryPercentBreakdown(reports), reports.total, year));
-    container.appendChild(chartsRow);
+    // Each piece is a direct grid child placed into a named area (see .ov-root
+    // grid-template-areas in app.css): stat cards in the narrow left rail, the
+    // wide trend chart top-right, and the category donut spanning the full
+    // bottom row (taller now that the all-time box is gone).
+    var cards = kpiModel(reports);   // [Total spend, Total bills, Top category, Months with expenses]
+    container.appendChild(renderKpiCard(cards[0], 'ov-cell-spend', true));
+    container.appendChild(renderKpiCard(cards[1], 'ov-cell-count'));
+    container.appendChild(renderLineChart(monthlySeries(reports, Number(year)), year));
+    container.appendChild(renderDonut(categoryPercentBreakdown(reports), reports.total, year, donutOpts));
+    container.appendChild(renderKpiCard(cards[2], 'ov-cell-topcat'));
+    container.appendChild(renderKpiCard(cards[3], 'ov-cell-periods'));
   }
 
   // Mount point wired by app.js. Builds the section content: a loading state,
@@ -472,18 +660,84 @@
     var container = el('div', 'ov-root');
     section.appendChild(container);
 
-    var state = { loaded: false, loading: false };
+    // Custom category colours are stored server-side (account-scoped, so they
+    // follow the user across browsers/devices — owner request 2026-07-05), with
+    // localStorage kept as an offline cache so the first paint is instant and a
+    // colour still shows if the network is down. colorOverrides is seeded from
+    // that cache, then reconciled to the server truth once /api/settings loads.
+    // It is mutated in place (never reassigned) so the donutOpts object closed
+    // over below always sees the latest values.
+    var state = { loaded: false, loading: false, lastReports: null, colorOverrides: loadColorOverrides() };
+
+    // Best-effort push of the whole colour map to the server. Fire-and-forget:
+    // a failure (offline / no token) is non-fatal — the change is already saved
+    // to localStorage, so it still applies locally and will re-push next time.
+    function pushColorsToServer() {
+      if (!apiFetch) return;
+      apiFetch('/api/settings/category-colors', {
+        method: 'PUT',
+        body: { colors: state.colorOverrides },
+      }).catch(function () { /* offline / unauthed — localStorage already has it */ });
+    }
+
+    // Replace the in-memory map's contents in place (keep the same object
+    // reference donutOpts holds) with `next`.
+    function replaceOverrides(next) {
+      Object.keys(state.colorOverrides).forEach(function (k) { delete state.colorOverrides[k]; });
+      Object.keys(next || {}).forEach(function (k) { state.colorOverrides[k] = next[k]; });
+    }
+
+    // Re-render with whatever reports data we last successfully fetched —
+    // used after a colour is picked/reset so the change shows immediately
+    // without a network round-trip.
+    function rerender() {
+      if (state.lastReports) renderInto(container, state.lastReports, undefined, donutOpts);
+    }
+
+    var donutOpts = {
+      overrides: state.colorOverrides,
+      onSwatchClick: function (categoryName, swatchEl) {
+        var current = resolveCategoryOverride(categoryName, state.colorOverrides);
+        openColorPicker(swatchEl, current, function (hex) {
+          state.colorOverrides[normaliseCategoryKey(categoryName)] = hex;
+          saveColorOverrides(state.colorOverrides); // instant local cache
+          rerender();
+          pushColorsToServer();                     // sync across devices
+        }, function () {
+          delete state.colorOverrides[normaliseCategoryKey(categoryName)];
+          saveColorOverrides(state.colorOverrides);
+          rerender();
+          pushColorsToServer();
+        });
+      },
+    };
+
+    // Pull the server's saved colours and reconcile to them (server is the
+    // source of truth for cross-device sync). Only overwrites when the request
+    // actually succeeds — offline, we keep the localStorage cache untouched.
+    function syncColorsFromServer() {
+      if (!apiFetch) return;
+      apiFetch('/api/settings/category-colors').then(function (resp) {
+        var serverColors = resp && resp.colors && typeof resp.colors === 'object' ? resp.colors : {};
+        replaceOverrides(serverColors);
+        saveColorOverrides(state.colorOverrides); // keep the offline cache in step
+        rerender();
+      }).catch(function () { /* keep the localStorage cache we already rendered */ });
+    }
 
     function load() {
       if (state.loading || state.loaded || !apiFetch) return;
       state.loading = true;
       clear(container);
       container.appendChild(renderMessage('ov-loading muted', 'Loading overview…'));
-      Promise.all([apiFetch(overviewReportsPath()), apiFetch(allTimeReportsPath())]).then(function (results) {
+      // The all-time total is no longer displayed (the "Total spending until
+      // now" box was removed), so we no longer fetch allTimeReportsPath() here.
+      apiFetch(overviewReportsPath()).then(function (reports) {
         state.loading = false;
         state.loaded = true;
-        var reports = results[0], allTime = results[1];
-        renderInto(container, reports, allTime && allTime.total);
+        state.lastReports = reports;
+        renderInto(container, reports, undefined, donutOpts);
+        syncColorsFromServer(); // reconcile local cache -> server truth
       }).catch(function () {
         state.loading = false;
         // Leave loaded=false so a later revisit can retry.
@@ -492,7 +746,11 @@
       });
     }
 
-    return { el: container, load: load, renderInto: function (r, allTime) { renderInto(container, r, allTime); } };
+    return {
+      el: container,
+      load: load,
+      renderInto: function (r, allTime) { state.lastReports = r; renderInto(container, r, allTime, donutOpts); },
+    };
   }
 
   return {
@@ -503,6 +761,9 @@
     monthlySeries: monthlySeries,
     categoryPercentBreakdown: categoryPercentBreakdown,
     categoryColor: categoryColor,
+    normaliseCategoryKey: normaliseCategoryKey,
+    resolveCategoryOverride: resolveCategoryOverride,
+    COLOR_PRESETS: COLOR_PRESETS,
     formatPercent: formatPercent,
     overviewReportsPath: overviewReportsPath,
     allTimeReportsPath: allTimeReportsPath,

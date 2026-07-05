@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const {
   chartModel, kpiModel, topCategory, overviewReportsPath,
   monthlySeries, categoryPercentBreakdown, categoryColor, formatPercent, allTimeReportsPath,
-  smoothPathD, donutSlicePath,
+  smoothPathD, donutSlicePath, normaliseCategoryKey, resolveCategoryOverride, COLOR_PRESETS,
 } = require('../../public/js/components/overview');
 
 // Overview scopes its report to the current year (fixes the all-years-mixed chart bug).
@@ -91,7 +91,7 @@ test('kpiModel produces total / count / top-category cards from the report', () 
   const byLabel = {};
   cards.forEach((c) => { byLabel[c.label] = c; });
   assert.strictEqual(byLabel['Total spend'].value, '300.00');
-  assert.strictEqual(byLabel['Expenses'].value, '5');
+  assert.strictEqual(byLabel['Total bills'].value, '5');
   assert.strictEqual(byLabel['Top category'].value, 'Food');
 });
 
@@ -100,7 +100,7 @@ test('kpiModel handles an empty report gracefully (zeros, no top category)', () 
   const byLabel = {};
   cards.forEach((c) => { byLabel[c.label] = c; });
   assert.strictEqual(byLabel['Total spend'].value, '0.00');
-  assert.strictEqual(byLabel['Expenses'].value, '0');
+  assert.strictEqual(byLabel['Total bills'].value, '0');
   assert.strictEqual(byLabel['Top category'].value, '—');
 });
 
@@ -235,4 +235,35 @@ test('donutSlicePath: a zero/negative span -> "" (never throws)', () => {
   assert.strictEqual(donutSlicePath(50, 50, 40, 20, 90, 90), '');
   assert.strictEqual(donutSlicePath(50, 50, 40, 20, 90, 10), '');
   assert.doesNotThrow(() => donutSlicePath(null, null, null, null, null, null));
+});
+
+// --- custom category colours (Owner request 2026-07-05) -------------------------
+
+test('normaliseCategoryKey: trims and lowercases, tolerant of null/undefined', () => {
+  assert.strictEqual(normaliseCategoryKey(' Rent & Lease '), 'rent & lease');
+  assert.strictEqual(normaliseCategoryKey(null), '');
+  assert.strictEqual(normaliseCategoryKey(undefined), '');
+});
+
+test('resolveCategoryOverride: returns the stored hex for a matching (normalised) key', () => {
+  const overrides = { 'rent & lease': '#112233' };
+  assert.strictEqual(resolveCategoryOverride('Rent & Lease', overrides), '#112233');
+  assert.strictEqual(resolveCategoryOverride('  RENT & LEASE  ', overrides), '#112233');
+});
+
+test('resolveCategoryOverride: null when there is no entry, a malformed entry, or garbage input', () => {
+  assert.strictEqual(resolveCategoryOverride('Groceries', {}), null);
+  assert.strictEqual(resolveCategoryOverride('Groceries', { groceries: 'not-a-hex' }), null);
+  assert.strictEqual(resolveCategoryOverride('Groceries', { groceries: '#12345' }), null); // 5 digits, not 6
+  assert.strictEqual(resolveCategoryOverride(null, null), null);
+  assert.doesNotThrow(() => resolveCategoryOverride(undefined, undefined));
+});
+
+test('resolveCategoryOverride: accepts a valid 6-digit hex in either case', () => {
+  assert.strictEqual(resolveCategoryOverride('Fuel', { fuel: '#AaBbCc' }), '#AaBbCc');
+});
+
+test('COLOR_PRESETS: a non-empty list of valid 6-digit hex colours', () => {
+  assert.ok(Array.isArray(COLOR_PRESETS) && COLOR_PRESETS.length > 0);
+  COLOR_PRESETS.forEach((hex) => assert.match(hex, /^#[0-9a-f]{6}$/i));
 });
