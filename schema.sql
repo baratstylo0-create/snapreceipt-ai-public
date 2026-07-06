@@ -201,3 +201,99 @@ create unique index if not exists account_settings_account_key_idx
 
 alter table account_settings enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied.
+
+-- ============================================================================
+-- Migration M2-P1: business-account identity foundation (ADR-021)
+-- Jeevan · 2026-07-06 · docs/specs/2026-07-06-business-account-multibranch-design.md §5
+-- ----------------------------------------------------------------------------
+-- Flag-gated by capabilities.multiUser (ADR-010). With the flag OFF these tables
+-- simply go unused and the personal product is unchanged (personal expense rows
+-- leave branch_id/staff_user_id null). One account_id = one client business;
+-- `branches` partitions it, `users` are the credentialed identities (admin/clerk)
+-- plus a staff name-directory, `sessions` are opaque bearer tokens (only a hash is
+-- stored), `bot_bindings` link a Telegram chat to a user/branch/role via a one-time
+-- deep-link token. Isolation for v1 is enforced APP-SIDE (the scopeForUser bouncer +
+-- service-role key); JWT-scoped RLS is the later hardening step — policies are
+-- commented below, not enabled (ADR-021).
+-- ============================================================================
+
+-- branches: an HQ + its offices. "Head Office" is auto-created at account setup
+-- (Phase 2) so the admin can also capture (petty-cash audit).
+create table if not exists branches (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  office      text        not null,                 -- branch/office name, e.g. "Head Office", "KL Branch"
+  state       text,                                 -- optional region/state label
+  clerk_name  text,                                 -- display name of the branch's clerk (attribution)
+  active      boolean     not null default true,    -- soft-revoke: false = disabled, never hard-deleted
+  created_at  timestamptz not null default now()
+);
+create index if not exists branches_account_active_idx on branches (account_id) where active;
+
+-- users: credentialed identities (admin/clerk log in) + staff name-directory
+-- (staff rows carry a display_name only — no username/hash/bot, attribution only).
+create table if not exists users (
+  id            uuid        primary key default gen_random_uuid(),
+  account_id    text        not null default 'default',
+  branch_id     uuid        references branches(id) on delete set null, -- null for admin (all-branch)
+  role          text        not null check (role in ('admin', 'clerk', 'staff')),
+  username      text,                               -- login handle (admin/clerk); null for staff
+  password_hash text,                               -- scrypt hash (admin/clerk); null for staff
+  display_name  text        not null default '',
+  active        boolean     not null default true,
+  created_at    timestamptz not null default now()
+);
+-- one username per account (partial: staff have null usernames and don't collide).
+create unique index if not exists users_account_username_idx
+  on users (account_id, username) where username is not null;
+create index if not exists users_account_branch_idx on users (account_id, branch_id);
+
+-- sessions: opaque bearer tokens. We store ONLY the sha-256 of the token (never the
+-- token itself), so a leaked DB dump can't be replayed as a live session. role/branch_id
+-- are denormalized from users so the auth gate resolves a scope in one lookup.
+create table if not exists sessions (
+  token_hash  text        primary key,             -- sha-256(hex) of the opaque bearer token
+  user_id     uuid        not null references users(id) on delete cascade,
+  account_id  text        not null default 'default',
+  role        text        not null,
+  branch_id   uuid,                                 -- null for admin (sees all branches)
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null
+);
+create index if not exists sessions_user_idx   on sessions (user_id);
+create index if not exists sessions_expiry_idx on sessions (expires_at);
+
+-- bot_bindings: a one-time /start <token> deep link binds a Telegram chat_id to a
+-- user/branch/role (both clerk and admin bind; staff never do). Locked once bound.
+create table if not exists bot_bindings (
+  id               uuid        primary key default gen_random_uuid(),
+  account_id       text        not null default 'default',
+  user_id          uuid        references users(id) on delete cascade,
+  branch_id        uuid,
+  role             text        not null,
+  chat_id          text,                            -- Telegram chat id; null until /start <token> binds it
+  bind_token       text        not null,            -- one-time deep-link token
+  token_expires_at timestamptz not null,
+  bound_at         timestamptz,                      -- non-null once a chat_id is bound
+  active           boolean     not null default true,
+  created_at       timestamptz not null default now()
+);
+create unique index if not exists bot_bindings_token_idx on bot_bindings (bind_token);
+create index if not exists bot_bindings_chat_idx
+  on bot_bindings (account_id, chat_id) where chat_id is not null;
+
+-- Additive expenses columns — personal rows leave these null (behaviour unchanged).
+alter table expenses
+  add column if not exists branch_id     uuid,      -- which branch captured this receipt (business only)
+  add column if not exists staff_user_id uuid;      -- which staff member (attribution; business only)
+create index if not exists expenses_account_branch_idx on expenses (account_id, branch_id)
+  where branch_id is not null;
+
+-- RLS on the new tables (service_role bypasses; no anon policy → anon denied), matching
+-- every other table. JWT-scoped tenant isolation is the LATER hardening step (ADR-021):
+--   create policy tenant_read on <tbl> for select to authenticated
+--     using (account_id = (auth.jwt() ->> 'account_id'));
+alter table branches     enable row level security;
+alter table users        enable row level security;
+alter table sessions     enable row level security;
+alter table bot_bindings enable row level security;
