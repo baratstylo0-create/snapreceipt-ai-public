@@ -1,0 +1,174 @@
+# Petty Cash Monthly Statement — export format + petty-cash/claim model
+
+> **Source:** two real client sample files (a construction co. + a trading co.) supplied by the Owner
+> 2026-07-06 for **Premala** (first client). **Confidential:** the raw files are NOT in the repo; this
+> spec is **anonymised** — placeholder names/amounts only, never the real company/staff/bank data.
+> **Status:** design agreed (Owner-confirmed, CTO calls noted inline). Feeds ADR-023. Client profile:
+> `docs/clients/premala.md`. Part of the M2 epic (ADR-021/022).
+
+---
+
+## 1. What the deliverable is
+
+The client's monthly output is a **Petty Cash Monthly Statement of Account** — one statement **per
+company × branch × month** — followed by **the receipt snapshots appended, one per page**. Today they
+build it by hand in Excel (with broken `=#REF!` formulas and at least one sign error — see §6) and email
+the PDF over WhatsApp. We generate it automatically from the receipts already captured in the system, in
+**both Excel and PDF**, matching this layout.
+
+## 2. Statement layout (exact structure, anonymised)
+
+```
+[COMPANY NAME]                                              ← company.name
+PETTY CASH MONTHLY STATEMENT OF ACCOUNT
+[MONTH & YEAR]                        [BRANCH]              ← e.g. "OCTOBER 2025"   "HQ" / "KL"
+[PREPARED-BY NAME]                                          ← clerk/staff who compiled it
+
+A.  SUMMARY OF CASH IN
+    DATE | DESCRIPTION            | AMOUNT (RM) | [AMOUNT (INR)]   ← 2nd currency col OPTIONAL (dual-currency co.)
+    ---- | Balance B/F           | …           | …
+    ---- | Cash In <note>        | …           | …               ← the petty-cash FLOAT top-up(s)
+         | TOTAL                 | =Σ          |
+
+B.  SUMMARY OF EXPENSES: ([BRANCH])
+    ITEM | DATE | [NAME] | DESCRIPTION | T. AMOUNT (RM)          ← NAME (staff) col is per-company optional
+    1  <Category>                                                ← numbered categories from the company FieldSpec
+       1  dd-mm-yy  [staff]  <merchant / description>   amount
+       2  …                                              amount
+                                            category SUBTOTAL
+    2  <Category>   …                        category SUBTOTAL
+    …  (as many categories as the company defines)
+                                            SUBTOTAL (all expenses)
+
+    A. TOTAL CASH IN-HAND   = Σ Section A
+    B. TOTAL EXPENDITURE    = Σ Section B
+    BALANCE                 = A − B                              ← see §6 (sign convention = correct accounting)
+
+    PREPARED BY:        CHECKED BY:        APPROVED BY:
+    DATE:               DATE:              DATE:
+```
+
+**Observed variation between the two samples (⇒ everything company-configurable, via the FieldSpec/#12):**
+- **Categories differ per company.** Construction co. → 9 (Petrol/Diesel, Touch-n-Go, Entertainment,
+  Printing & Stationery, Sundry, Travelling, Accommodation, Hardware & Loose Tools, Parking). Trading co.
+  → 5 (Tickets [bus/train/grab/flight], Hotel, Food, Others, Hardware(PPE) & Touch-n-Go). ⇒ the numbered
+  category set is the **company's chart of accounts** (`companies.category_set` / template).
+- **`NAME` (staff) column** present in one sample, absent in the other ⇒ optional column (driven by whether
+  the company wants per-staff attribution; we always have `staff_user_id`, we just show/hide the column).
+- **Optional sub-grouping** inside a category (e.g. "Petrol/Diesel — <vehicle plate>") ⇒ a sub-header row.
+- **Second currency column** (e.g. INR) present for a cross-border company ⇒ optional, from our existing
+  currency layer (ADR-005 FX, **never** the LLM).
+
+## 2b. Visual styling (confirmed by rendering the completed sample PDF)
+
+For the "as accurate as the sample" bar, the exporter must reproduce this styling (values are the design
+target, all configurable per company):
+- **Company name:** large **bold serif, red, centred**; the title + "MONTH YEAR" **bold black, centred**
+  underneath.
+- **Section headings** ("A. Summary of Cash In", "B. Summary of Expenses: (Branch)"): **blue, italic,
+  underlined**, left-aligned.
+- **Table header row** (DATE/DESCRIPTION/… and ITEM/DATE/NAME/…): **grey fill, bold, thin black borders**
+  on every cell (full grid).
+- **Category banner row:** grey fill, category name **bold**, with the **item number in its own boxed
+  cell** at the left.
+- **Amount alignment:** the RM column shows the currency label left + the number right-aligned bold; a
+  2nd currency column (e.g. `₹ 00,000.00`) sits beside it when enabled.
+- **Per-category `TOTAL` cell:** **yellow fill**. **`SUBTOTAL` (all expenses):** **green fill**.
+- **Fixed empty padding rows** under each category (the sheet pre-sizes each category block with blank
+  numbered rows) — reproduce a small, configurable number of blank rows per category for visual fidelity.
+- **Footer summary** (A. Total Cash In-Hand / B. Total Expenditure / **BALANCE**), boxed, right-of-centre;
+  **a negative BALANCE is shown in red** (our value uses the *correct* sign — see §6 — so red only appears
+  on a genuine claim/overspend).
+- **Sign-off block:** "PREPARED BY :" + signature + "DATE:" (left); "APPROVED BY:" + "DATE:" (right). The
+  filed sample uses **Prepared + Approved** (no "Checked by"); the blank Excel template also carries a
+  "CHECKED BY" slot ⇒ make the three sign-off roles **configurable** (show/hide per company).
+- Whole statement sits inside a **thin black cell grid**.
+
+(Verified by rendering the client PDF to an image locally via `pdftoppm`; the rendered file was inspected
+then deleted — it is confidential and never entered the repo.)
+
+## 3. Dual export (BOTH required — Owner: "must have both options, as accurate as the sample")
+
+**Architecture — one model, two renderers** (mirrors how the codebase separates `lib/` logic from output):
+```
+lib/statement.js      StatementModel builder: company/branch/period, Section A (cash-in),
+                      Section B (expenses grouped by the company's category set, per-category
+                      subtotals), cash-in-hand / expenditure / balance, claims, sign-off block.
+                      Pure logic; reuses lib/pettyCash.js maths (§4) + lib/currency.js (2nd currency).
+                      Fully unit-testable with NO I/O.
+lib/statementXlsx.js  StatementModel → .xlsx via exceljs (ADR-012): fills/borders/fonts per §2b,
+                      real SUBTOTAL/SUM (never #REF!), embedded receipt thumbnail per row + hyperlink.
+lib/statementPdf.js   StatementModel → .pdf via pdfkit (ADR-024): draws the statement page(s) to match
+                      §2b, then appends each receipt's page(s). Fetches receipt bytes from storage (ADR-018).
+routes/statement.js   GET /api/statement?company=&branch=&period=&format=xlsx|pdf — scoped via scopeForUser.
+```
+
+- **Excel (`.xlsx`)** — `exceljs` (ADR-012). Real computed subtotals/totals, NOT `#REF!`. Receipt
+  thumbnail embedded per row + hyperlink to full-res (reuses the ADR-021/018 embed).
+- **PDF** — `pdfkit` (ADR-024; pure-JS, no native binary). Statement page(s) first, then the receipts:
+  - **One receipt document → its own page(s), in statement-line order** (auditor reads top-to-bottom
+    matching the expense list). Confirmed from the sample: a booking spanning 2 pages appended as 2 pages.
+  - **Image receipt → 1 page; PDF receipt → N pages**, rasterised page-by-page via `@hyzyla/pdfium`
+    (already in the tree) then embedded.
+  - **Placement:** scale to **fit inside the page, aspect preserved, top-aligned** (matches the sample —
+    tall phone screenshots sit at the top with white space below; A4 docs fill the width). No caption
+    overlaid by default (raw, like the sample); an optional per-expense caption is a later enhancement.
+  - Missing/unreadable image ⇒ skip that receipt gracefully (statement still generated).
+- **Accuracy bar:** visually faithful to the client sample (§2b is the styling contract; the Excel
+  template is the layout source of truth for column widths/merges).
+
+## 4. The petty-cash + claim model (the real new logic)
+
+- **Each branch gets a petty-cash FLOAT**, an amount the **admin sets/edits per branch per month**
+  (including the admin's own Head-Office branch — Owner's explicit call). Float top-ups + a Balance-B/F
+  carried from the prior month make up Section A ("cash in-hand").
+- **Expenses draw the float down.** `Balance = Cash-in-hand − Expenditure`.
+- **Claim = overspend.** When cumulative expenses exceed the float (balance goes **negative**), the
+  overspend was paid by staff out of pocket ⇒ it's a **claim** owed back to them. Identified by the
+  **running-balance maths** (order the branch's expenses by date; once the running total passes
+  cash-in-hand, the excess is claim), with a **per-expense override** (admin/clerk can force an expense
+  in/out of "claim", e.g. a pre-approved out-of-pocket buy while the float still had money).
+- **Reimbursement uses the existing payment layer** (Phase 4 `payment_status`): a claim is a **pending**
+  reimbursement → **paid** once the staff member is reimbursed (bulk mark-paid applies).
+- **Sign-off maps to roles:** *Prepared by* = the branch clerk/staff; *Checked/Approved by* = the admin.
+  This dovetails with the **"Send to Admin"** submission (ADR-022): clerk prepares → submits → admin
+  reviews/approves → statement finalised.
+
+## 5. Data model additions (DDL sketch — finalised in schema task)
+
+```
+companies        (id, account_id, name, currency, category_set/template_id, active, created_at)
+branches         + company_id            -- Group → Company → Branch → Staff
+users            (unchanged; a clerk's branch already implies its company)
+expenses         + company_id            -- stamped from the branch/session (derivable, denormalised for reports)
+                 + claim_override text    -- null=auto, 'claim'|'petty_cash' = manual override
+petty_cash_floats(id, account_id, company_id, branch_id, period text 'YYYY-MM',
+                  balance_bf numeric, currency, updated_by, updated_at)
+cash_in          (id, account_id, company_id, branch_id, period, date, description,
+                  amount, currency)        -- the float top-ups (Section A rows); or fold into floats jsonb
+```
+Claim status is **computed** (running balance + `claim_override`), not a stored truth, so it can never
+drift from the numbers. `payment_status` (Phase 4) carries the reimbursement state.
+
+## 6. Correctness decisions (CTO calls — why ours beats their manual sheet)
+
+- **BALANCE = Cash-in-hand − Expenditure** (standard accounting). **Positive = surplus** (carries forward,
+  no claim); **negative = overspent = claim** owed to staff. The trading-co. sample showed BALANCE
+  **−75.09** while `3000 − 2924.91 = +75.09` — a **manual sign error** (same family as its `#REF!`
+  formulas). Our output = **+75.09 surplus, no claim**, i.e. correct. A per-client "match their exact
+  (wrong) convention" toggle is possible but OFF by default.
+- **Never reproduce `#REF!`** — compute real subtotals/totals from the captured rows.
+- **Currency conversion via the FX layer**, never the LLM (ADR-005); the 2nd-currency column reads the
+  same converted values.
+
+## 7. Capability flag + scope
+
+- New business capability flag **`pettyCash`** (per-client; Premala = ON). Off ⇒ no petty-cash/claim/
+  statement surface; the general product is unchanged.
+- All petty-cash/statement queries go through the same `scopeForUser` bouncer (ADR-021) — now company- +
+  branch-scoped.
+
+## 8. Open / pending
+- [ ] Confirm the anonymised layout reproduces faithfully once built (visual diff vs the client sample).
+- [ ] Company category sets + which companies exist for Premala (focus: Premala first).
+- [ ] PDF render approach decided at build time (reuse-deps-first).
