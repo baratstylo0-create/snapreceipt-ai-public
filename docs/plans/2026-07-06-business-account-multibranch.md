@@ -98,11 +98,19 @@ Branch per phase: `feature/<owner>-m2-<phase>` off `main`.
 
 ## Phase 2 — Provisioning & revocation  (Jeevan)
 
-**Files:** `lib/branches.js` (new) · `routes/branches.js` (new) · `account_settings` (`max_branches`).
+**Files:** `setup/provision.js` (**new** — bootstrap) · `lib/branches.js` (new) · `routes/branches.js`
+(new) · `account_settings` (`max_branches`) · `package.json` (`setup-admin` script).
 
-- [ ] **`lib/branches.js`** (TDD): `createBranch` (→ branch row + clerk user + one-time `bot_bindings`
-  token; returns username+password ONCE), `listBranches`, `softDeleteBranch` (active=false + revoke
-  sessions + refuse binding), `addStaff`/`listStaff`/`removeStaff` (name-only).
+- [ ] **BOOTSTRAP the first admin (the chicken-and-egg — build-blocker).** A fresh managed-silo instance
+  has no user, so login is impossible until one exists. **`setup/provision.js` + `npm run setup-admin`**
+  (operator-run at deploy — fits ADR-020 "we host it, client just logs in"): reads `ACCOUNT_ID` +
+  `ADMIN_USERNAME` from env, **auto-generates a strong password** (or takes `ADMIN_PASSWORD`), scrypt-hashes
+  it (`lib/auth.hashPassword`), and creates the **admin `users` row + a "Head Office" branch + the admin's
+  one-time `/start` bot-binding token**, then **prints the username + password + binding link ONCE** to
+  stdout. **Refuses if an admin already exists** unless `--force`. No web-exposed setup route (avoids an
+  unauthenticated bootstrap endpoint). Tier-2 (mints an admin credential). Tests: creates exactly one
+  admin + Head Office; password is scrypt-hashed (never stored/printed in plaintext beyond the one-time
+  stdout); re-run without `--force` is a no-op; generated password satisfies the SEC-1 policy.
 - [ ] **On account setup, auto-create a "Head Office" branch and bind the HQ admin to it** (admin is also
   a capturer — HQ petty cash). Admin gets a `/start` binding scoped to Head Office + dashboard upload;
   admin reads still see ALL branches (scope has no branch filter), but admin *captures* tag to Head Office.

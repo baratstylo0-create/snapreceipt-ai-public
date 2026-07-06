@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-07 · Claude-J1 (for Jeevan) · docs/jeevan-business-account-multibranch-spec — closed the 3 build-blockers
+- **Files:** `docs/plans/2026-07-06-business-account-multibranch.md` (Phase 2 **bootstrap-admin** task), `docs/clients/premala.md` (§5 corrected), this WORKLOG. Also: **issue #107 rewritten** (Barat handoff refreshed), **PR #108 rebased** on `main` (post-#109).
+- **Blocker 1 — bootstrap admin (specified).** A fresh managed-silo instance has no user → login impossible until one exists. Added **`setup/provision.js` + `npm run setup-admin`** to Phase 2: operator-run at deploy (fits ADR-020 "we host it, client just logs in") — reads `ACCOUNT_ID`/`ADMIN_USERNAME`, auto-generates a strong password, scrypt-hashes it, creates the admin `users` row + Head-Office branch + admin bot-binding token, prints creds ONCE, refuses if an admin exists (no web-exposed setup route). Tier-2.
+- **Blocker 2 — Barat handoff (#107) refreshed.** Updated for everything decided after it was written: the scope contract is now `scopeForUser(user) → {account_id, company_id?, branch_id?, role}` (company dimension, ADR-023) and his slice inherits the **Security Gate** (RLS on new tables, per-route rate limiters, magic-byte upload validation, Groq ZDR). So Barat builds to the *current* contract, not the stale one.
+- **Blocker 3 — PR #108 rebased** onto the post-#109 `main` (no conflicts; different files).
+- **Corrected an over-flag (Owner caught it):** Premala's company list / category sets / branches / staff are **NOT needed from the Owner** — the admin enters them **in the product** (provisioning + template import #109 + float edits). We already have the needed *shape* from the sample files. Struck from the launch-gate; only operational items remain pre-live (Groq ZDR, hosting/HTTPS, migrations, secret custody, run `setup-admin`).
+- **What's next:** planning + all 3 blockers closed → **ready to split and build**. Barat picks up #107; Jeevan builds Phases 1→10 (Phase 1 = PR #108, now rebased). Nothing load-bearing left unowned.
+- **Assumptions:** managed-silo bootstrap is operator-run CLI (not a public route) — the secure default for our hosting model. Docs-only push (the setup script is code, lands in the Phase 2 PR).
+
+---
+
 ## 2026-07-07 · Claude-J1 (for Jeevan) · docs/jeevan-business-account-multibranch-spec — security audit + hardening gate (ADR-025)
 - **Files:** `docs/specs/2026-07-07-security-hardening-audit.md` (**new**), `docs/DECISIONS.md` (new **ADR-025**), `docs/plans/2026-07-06-business-account-multibranch.md` (new **HARD CONSTRAINT #5 Security Gate** + frontend/Mugi framing fix), this WORKLOG.
 - **What — Owner security directive** ("no hackers, no raw data can infiltrate/inject our DB, RLS all there; rate-limiting present but generous for the first client") + the *Vibe Coder Security Checklist* PDF + a file-storage video. Did an **evidence-based audit** (grep'd the codebase, not just asserted): **no raw SQL in app code** (PostgREST + encodeURIComponent), **no secrets in `public/`**, auth **token in sessionStorage**, **RLS enabled on all 5 tables with zero anon/public policies**. Mapped all 3 checklist sections (frontend/backend/habits) to our state with evidence.

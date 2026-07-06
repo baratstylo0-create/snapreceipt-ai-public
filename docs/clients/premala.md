@@ -77,9 +77,14 @@ month) with **receipt snapshots appended**, exported as **both Excel and PDF**. 
 - [x] **Export samples received** (2026-07-06) — Petty Cash Monthly Statement (Excel template + completed
   PDF). Format captured (anonymised) in `docs/specs/2026-07-06-petty-cash-statement-format.md`.
 - [ ] **Confirm faithful reproduction** once the exporter is built (visual diff vs the client sample).
-- [ ] Premala's **company list** + each company's category set + branches/offices + staff names.
-- [ ] Provision Premala's isolated instance (own Supabase project + Telegram bot token + Groq keys) per
-  the ADR-015 custody ladder — before any real data.
+- **NOT needed from the Owner:** Premala's company list / category sets / branches / staff names — the
+  **admin enters all of this IN the product** (companies + branches + staff via provisioning; categories via
+  template import #109; floats per branch). We already learned the needed *shape* from the sample files.
+  (Optional: we could pre-seed their instance at handoff for a smoother start, but it's not required and
+  not a blocker.)
+- [ ] **Operational pre-live only** (not build blockers): provision Premala's isolated instance (own
+  Supabase project + Telegram bot token + Groq keys, ADR-015), enable **Groq ZDR**, apply migrations,
+  hosting + HTTPS, run `setup-admin` (Phase 2 bootstrap) to mint the first admin.
 
 ## 6. What this does NOT change
 
