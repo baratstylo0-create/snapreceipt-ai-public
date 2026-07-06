@@ -171,6 +171,33 @@ body.theme-dark {
   --shadow: 24px 26px 58px rgba(0, 0, 0, 0.5);
 }
 
+/* Warm theme (3rd option, owner request 2026-07-07): a soft sepia/parchment
+   LIGHT variant, not a warmer dark mode — cream-tan background, warm brown
+   ink, honey/amber accent (reusing the app's existing earthy --honey family
+   for brand consistency) instead of Light's cooler beige/moss-green. Only the
+   base UI + ambient tokens are overridden: since this is a light-luminance
+   background like :root's, the pie-chart/status colors tuned for :root
+   already have enough contrast here and don't need their own warm variants. */
+body.theme-warm {
+  --bg: #f2e0bb;
+  --bg-2: #f8ecd0;
+  --panel: #fbf4e2;
+  --panel-shadow: 0 9px 22px rgba(120, 78, 28, 0.16);
+  --line: rgba(122, 84, 38, 0.15);
+  --line-2: rgba(122, 84, 38, 0.25);
+  --txt: #3a2a18;
+  --txt-soft: #6b5236;
+  --muted: #9c8465;
+  --accent: #c9822f;
+  --accent-strong: #d99a44;
+  --accent-contrast: #fff8ec;
+
+  --glow-top: rgba(201, 130, 47, 0.16);
+  --glow-warm: rgba(201, 130, 47, 0.16);
+  --hill: rgba(180, 130, 70, 0.12);
+  --shadow: 24px 26px 54px rgba(120, 78, 28, 0.20);
+}
+
 /* --- top nav: a floating rounded bar, dark "pill" for the active section --- */
 .app-header { padding: 20px 24px 8px; max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 

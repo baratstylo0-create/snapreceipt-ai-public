@@ -621,7 +621,17 @@
     // ---- visual field builder section (additive) ---------------------------
     var builderWrap = el('div', 'tp-fb');
 
-    builderWrap.appendChild(msg('tp-fb-title', 'Or build your fields visually'));
+    var fbTitleRow = el('div', 'view-title-row');
+    fbTitleRow.appendChild(msg('tp-fb-title', 'Or build your fields visually'));
+    if (opts.Render && opts.Render.buildInfoIcon) {
+      var fbIcon = opts.Render.buildInfoIcon(
+        'An alternative to pasting CSV text above: add one row per field (e.g. Merchant, Date, Amount), pick a type, ' +
+        'then save. It builds the exact same field template — just without needing to know CSV formatting.',
+        'What does this section do?'
+      );
+      if (fbIcon) fbTitleRow.appendChild(fbIcon);
+    }
+    builderWrap.appendChild(fbTitleRow);
     builderWrap.appendChild(msg('tp-fb-sub muted',
       'No CSV knowledge needed — add a row per field, then save. This builds the same CSV header the paste box above sends.'));
     builderWrap.appendChild(msg('tp-fb-note muted',
