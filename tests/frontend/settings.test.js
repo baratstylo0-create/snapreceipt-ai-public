@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const Settings = require('../../public/js/components/settings');
-const { settingsModel, currentTheme } = Settings;
+const { settingsModel, currentTheme, initialAutoMode } = Settings;
 
 // --- settingsModel -----------------------------------------------------------
 
@@ -41,6 +41,24 @@ test('settingsModel: coerces truthy/falsy token into a boolean signedIn', () => 
 
 test('currentTheme: defaults to light with no document (Node)', () => {
   assert.strictEqual(currentTheme(), 'light');
+});
+
+// --- initialAutoMode ----------------------------------------------------------
+
+test('initialAutoMode: reads a truthy opts.autoMode as true', () => {
+  assert.strictEqual(initialAutoMode({ autoMode: true }), true);
+});
+
+test('initialAutoMode: defaults to false when opts.autoMode is missing', () => {
+  assert.strictEqual(initialAutoMode({}), false);
+  assert.strictEqual(initialAutoMode(undefined), false);
+});
+
+test('initialAutoMode: tolerates garbage opts without throwing', () => {
+  assert.strictEqual(initialAutoMode(null), false);
+  assert.strictEqual(initialAutoMode('nope'), false);
+  assert.strictEqual(initialAutoMode({ autoMode: 'yes' }), true); // truthy string coerces true
+  assert.strictEqual(initialAutoMode({ autoMode: 0 }), false);
 });
 
 // --- module surface ----------------------------------------------------------

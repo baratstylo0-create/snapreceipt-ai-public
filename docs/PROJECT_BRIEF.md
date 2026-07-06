@@ -1,8 +1,16 @@
-# PROJECT BRIEF — Receipt Analyser SaaS
+# PROJECT BRIEF — Receipt Analyser System
 ### (Filled Friction Kickoff Plan — the frozen intake. SOP §1.2: no feature code until this is signed off.)
 
 > This is the single source of truth for scope. If a request conflicts with this, STOP and ask the Repo Owner.
 > Source of authority order: **Repo Owner → FRICTION_PROJECT_SOP.md → this Brief → repo CLAUDE.md → defaults.**
+
+> **⚠️ POSITIONING UPDATE (ADR-020, 2026-07-05):** This is now a **DELIVERED, PER-CLIENT AUTOMATION SYSTEM**, not a
+> multi-tenant SaaS product. We build the complete system once and deploy/customise an instance per client. **No** self-serve
+> signup, subscription/billing, app-store listing, or Windows/Mac installer package. **Every feature below stays — nothing is
+> removed;** the change is packaging/distribution only. Items that existed **only** for the SaaS framing (public onboarding,
+> billing, store/installer, marketplace multi-tenancy) are **flagged N/A**. Multi-tenant/roles (M2) → a **per-client option**.
+> The "16-layer" completeness checklist (Owner's image) will be transcribed into §3 once shared — **not yet in the repo.**
+> Where "SaaS" appears below, read it as "the system" unless it's specifically describing distribution.
 
 ---
 

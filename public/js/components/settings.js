@@ -8,6 +8,8 @@
 //   • Theme — switches the light/dark forest palette (deps.setTheme, persisted).
 //   • Account currency — read-only, from GET /api/config (deps.config).
 //   • Clear local data — wipes the saved token + theme from this browser.
+//   • Agent auto-mode — skips confirmation for edits & review decisions
+//     (deps.autoMode / deps.setAutoMode; wiring lives in app.js, ADR-019).
 // Everything else is tagged "concept" so it's honest about not being live.
 //
 // TWO layers so the logic is unit-testable without a DOM:
@@ -54,6 +56,13 @@
     } catch (e) { return 'light'; }
   }
 
+  // Coerce opts.autoMode into a strict boolean for the Agent auto-mode toggle's
+  // initial state. Tolerant of missing/garbage input (undefined, strings, etc.)
+  // — defaults to false. Never throws.
+  function initialAutoMode(opts) {
+    return !!(opts && opts.autoMode);
+  }
+
   // ---- DOM helpers (browser only) -----------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -94,13 +103,19 @@
   // A read-only value chip.
   function valueChip(text) { var s = el('span', 'set-value'); Escape.setText(s, text); return s; }
 
-  // A concept-only toggle switch (visual; not wired to any backend).
-  function toggle(checked) {
+  // A toggle switch. `onChange` is optional — omit it (as every "concept" row
+  // does) and the switch is purely visual, not wired to anything. When
+  // provided, it's called with the new boolean value on the checkbox's
+  // `change` event.
+  function toggle(checked, onChange) {
     var s = el('label', 'switch');
     var i = el('input'); i.type = 'checkbox'; i.checked = !!checked;
     var track = el('span', 'switch-track');
     var knob = el('span', 'switch-knob');
     s.appendChild(i); s.appendChild(track); s.appendChild(knob);
+    if (typeof onChange === 'function') {
+      i.addEventListener('change', function () { onChange(!!i.checked); });
+    }
     return s;
   }
 
@@ -156,6 +171,17 @@
     app.body.appendChild(setRow('Theme', 'Light or dark forest palette. Saved to this browser.', themeSel));
     rootEl.appendChild(app.el);
 
+    // --- Agent (real: auto-mode) ---
+    var agent = collapsible('Agent', false);
+    agent.body.appendChild(setRow(
+      'Agent auto-mode',
+      'Skip confirmation for edits & review decisions. Delete and template changes always confirm, regardless of this setting.',
+      toggle(initialAutoMode(opts), function (v) {
+        if (typeof opts.setAutoMode === 'function') opts.setAutoMode(v);
+      })
+    ));
+    rootEl.appendChild(agent.el);
+
     // --- Currency & display ---
     var cur = collapsible('Currency & display', false);
     cur.body.appendChild(setRow('Account currency', 'Set on the server; amounts are normalised to this.', valueChip(model.currency)));
@@ -203,6 +229,7 @@
     // pure
     settingsModel: settingsModel,
     currentTheme: currentTheme,
+    initialAutoMode: initialAutoMode,
     // render (browser)
     mount: mount,
   };
