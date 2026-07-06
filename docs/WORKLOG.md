@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-07-05 · Claude-J1 (for Jeevan) · feat/jeevan-agentic-write-actions — real gap found + fixed, all 4 action types live-verified
+- **Files:** `lib/agent.js` (`listExpenses` now projects `id`; the 4 `propose*` tool descriptions now explicitly instruct the model to get the id from a prior `listExpenses` call, never ask the user to type one), `tests/agent.test.js` (+1 regression test), this WORKLOG.
+- **The Owner was right that Falc wasn't fully done.** My own first click-through (previous session) only "worked" because I pasted a raw UUID by hand. Re-reading the code exposed why: `listExpenses`'s returned items had **no `id` field** — the only read tool that gives the model a way to identify *which* expense the user means. Without it, `proposeEditExpense`/`proposeDeleteExpense`/`proposeReviewDecision` are **unreachable through normal conversation**, because no real user knows or types a UUID. This is a genuine functional gap, not a nitpick — confirmed by re-running the *exact* prior failing prompt ("Change the category of my Taco Bell expense to Travel") both before and after the fix.
+- **Fix:** `listExpenses` items now include `id` (the row's real id, passed through verbatim — same untrusted-safe projection as before, `ai_raw` still excluded). All 4 `propose*` tool descriptions updated to say the id must come from a prior `listExpenses` call.
+- **Live end-to-end, all 4 action types, one sitting, real Supabase + Groq (auth toggled off then restored):**
+  1. **Edit** — the exact one-shot prompt that failed before now completes fully unaided: `listExpenses` → real id found → `proposeEditExpense` → confirm card (`Meals & Entertainment → Travel`) → Confirm → **DB category actually changed**.
+  2. **Review-decision** — "Approve the Baker's Cottage expense that's pending review" (temporarily flagged a real row to `needs_review` for the test) → confirm card (`needs_review → approved`) → Confirm → **DB status changed**.
+  3. **Add-template-field** — "Add a template field called Payment Method" → confirm card with the honesty caveat visible → Cancel → template genuinely unchanged (verified via `/api/templates`).
+  4. **Delete, with Agent auto-mode ON** (re-confirmed) — still always shows the card; Cancel leaves the row untouched.
+  5. **Input-lock UX:** while a confirm card is pending, the message input + Send button are both disabled (can't send ambiguously mid-confirmation); Cancel and **"New conversation"** both re-enable input and correctly abandon the proposal with no write.
+  6. **Zero console errors** across the entire extended session.
+- **Test data restored** to its pre-test state (Taco Bell category, Baker's Cottage status) after verification.
+- **Tests: 1059/1059** (+1: `listExpenses` items include the row id).
+- **What's next:** ready for Owner's merge decision — all 4 open PRs (#99 UI density/reports drill-down, #100 spec, #101 plan, #102 implementation + this fix) can go in together per Owner's direction ("merge all of it altogether") once named.
+- **Assumptions:** none new beyond the prior entry.
+
+---
+
 ## 2026-07-05 · Claude-J2 (for Jeevan) · feat/jeevan-agentic-write-actions
 - **Files (10 commits):** `lib/expenseValidation.js` (new, extracted), `lib/reviewDecision.js` (new, extracted), `lib/agentProposals.js` (new — pending-proposal store + auto-confirm gate), `lib/agent.js` (4 `propose*` write tools + `confirmProposal` + forced-stop/auto-mode dispatch + hardened `SYSTEM_PROMPT`), `routes/agent.js` (`autoMode` threaded, new `POST /api/agent/confirm`), `routes/expenses.js`/`routes/review.js` (re-import the extracted validators, behavior byte-identical), `public/js/components/agent.js` (Falc confirm card), `public/js/components/settings.js` (real "Agent auto-mode" toggle), `public/js/app.js` (sessionStorage persistence + wiring), 10 test files.
 - **What — builds ADR-019 (spec PR #100), QA report item #8:** "the agent should be agentic, able to do everything in the dashboard, with confirmation like Claude, or an auto-mode." Implements **propose → confirm → execute**: a new `propose*` tool validates only (never writes) and returns a pending diff; the model is forced to stop (`tool_choice:'none'`, no chaining a second action) until a human confirms; Confirm re-validates the row FRESH and executes via the SAME already-validated code the dashboard's own PATCH/DELETE/review/template routes already use — zero parallel write logic.

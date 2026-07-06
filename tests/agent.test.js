@@ -100,6 +100,19 @@ test('listExpenses filters, projects (no ai_raw), excludes rejected, clamps limi
   assert.equal(out.fetched_count, 1);
 });
 
+// ADR-019 REGRESSION (found via live click-through): listExpenses is the ONLY way the model
+// can learn an expense's id in natural conversation ("my Taco Bell expense from December").
+// Without an id in the projection, propose{Edit,Delete,ReviewDecision}Expense are UNREACHABLE
+// through normal chat — a real user never knows/types a raw UUID. This asserts the id IS
+// projected (row.id passes through verbatim) so the write flow is actually usable end-to-end.
+test('listExpenses items include the row id (required so propose* tools are reachable from chat)', async () => {
+  const tool = TOOLS.find(t => t.name === 'listExpenses');
+  const clean = tool.validate({});
+  const rows = [{ id: 'e1-real-uuid', merchant: 'Taco Bell', expense_date: '2023-12-03', amount: 291.58, currency: 'MYR', category: 'Meals & Entertainment', status: 'saved', remark: null }];
+  const out = await tool.run(clean, { sbSelect: async () => rows });
+  assert.equal(out.items[0].id, 'e1-real-uuid');
+});
+
 test('listExpenses defaults limit and rejects a non-ISO from', () => {
   const tool = TOOLS.find(t => t.name === 'listExpenses');
   assert.equal(tool.validate({}).limit, 200); // LIST_LIMIT_DEFAULT
