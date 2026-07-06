@@ -216,8 +216,13 @@
   }
 
   // Render the token-entry gate. On submit: normalise, store in sessionStorage,
-  // wire Api, and enter the app. Blocks the app until a token is provided.
-  function renderTokenGate(deps, onEntered) {
+  // wire Api, and enter the app. `onCancel` is OPTIONAL: at boot, when auth is
+  // actually required, there is nowhere valid to cancel back to (the app can't
+  // be entered without a token), so it's omitted and the gate blocks the app.
+  // When opened from Settings' "Log in" on a dashboard that does NOT require a
+  // token, there's nothing to wait for — `onCancel` (a "Cancel" button) lets the
+  // user back out instead of being stuck on a token box they have no token for.
+  function renderTokenGate(deps, onEntered, onCancel) {
     var Escape = deps.Escape, Api = deps.Api, AuthGate = deps.AuthGate;
     var mount = document.getElementById('app');
     if (!mount) return;
@@ -248,6 +253,17 @@
     form.appendChild(label);
     form.appendChild(input);
     form.appendChild(submit);
+    if (typeof onCancel === 'function') {
+      var cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'token-gate-cancel';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', function () {
+        mount.textContent = '';
+        onCancel();
+      });
+      form.appendChild(cancel);
+    }
     form.appendChild(msg);
 
     form.addEventListener('submit', function (ev) {
@@ -317,7 +333,9 @@
     // reloading just reboots straight back to Overview, which reads as "Log in
     // does nothing but bounce me to Overview." `login()` shows the real
     // token-entry gate in place, without a full page reload.
-    deps.login = function () { renderTokenGate(deps, function () { enterApp(deps); }); };
+    deps.login = function () {
+      renderTokenGate(deps, function () { enterApp(deps); }, function () { enterApp(deps); });
+    };
     deps.onClearLocal = reloadPage;
     deps.autoMode = storedAutoMode();
     deps.setAutoMode = setAutoMode;
