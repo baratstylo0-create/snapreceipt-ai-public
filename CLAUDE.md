@@ -1,4 +1,11 @@
-# Receipt Analyser SaaS — Guide for Claude Code
+# Receipt Analyser System — Guide for Claude Code
+> **⚠️ POSITIONING (ADR-020, 2026-07-05): this is a DELIVERED, PER-CLIENT AUTOMATION SYSTEM — not a multi-tenant SaaS product.**
+> We build one complete system and deploy/customise an instance per client (their template, categories, branding, which
+> features/roles are on). **No** self-serve signup, subscription/billing, app-store listing, or Windows/Mac installer package.
+> **All features stay — nothing is removed;** only packaging/distribution changed. "SaaS phases" (public onboarding, billing,
+> store/installer, marketplace multi-tenancy) are **flagged N/A**. Multi-tenant/roles (M2) is reframed as a **per-client option**,
+> not a universal requirement. The Owner's "16-layer" completeness checklist (an image) is **not yet in the repo** — pending. The
+> word "SaaS" survives in file/dir names for now (cosmetic, not worth a rename). See `docs/DECISIONS.md` ADR-020.
 
 > ## ⚠️ START HERE — Friction governance (read before touching anything)
 > This repo is built under the **Friction SOP**. On every session start, read IN ORDER:

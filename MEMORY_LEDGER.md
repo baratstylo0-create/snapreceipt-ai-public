@@ -2,7 +2,7 @@
 > Compact durable memory (lean-context). Load this FIRST on a returning session; don't re-derive.
 
 ## What this is
-SaaS: read receipts (photo/PDF) → extract customer-templated fields → dashboard + Excel. Vertical AI track. Under Friction SOP.
+**Delivered, per-client automation SYSTEM** (NOT a multi-tenant SaaS — ADR-020, 2026-07-05): read receipts (photo/PDF) → extract client-templated fields → dashboard + Excel + Telegram bot + Falc agent. Vertical AI track. Under Friction SOP. We build once, deploy/customise an instance per client (their template/categories/branding/features). No self-serve signup / billing / app-store / installer. ALL features stay; only packaging changed. "SaaS phases" (public onboarding, billing, store, marketplace multi-tenancy) flagged N/A; multi-tenant/roles = per-client option. "16-layer" completeness image not yet in repo (pending Owner).
 
 ## Architecture (one line each)
 - Node 22 + Express, **no build**, deps = express+dotenv (+ approved). Native fetch/Buffer, `hreq()` helper. No axios/node-fetch/multer.

@@ -1,6 +1,22 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-020 · Delivery model — a bespoke, per-client automation SYSTEM, not a multi-tenant SaaS product
+**Date:** 2026-07-05 · **Status:** Accepted (Owner: Jeevan)
+**Context:** The project was scoped and named as a "SaaS" (a product we own and sell self-serve to many customers). The Owner has re-decided the go-to-market: we are **not** shipping a subscription SaaS. We build **one complete automation system** and **deliver it to each client**, lightly customised to how that client wants their system to work.
+**Decision — reframe the business model, keep the product 100% intact:**
+- **What this IS:** a self-hosted / delivered **automation system**. For each client we deploy an instance and customise a little to their preference — their field template (#12 already makes fields client-defined), their categories, branding, which features/roles are turned on, their currency, etc.
+- **What this is NOT:** a public multi-tenant SaaS. **No** self-serve public signup, **no** subscription/billing engine, **no** app-store listing, **no** Windows/Mac downloadable installer package, **no** consumer marketplace distribution. It is delivered and configured per client, not downloaded from a store.
+- **ALL FEATURES STAY — nothing is removed.** Every built feature (OCR + PDF, templated extraction, categorization incl. line-item, anomaly/review queue, currency, reports, Excel, Telegram bot, receipt-image storage, voucher numbers, the Falc agent + agentic write actions, the Treehouse UI, etc.) is required for a "proper working system." The re-decision changes *packaging & distribution*, not *scope*.
+- **"Flag the SaaS phases":** work items that exist **only** because of the SaaS/product framing are marked **N/A for the delivered-system model** (parked, not deleted): public self-serve onboarding, subscription/billing, app-store/installer packaging, marketing-site/growth, and any "one product serving strangers" multi-tenant marketplace assumptions.
+- **Multi-tenant (M2 "business structure") is REFRAMED, not cancelled:** no longer "one product hosting many unrelated tenants." It becomes a **per-client customisation option** — a given client may internally want multiple users / branches / roles (HQ admin + branch clerks); if so we enable that layer **for that client's instance**. Some clients won't need it. Mugi's org/roles design remains the toggleable multi-user layer, delivered per client who wants it.
+- **The "16-layer" system-completeness checklist** (Owner referenced it as an image): it defines what makes this a *proper working system* end-to-end. ⚠️ **That image is NOT in the repo and I have not seen it.** Once the Owner shares it (or lists the 16 layers), we transcribe it into `docs/PROJECT_BRIEF.md` §3 as the canonical completeness checklist and verify every non-SaaS layer is present. Until then this ADR records the intent; the layer-by-layer audit is pending that input.
+**Consequences:**
+- Governance docs are re-headed as a **delivered automation system** (banner in `CLAUDE.md`, `PROJECT_BRIEF.md`, `MEMORY_LEDGER.md`); the repo dir name (`receipt-analyser-saas`) is left as-is (cosmetic; not worth a history-churning rename).
+- Deployment/hosting becomes a **per-client** concern (their infra or ours), configured from `.env` + their template — not a single public multi-tenant deploy. ADR-015's secret-custody/backup ladder still applies per client instance.
+- Security posture is unchanged and arguably simpler (each client is isolated by deployment, not just by `account_id` row-scoping).
+- No code change is forced by this ADR — the system already runs single-account, config-driven, template-customisable, which is exactly the delivered-system shape.
+
 ## ADR-016 · Groq multi-key rotation (free-tier quota pool) — random selection across N accounts, 429-driven fall-through
 **Date:** 2026-07-03 · **Status:** Proposed (Owner: Jeevan) — **pending Barat sign-off (touches his frozen `lib/groq.js`, ARCHITECTURE §3.2)**
 **Context:** The whole system runs on ONE Groq free-tier account (Barat's). Free tier is per-account rate-limited (RPM) and daily-capped (RPD — ~14.4k/day on common instant models, lower on vision). A single account is both a hard ceiling and a single point of failure for AI availability. Pooling several team accounts' quotas (Barat's + Jeevan's ×2 + Mugi's) ~multiplies the free daily ceiling at $0.
