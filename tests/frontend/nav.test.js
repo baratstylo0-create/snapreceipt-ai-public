@@ -33,7 +33,8 @@ test('SECTIONS: every section has a non-empty label and a unique id', () => {
   });
 });
 
-test('buildNav / buildEmblem: no-op (null) outside a browser', () => {
+test('buildNav / buildEmblem / buildBrandHeader: no-op (null) outside a browser', () => {
   assert.strictEqual(Nav.buildNav(), null);
   assert.strictEqual(Nav.buildEmblem(), null);
+  assert.strictEqual(Nav.buildBrandHeader(), null);
 });

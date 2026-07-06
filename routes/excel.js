@@ -43,7 +43,12 @@ module.exports = function mountExcel(app) {
       });
 
       const fieldSpec = await templates.getFieldSpec();
-      const workbook = buildWorkbook(filtered, fieldSpec);
+      // Human-readable heading for the Summary sheet — same from/to values
+      // already validated above, just phrased for a reader instead of a URL.
+      const rangeLabel = !from && !to ? 'All time'
+        : from && to && from === to ? from
+        : (from || '…') + ' to ' + (to || '…');
+      const workbook = buildWorkbook(filtered, fieldSpec, { rangeLabel, generatedAt: new Date().toISOString() });
       const buf = await workbook.xlsx.writeBuffer();
 
       // Filenames are built ONLY from already-ISO-validated strings (or fixed

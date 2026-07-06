@@ -31,6 +31,7 @@ const {
   startOfWeekIso, addDaysIso, shiftDay, shiftWeek, shiftMonth, shiftYear,
   monthRangeFor, weekRangeFor, yearRangeFor,
   excelFilename, exportErrorMessage,
+  EXPORT_CHOICES, exportChoiceLabel, exportRangeFor,
 } = Reports;
 
 // --- date math ---------------------------------------------------------------
@@ -322,4 +323,44 @@ test('exportErrorMessage: never leaks internals (body is not even a parameter â€
   // Contract: the function signature takes status only, mirroring upload.js's
   // errorMessage's status-only design, so there is no way to leak body text.
   assert.strictEqual(exportErrorMessage.length, 1);
+});
+
+// --- export-timeframe choice (Owner request 2026-07-06) ----------------------
+
+test('EXPORT_CHOICES: day, week, month, overall â€” in that order', () => {
+  assert.deepStrictEqual(EXPORT_CHOICES, ['day', 'week', 'month', 'overall']);
+});
+
+test('exportChoiceLabel: a plain-language label for each choice, and a safe fallback for garbage', () => {
+  assert.strictEqual(exportChoiceLabel('day'), 'Today');
+  assert.strictEqual(exportChoiceLabel('week'), 'This week');
+  assert.strictEqual(exportChoiceLabel('month'), 'This month');
+  assert.strictEqual(exportChoiceLabel('overall'), 'Overall (all time)');
+  assert.strictEqual(exportChoiceLabel('garbage'), 'Overall (all time)');
+  assert.strictEqual(exportChoiceLabel(undefined), 'Overall (all time)');
+});
+
+test('exportRangeFor: "day" is anchored to the given "today", not whatever is browsed on screen', () => {
+  assert.deepStrictEqual(exportRangeFor('day', '2026-07-06'), { from: '2026-07-06', to: '2026-07-06' });
+});
+
+test('exportRangeFor: "week" is the Sun-Sat week containing "today"', () => {
+  // 2026-07-06 is a Monday; its week runs Sun 2026-07-05 .. Sat 2026-07-11.
+  assert.deepStrictEqual(exportRangeFor('week', '2026-07-06'), { from: '2026-07-05', to: '2026-07-11' });
+});
+
+test('exportRangeFor: "month" is the full calendar month containing "today"', () => {
+  assert.deepStrictEqual(exportRangeFor('month', '2026-07-06'), { from: '2026-07-01', to: '2026-07-31' });
+  // February in a leap year (2028) -> 29 days.
+  assert.deepStrictEqual(exportRangeFor('month', '2028-02-10'), { from: '2028-02-01', to: '2028-02-29' });
+});
+
+test('exportRangeFor: "overall" has no date bounds at all (routes/excel.js treats this as every expense ever)', () => {
+  assert.deepStrictEqual(exportRangeFor('overall', '2026-07-06'), { from: null, to: null });
+});
+
+test('exportRangeFor: a malformed/missing "now" falls back to the real today, never throws', () => {
+  assert.doesNotThrow(() => exportRangeFor('day', 'not-a-date'));
+  assert.doesNotThrow(() => exportRangeFor('day', undefined));
+  assert.doesNotThrow(() => exportRangeFor('garbage-choice', '2026-07-06'));
 });
