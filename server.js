@@ -11,6 +11,7 @@ const corsPreflight = require('./lib/cors-preflight');
 
 const mountWebhook = require('./routes/webhook');
 const mountAuth = require('./routes/auth');       // ADR-021 business login (multiUser only)
+const mountBranches = require('./routes/branches'); // ADR-021 Phase 2 provisioning (multiUser only)
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountReports = require('./routes/reports');
@@ -36,6 +37,7 @@ app.use(securityHeaders);
 app.use(corsPreflight);
 mountWebhook(app);
 mountAuth(app);
+mountBranches(app);
 mountExpenses(app);
 mountReceipt(app);
 mountReports(app);

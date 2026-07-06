@@ -110,6 +110,33 @@ test('createBranch: rejects a missing office and a bad role', async () => {
   await assert.rejects(() => createBranch({ office: 'X', role: 'staff' }), /role must be clerk or admin/);
 });
 
+test('createBranch: honours an explicit username + password (bootstrap admin), trimmed', async () => {
+  const stub = stubDb();
+  try {
+    const r = await createBranch({ office: 'Head Office', role: 'admin', username: '  boss  ', password: 'Str0ngPass99' });
+    assert.strictEqual(r.credentials.username, 'boss', 'explicit username is used (trimmed)');
+    assert.strictEqual(r.credentials.password, 'Str0ngPass99', 'explicit password is echoed back once');
+    const userPost = stub.calls.find((c) => c.method === 'POST' && /\/users/.test(c.url));
+    assert.strictEqual(userPost.body.username, 'boss');
+    assert.match(userPost.body.password_hash, /^scrypt\$/);      // stored as a hash, never plaintext
+    assert.ok(!('password' in userPost.body), 'plaintext never sent to the DB');
+  } finally { stub.restore(); }
+});
+
+test('createBranch: an explicit password that fails the SEC-1 policy is rejected', async () => {
+  await assert.rejects(() => createBranch({ office: 'X', role: 'admin', username: 'a', password: 'weak' }),
+    /at least 10 characters|letters and digits/);
+});
+
+test('createBranch: no explicit creds -> still auto-generates (unchanged behaviour)', async () => {
+  const stub = stubDb();
+  try {
+    const r = await createBranch({ office: 'KL Branch' });
+    assert.match(r.credentials.username, /^kl-branch-[a-z2-9]{4}$/);
+    assert.strictEqual(r.credentials.password.length, 14);
+  } finally { stub.restore(); }
+});
+
 // ---- listBranches / softDelete / staff --------------------------------------
 
 test('listBranches: filters active (and company when given)', async () => {
