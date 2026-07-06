@@ -4,8 +4,7 @@
 const express = require('express');
 const supabase = require('../lib/supabase');   // namespace so tests can stub sbSelect/sbUpdate
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
-
-const DECISION_STATUS = { approve: 'approved', reject: 'rejected' };
+const { resolveDecision, canDecide, buildReviewAudit } = require('../lib/reviewDecision');
 
 module.exports = function mountReview(app) {
   // GET /api/review — the admin queue: expenses awaiting an accept/reject decision.
@@ -28,20 +27,16 @@ module.exports = function mountReview(app) {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const decision = req.body && req.body.decision;
-      const status = DECISION_STATUS[decision];
-      if (!status) return res.status(400).json({ error: 'decision must be "approve" or "reject"' });
+      const resolved = resolveDecision(decision);
+      if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+      const status = resolved.status;
       const note = req.body && req.body.note ? String(req.body.note).slice(0, 500) : null;
 
       const existing = await supabase.sbSelect('expenses', { eq: { id: req.params.id } });
       const cur = existing[0];
-      if (!cur) return res.status(404).json({ error: 'expense not found' });
-      // Status machine (saved → needs_review → approved|rejected): only a pending expense may be
-      // decided. Reject re-decision of an already-approved/rejected row or a never-flagged 'saved' one.
-      if (cur.status !== 'needs_review') {
-        return res.status(409).json({ error: 'expense is not pending review (status=' + cur.status + ')' });
-      }
-      const anomaly = (cur.anomaly && typeof cur.anomaly === 'object' && !Array.isArray(cur.anomaly)) ? cur.anomaly : {};
-      anomaly.review = { decision, note, at: new Date().toISOString() };
+      const decidable = canDecide(cur);
+      if (!decidable.ok) return res.status(decidable.code).json({ error: decidable.error });
+      const anomaly = buildReviewAudit(cur.anomaly, decision, note);
 
       const rows = await supabase.sbUpdate('expenses', { id: req.params.id }, { status, anomaly });
       res.json(rows[0] || { ok: true, status });

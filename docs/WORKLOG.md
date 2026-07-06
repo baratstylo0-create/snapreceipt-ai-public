@@ -4,6 +4,49 @@
 
 ---
 
+## 2026-07-05 · Claude-J1 (for Jeevan) · feat/jeevan-agentic-write-actions — real gap found + fixed, all 4 action types live-verified
+- **Files:** `lib/agent.js` (`listExpenses` now projects `id`; the 4 `propose*` tool descriptions now explicitly instruct the model to get the id from a prior `listExpenses` call, never ask the user to type one), `tests/agent.test.js` (+1 regression test), this WORKLOG.
+- **The Owner was right that Falc wasn't fully done.** My own first click-through (previous session) only "worked" because I pasted a raw UUID by hand. Re-reading the code exposed why: `listExpenses`'s returned items had **no `id` field** — the only read tool that gives the model a way to identify *which* expense the user means. Without it, `proposeEditExpense`/`proposeDeleteExpense`/`proposeReviewDecision` are **unreachable through normal conversation**, because no real user knows or types a UUID. This is a genuine functional gap, not a nitpick — confirmed by re-running the *exact* prior failing prompt ("Change the category of my Taco Bell expense to Travel") both before and after the fix.
+- **Fix:** `listExpenses` items now include `id` (the row's real id, passed through verbatim — same untrusted-safe projection as before, `ai_raw` still excluded). All 4 `propose*` tool descriptions updated to say the id must come from a prior `listExpenses` call.
+- **Live end-to-end, all 4 action types, one sitting, real Supabase + Groq (auth toggled off then restored):**
+  1. **Edit** — the exact one-shot prompt that failed before now completes fully unaided: `listExpenses` → real id found → `proposeEditExpense` → confirm card (`Meals & Entertainment → Travel`) → Confirm → **DB category actually changed**.
+  2. **Review-decision** — "Approve the Baker's Cottage expense that's pending review" (temporarily flagged a real row to `needs_review` for the test) → confirm card (`needs_review → approved`) → Confirm → **DB status changed**.
+  3. **Add-template-field** — "Add a template field called Payment Method" → confirm card with the honesty caveat visible → Cancel → template genuinely unchanged (verified via `/api/templates`).
+  4. **Delete, with Agent auto-mode ON** (re-confirmed) — still always shows the card; Cancel leaves the row untouched.
+  5. **Input-lock UX:** while a confirm card is pending, the message input + Send button are both disabled (can't send ambiguously mid-confirmation); Cancel and **"New conversation"** both re-enable input and correctly abandon the proposal with no write.
+  6. **Zero console errors** across the entire extended session.
+- **Test data restored** to its pre-test state (Taco Bell category, Baker's Cottage status) after verification.
+- **Tests: 1059/1059** (+1: `listExpenses` items include the row id).
+- **What's next:** ready for Owner's merge decision — all 4 open PRs (#99 UI density/reports drill-down, #100 spec, #101 plan, #102 implementation + this fix) can go in together per Owner's direction ("merge all of it altogether") once named.
+- **Assumptions:** none new beyond the prior entry.
+
+---
+
+## 2026-07-05 · Claude-J2 (for Jeevan) · feat/jeevan-agentic-write-actions
+- **Files (10 commits):** `lib/expenseValidation.js` (new, extracted), `lib/reviewDecision.js` (new, extracted), `lib/agentProposals.js` (new — pending-proposal store + auto-confirm gate), `lib/agent.js` (4 `propose*` write tools + `confirmProposal` + forced-stop/auto-mode dispatch + hardened `SYSTEM_PROMPT`), `routes/agent.js` (`autoMode` threaded, new `POST /api/agent/confirm`), `routes/expenses.js`/`routes/review.js` (re-import the extracted validators, behavior byte-identical), `public/js/components/agent.js` (Falc confirm card), `public/js/components/settings.js` (real "Agent auto-mode" toggle), `public/js/app.js` (sessionStorage persistence + wiring), 10 test files.
+- **What — builds ADR-019 (spec PR #100), QA report item #8:** "the agent should be agentic, able to do everything in the dashboard, with confirmation like Claude, or an auto-mode." Implements **propose → confirm → execute**: a new `propose*` tool validates only (never writes) and returns a pending diff; the model is forced to stop (`tool_choice:'none'`, no chaining a second action) until a human confirms; Confirm re-validates the row FRESH and executes via the SAME already-validated code the dashboard's own PATCH/DELETE/review/template routes already use — zero parallel write logic.
+- **Scope — all 4 action types** (Owner's explicit call): edit expense fields, delete (soft), approve/reject review, add a template field (carries the existing "type/required may not round-trip through CSV" honesty caveat).
+- **The key safety property, verified in code, not just claimed:** `canAutoConfirm(kind)` in `lib/agentProposals.js` is a hardcoded `Set(['edit','review-decision'])` — delete and add-template-field structurally **cannot** auto-confirm regardless of the toggle; that gate is consulted from `runAgent`'s loop, never decided by the model. A pending (non-auto) proposal forces the model's next call to `tool_choice:'none'` before returning `{answer, proposal}` to the caller.
+- **Injection defense:** `SYSTEM_PROMPT` hardened (same "caged/untrusted DATA" framing already used in `lib/categorize.js`) — retrieved OCR/merchant text is reference-only, never an instruction; a write proposal may only follow the user's own current message. Stated honestly as the one soft/prompt-level layer; the confirm card + confirm-time re-validation + the server-side auto-mode gate are the real, model-independent backstops.
+- **Every task independently re-verified by the controller** (not just trusting subagent self-reports) — read the actual diffs for the write-boundary code, the auto-confirm gate, the force-stop loop, the HTTP coercion, and the frontend confirm-card/toggle wiring; re-ran `npm test` myself after each commit.
+- **Zero cross-lane edits:** the two extractions (`sanitizeExpensePatch`, review status-guard) are Jeevan's own files (`routes/expenses.js`, `routes/review.js`); the template-add action reuses `lib/templates.js` (Barat's) read-only via its existing exported functions — his file untouched.
+- **Tests: 1058/1058** (+220 across 10 test files; baseline was 963 before this branch). Full suite run fresh after every commit, `.env` moved aside per the standing convention.
+- **What's next:** open PR for review before merge (Tier-2 — a brand-new pathway that writes financial data). Not yet live-verified in a browser (built across sequential worktree tasks, no dev server driven this pass) — recommend a live click-through (ask the agent to edit a category, confirm it, then try a delete to confirm the always-confirm gate) before merge.
+- **Assumptions:** in-memory (not DB-backed) pending-proposal store, ~10min TTL, single-account v1 — a server restart before a Confirm click loses that one pending proposal (acceptable, interactive same-session flow). `autoMode` persisted to sessionStorage only (matches the existing token/theme pattern — never localStorage).
+
+## 2026-07-05 · Claude-J1 (for Jeevan) · feat/jeevan-agentic-write-actions — live browser verification
+- **No code changed.** Closes the one open item PR #102 flagged before merge: a real click-through against a real Supabase/Groq, not just the 1058-test suite.
+- **Reviewed the diff first** (`lib/agentProposals.js`, `lib/agent.js`'s loop, `routes/agent.js`, the frontend confirm card) independently before testing — confirmed `canAutoConfirm` is a hardcoded frozen `Set`, the pending-proposal path forces `tool_choice:'none'` on the very next call, and `confirmProposal` re-validates the row fresh (existence + `deleted_at` + decidability) before writing.
+- **Live-verified via Falc, auth toggled off then restored:**
+  1. Asked Falc to change a real expense's category → it called `proposeEditExpense` → the confirm card rendered the exact diff (`Meals & Entertainment → Travel`) → clicked **Confirm** → **the DB row's category actually changed** (verified via `/api/expenses`).
+  2. Turned on **Agent auto-mode** in Settings → asked Falc to edit the same expense back → **no confirm card, immediate write**, model narrated the outcome. Auto-confirm path works.
+  3. **The critical safety test:** with auto-mode still ON, asked Falc to **delete** that expense → the confirm card appeared anyway (`Delete Taco Bell — 291.58 MYR` + full diff) → row was NOT deleted until a click. Clicked **Cancel** → row survived untouched, category unchanged. **Confirms the hardcoded always-confirm gate for delete/add-template-field cannot be bypassed by the auto-mode toggle, live, not just in a unit test.**
+  4. Zero console errors across the whole flow.
+- **What's next:** ready for Owner merge decision (Tier-2, self-authored — needs Owner to name it or an independent review). After merge: same live click-through for the other 2 action kinds (review-decision, add-template-field) is optional/lower-risk (already covered by the +220 tests and share the identical gate code as edit/delete).
+- **Assumptions:** none new.
+
+---
+
 ## 2026-07-05 · Claude-J2 (for Jeevan) · docs/jeevan-agentic-write-actions-spec
 - **Files:** `docs/specs/2026-07-05-agentic-write-actions-design.md` (new), this WORKLOG.
 - **What — Owner-requested spec (QA report item #8):** "the agent should be agentic, able to do everything in the dashboard, with confirmation like Claude, or an auto-mode." Brainstormed live with the Owner (5 sections, each approved before moving on). Design: a **propose → confirm → execute** pattern — a new `propose*` tool validates only and returns a pending diff; the model must frame it in plain English then stop (forced `tool_choice:'none'`, no chained actions); the chat shows a confirm card (Confirm/Cancel); Confirm re-validates fresh and executes via the SAME already-validated code the dashboard's own PATCH/DELETE/review/template routes already use — no parallel write logic anywhere.
