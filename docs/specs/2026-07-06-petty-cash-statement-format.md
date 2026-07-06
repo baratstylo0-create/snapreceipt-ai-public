@@ -59,6 +59,34 @@ B.  SUMMARY OF EXPENSES: ([BRANCH])
 - **Second currency column** (e.g. INR) present for a cross-border company ⇒ optional, from our existing
   currency layer (ADR-005 FX, **never** the LLM).
 
+## 2b. Visual styling (confirmed by rendering the completed sample PDF)
+
+For the "as accurate as the sample" bar, the exporter must reproduce this styling (values are the design
+target, all configurable per company):
+- **Company name:** large **bold serif, red, centred**; the title + "MONTH YEAR" **bold black, centred**
+  underneath.
+- **Section headings** ("A. Summary of Cash In", "B. Summary of Expenses: (Branch)"): **blue, italic,
+  underlined**, left-aligned.
+- **Table header row** (DATE/DESCRIPTION/… and ITEM/DATE/NAME/…): **grey fill, bold, thin black borders**
+  on every cell (full grid).
+- **Category banner row:** grey fill, category name **bold**, with the **item number in its own boxed
+  cell** at the left.
+- **Amount alignment:** the RM column shows the currency label left + the number right-aligned bold; a
+  2nd currency column (e.g. `₹ 00,000.00`) sits beside it when enabled.
+- **Per-category `TOTAL` cell:** **yellow fill**. **`SUBTOTAL` (all expenses):** **green fill**.
+- **Fixed empty padding rows** under each category (the sheet pre-sizes each category block with blank
+  numbered rows) — reproduce a small, configurable number of blank rows per category for visual fidelity.
+- **Footer summary** (A. Total Cash In-Hand / B. Total Expenditure / **BALANCE**), boxed, right-of-centre;
+  **a negative BALANCE is shown in red** (our value uses the *correct* sign — see §6 — so red only appears
+  on a genuine claim/overspend).
+- **Sign-off block:** "PREPARED BY :" + signature + "DATE:" (left); "APPROVED BY:" + "DATE:" (right). The
+  filed sample uses **Prepared + Approved** (no "Checked by"); the blank Excel template also carries a
+  "CHECKED BY" slot ⇒ make the three sign-off roles **configurable** (show/hide per company).
+- Whole statement sits inside a **thin black cell grid**.
+
+(Verified by rendering the client PDF to an image locally via `pdftoppm`; the rendered file was inspected
+then deleted — it is confidential and never entered the repo.)
+
 ## 3. Dual export (BOTH required — Owner: "must have both options, as accurate as the sample")
 
 - **Excel (`.xlsx`)** — reproduce the layout with `exceljs` (ADR-012). Real computed subtotals/totals
