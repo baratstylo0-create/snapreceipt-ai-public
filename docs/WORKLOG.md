@@ -16,6 +16,17 @@
 - **What's next:** open PR for review before merge (Tier-2 — a brand-new pathway that writes financial data). Not yet live-verified in a browser (built across sequential worktree tasks, no dev server driven this pass) — recommend a live click-through (ask the agent to edit a category, confirm it, then try a delete to confirm the always-confirm gate) before merge.
 - **Assumptions:** in-memory (not DB-backed) pending-proposal store, ~10min TTL, single-account v1 — a server restart before a Confirm click loses that one pending proposal (acceptable, interactive same-session flow). `autoMode` persisted to sessionStorage only (matches the existing token/theme pattern — never localStorage).
 
+## 2026-07-05 · Claude-J1 (for Jeevan) · feat/jeevan-agentic-write-actions — live browser verification
+- **No code changed.** Closes the one open item PR #102 flagged before merge: a real click-through against a real Supabase/Groq, not just the 1058-test suite.
+- **Reviewed the diff first** (`lib/agentProposals.js`, `lib/agent.js`'s loop, `routes/agent.js`, the frontend confirm card) independently before testing — confirmed `canAutoConfirm` is a hardcoded frozen `Set`, the pending-proposal path forces `tool_choice:'none'` on the very next call, and `confirmProposal` re-validates the row fresh (existence + `deleted_at` + decidability) before writing.
+- **Live-verified via Falc, auth toggled off then restored:**
+  1. Asked Falc to change a real expense's category → it called `proposeEditExpense` → the confirm card rendered the exact diff (`Meals & Entertainment → Travel`) → clicked **Confirm** → **the DB row's category actually changed** (verified via `/api/expenses`).
+  2. Turned on **Agent auto-mode** in Settings → asked Falc to edit the same expense back → **no confirm card, immediate write**, model narrated the outcome. Auto-confirm path works.
+  3. **The critical safety test:** with auto-mode still ON, asked Falc to **delete** that expense → the confirm card appeared anyway (`Delete Taco Bell — 291.58 MYR` + full diff) → row was NOT deleted until a click. Clicked **Cancel** → row survived untouched, category unchanged. **Confirms the hardcoded always-confirm gate for delete/add-template-field cannot be bypassed by the auto-mode toggle, live, not just in a unit test.**
+  4. Zero console errors across the whole flow.
+- **What's next:** ready for Owner merge decision (Tier-2, self-authored — needs Owner to name it or an independent review). After merge: same live click-through for the other 2 action kinds (review-decision, add-template-field) is optional/lower-risk (already covered by the +220 tests and share the identical gate code as edit/delete).
+- **Assumptions:** none new.
+
 ---
 
 ## 2026-07-04 · Claude-J1 (for Jeevan) · feat/jeevan-mugi-treehouse-reskin
