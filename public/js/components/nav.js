@@ -112,8 +112,8 @@
     var themeBtn = document.createElement('button');
     themeBtn.type = 'button';
     themeBtn.className = 'icon-btn';
-    themeBtn.title = 'Toggle dark/light theme';
-    themeBtn.setAttribute('aria-label', 'Toggle dark/light theme');
+    themeBtn.title = 'Cycle theme (Light / Warm / Dark)';
+    themeBtn.setAttribute('aria-label', 'Cycle theme (Light / Warm / Dark)');
     themeBtn.textContent = '☾';
     themeBtn.addEventListener('click', function () { onToggleTheme(); });
     actions.appendChild(themeBtn);

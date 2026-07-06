@@ -48,11 +48,13 @@
   }
 
   // Read the active theme off <body> (matches app.js's applyTheme classes).
-  // 'dark' when the dark class is present, else 'light'. Never throws.
+  // 'warm'/'dark' when that class is present, else 'light'. Never throws.
   function currentTheme() {
     try {
       if (typeof document === 'undefined' || !document.body) return 'light';
-      return document.body.classList.contains('theme-dark') ? 'dark' : 'light';
+      if (document.body.classList.contains('theme-warm')) return 'warm';
+      if (document.body.classList.contains('theme-dark')) return 'dark';
+      return 'light';
     } catch (e) { return 'light'; }
   }
 
@@ -164,11 +166,16 @@
     // --- Appearance (real: theme) ---
     var app = collapsible('Appearance', false);
     var themeSel = pick(
-      [['light', 'Light'], ['dark', 'Dark']],
+      [['light', 'Light'], ['warm', 'Warm'], ['dark', 'Dark']],
       currentTheme(),
       function (v) { if (typeof opts.setTheme === 'function') opts.setTheme(v); }
     );
-    app.body.appendChild(setRow('Theme', 'Light or dark forest palette. Saved to this browser.', themeSel));
+    // Hook class so app.js can keep this dropdown in sync when the header's
+    // theme icon (a full 3-way cycle, not this dropdown) changes the theme —
+    // this view is built once at boot and never re-rendered, so without this
+    // the select would show a stale value after the icon is clicked.
+    themeSel.classList.add('set-select--theme');
+    app.body.appendChild(setRow('Theme', 'Light, warm, or dark forest palette. Saved to this browser.', themeSel));
     rootEl.appendChild(app.el);
 
     // --- Agent (real: auto-mode) ---

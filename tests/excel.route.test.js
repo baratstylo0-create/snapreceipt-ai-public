@@ -55,9 +55,10 @@ test('route: returns a real, parseable .xlsx with the right headers and rows', a
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const sheet = wb.worksheets[0];
-    assert.deepStrictEqual(sheet.getRow(1).values.slice(1), ['Vendor', 'Total']);
-    assert.deepStrictEqual(sheet.getRow(2).values.slice(1), ['Cafe', 12.5]);
-    assert.deepStrictEqual(sheet.getRow(3).values.slice(1), ['Fuel', 40]);
+    assert.deepStrictEqual(sheet.getRow(2).values.slice(1), ['Vendor', 'Total']); // row 1 is the title
+    assert.deepStrictEqual(sheet.getRow(3).values.slice(1), ['Cafe', 12.5]);
+    assert.deepStrictEqual(sheet.getRow(4).values.slice(1), ['Fuel', 40]);
+    assert.deepStrictEqual(sheet.getRow(5).values.slice(1), ['Total', 52.5]); // trailing Total row
   } finally { supabase.sbSelect = origSelect; templates.getFieldSpec = origSpec; }
 });
 
@@ -76,9 +77,9 @@ test('route: from/to filters rows by expense_date, inclusive on both ends', asyn
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
     const sheet = wb.worksheets[0];
-    assert.strictEqual(sheet.rowCount, 3); // header + B + C only
-    assert.strictEqual(sheet.getRow(2).getCell(1).value, 'B');
-    assert.strictEqual(sheet.getRow(3).getCell(1).value, 'C');
+    assert.strictEqual(sheet.rowCount, 5); // title + header + B + C + total
+    assert.strictEqual(sheet.getRow(3).getCell(1).value, 'B');
+    assert.strictEqual(sheet.getRow(4).getCell(1).value, 'C');
   } finally { supabase.sbSelect = origSelect; templates.getFieldSpec = origSpec; }
 });
 
@@ -91,7 +92,7 @@ test('route: an impossible from/to date (2026-13-45) is ignored, not applied as 
     const { buf } = await callExcel('?from=2026-13-45');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
-    assert.strictEqual(wb.worksheets[0].rowCount, 2); // header + the one row (filter was ignored, not applied as "always excluded")
+    assert.strictEqual(wb.worksheets[0].rowCount, 4); // title + header + the one row + total (filter was ignored, not applied as "always excluded")
   } finally { supabase.sbSelect = origSelect; templates.getFieldSpec = origSpec; }
 });
 
@@ -144,6 +145,6 @@ test('route: an array-valued from param (?from=a&from=b) is safely ignored, not 
     assert.strictEqual(status, 200);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
-    assert.strictEqual(wb.worksheets[0].rowCount, 2); // header + the one row (array bound ignored, not applied)
+    assert.strictEqual(wb.worksheets[0].rowCount, 4); // title + header + the one row + total (array bound ignored, not applied)
   } finally { supabase.sbSelect = origSelect; templates.getFieldSpec = origSpec; }
 });

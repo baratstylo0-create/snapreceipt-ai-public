@@ -16,7 +16,7 @@ const assert = require('node:assert');
 if (typeof global.self === 'undefined') global.self = {};
 
 const App = require('../../public/js/app');
-const { storedAutoMode, setAutoMode } = App;
+const { storedAutoMode, setAutoMode, toggleTheme, setTheme } = App;
 
 function fakeStorage() {
   var store = {};
@@ -99,9 +99,81 @@ test('setAutoMode: works with no sessionStorage at all (Node/SSR), never throws'
   assert.strictEqual(setAutoMode(false), false);
 });
 
+// --- setTheme (3-way: light/warm/dark, owner request 2026-07-07) -------------
+
+test('setTheme: persists a valid value and returns it unchanged', () => {
+  const s = fakeStorage();
+  global.self.sessionStorage = s;
+  try {
+    assert.strictEqual(setTheme('warm'), 'warm');
+    assert.strictEqual(s._store.theme, 'warm');
+    assert.strictEqual(setTheme('dark'), 'dark');
+    assert.strictEqual(s._store.theme, 'dark');
+    assert.strictEqual(setTheme('light'), 'light');
+    assert.strictEqual(s._store.theme, 'light');
+  } finally { delete global.self.sessionStorage; }
+});
+
+test('setTheme: an invalid/garbage value normalizes to "light", never throws', () => {
+  const s = fakeStorage();
+  global.self.sessionStorage = s;
+  try {
+    assert.strictEqual(setTheme('sepia'), 'light');
+    assert.strictEqual(s._store.theme, 'light');
+    assert.strictEqual(setTheme(undefined), 'light');
+    assert.strictEqual(setTheme(null), 'light');
+  } finally { delete global.self.sessionStorage; }
+});
+
+test('setTheme: a sessionStorage write failure never throws, still returns the normalized value', () => {
+  global.self.sessionStorage = { setItem: () => { throw new Error('quota exceeded'); } };
+  try {
+    assert.strictEqual(setTheme('warm'), 'warm');
+  } finally { delete global.self.sessionStorage; }
+});
+
+// --- toggleTheme (cycles Light -> Warm -> Dark -> Light) --------------------
+
+test('toggleTheme: cycles light -> warm -> dark -> light', () => {
+  const s = fakeStorage();
+  global.self.sessionStorage = s;
+  try {
+    s.setItem('theme', 'light');
+    assert.strictEqual(toggleTheme(), 'warm');
+    assert.strictEqual(toggleTheme(), 'dark');
+    assert.strictEqual(toggleTheme(), 'light');
+  } finally { delete global.self.sessionStorage; }
+});
+
+test('toggleTheme: with no stored value yet (fresh session), the first click advances to "warm"', () => {
+  // No stored theme == the visual baseline is 'light' (applyTheme's default),
+  // so the first toggle must move forward to 'warm', not silently no-op back
+  // to 'light'.
+  delete global.self.sessionStorage;
+  global.self.sessionStorage = fakeStorage();
+  try {
+    assert.strictEqual(toggleTheme(), 'warm');
+  } finally { delete global.self.sessionStorage; }
+});
+
+test('toggleTheme: an unrecognised stored value is treated like "light" before advancing', () => {
+  const s = fakeStorage();
+  global.self.sessionStorage = s;
+  try {
+    s.setItem('theme', 'garbage');
+    assert.strictEqual(toggleTheme(), 'warm');
+  } finally { delete global.self.sessionStorage; }
+});
+
 // --- module surface ----------------------------------------------------------
 
 test('App exposes storedAutoMode and setAutoMode', () => {
   assert.strictEqual(typeof App.storedAutoMode, 'function');
   assert.strictEqual(typeof App.setAutoMode, 'function');
+});
+
+test('App exposes toggleTheme, applyTheme, and setTheme', () => {
+  assert.strictEqual(typeof App.toggleTheme, 'function');
+  assert.strictEqual(typeof App.applyTheme, 'function');
+  assert.strictEqual(typeof App.setTheme, 'function');
 });

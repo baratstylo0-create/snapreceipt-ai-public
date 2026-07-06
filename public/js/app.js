@@ -30,6 +30,7 @@
       try {
         if (name === 'Escape') return require('./escape');
         if (name === 'Api') return require('./api');
+        if (name === 'Render') return require('./render');
         if (name === 'AuthGate') return require('./authgate');
         if (name === 'Nav') return require('./components/nav');
         if (name === 'Overview') return require('./components/overview');
@@ -60,28 +61,40 @@
   }
 
   // --- theme (visual only: toggle a class on <body>, persist the choice) ---
+  // Owner request 2026-07-07: a 3rd "Warm" theme alongside Light/Dark (the
+  // sepia-toned body.theme-warm CSS block) — THEME_CYCLE is the single source
+  // of truth for valid values and cycle order, used by both the header icon
+  // (full cycle) and setTheme (direct pick from the Settings dropdown).
+  var THEME_CYCLE = ['light', 'warm', 'dark'];
   function storedTheme() {
     var s = ss();
     try { return s ? s.getItem(THEME_KEY) : null; } catch (e) { return null; }
   }
   function applyTheme(theme) {
     if (typeof document === 'undefined' || !document.body) return;
-    var light = theme === 'light';
-    document.body.classList.toggle('theme-light', light);
-    document.body.classList.toggle('theme-dark', !light);
+    var t = THEME_CYCLE.indexOf(theme) !== -1 ? theme : 'light';
+    document.body.classList.toggle('theme-light', t === 'light');
+    document.body.classList.toggle('theme-warm', t === 'warm');
+    document.body.classList.toggle('theme-dark', t === 'dark');
   }
-  function toggleTheme() {
-    var next = (storedTheme() === 'light') ? 'dark' : 'light';
-    setTheme(next);
-    return next;
-  }
-  // Set an explicit theme (used by the Settings view's Light/Dark picker).
+  // Set an explicit theme (used by the Settings view's Light/Warm/Dark picker).
   // Persists to sessionStorage and applies immediately.
   function setTheme(theme) {
-    var next = theme === 'dark' ? 'dark' : 'light';
+    var next = THEME_CYCLE.indexOf(theme) !== -1 ? theme : 'light';
     var s = ss();
     try { if (s) s.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
     applyTheme(next);
+    return next;
+  }
+  // Header icon: cycles Light -> Warm -> Dark -> Light. No stored value yet
+  // means the visual baseline is 'light' (applyTheme's own default), so an
+  // unrecognised/missing stored value is treated as index 0 BEFORE advancing
+  // -- not as "the answer" -- otherwise the very first click would silently
+  // no-op instead of moving to 'warm'.
+  function toggleTheme() {
+    var idx = THEME_CYCLE.indexOf(storedTheme());
+    var next = THEME_CYCLE[((idx === -1 ? 0 : idx) + 1) % THEME_CYCLE.length];
+    setTheme(next);
     return next;
   }
 
@@ -132,65 +145,9 @@
     settings: 'Adjust preferences like theme, categories, and account options.',
   };
 
-  // Only one info popup open at a time — closing any previous one before a
-  // new click opens another (or re-clicking the same icon toggles it shut).
-  function closeInfoPopups() {
-    if (typeof document === 'undefined') return;
-    var existing = document.querySelectorAll('.view-info-popup-host');
-    for (var i = 0; i < existing.length; i++) {
-      if (typeof existing[i]._cleanup === 'function') existing[i]._cleanup();
-      if (existing[i].parentNode) existing[i].parentNode.removeChild(existing[i]);
-    }
-    var buttons = document.querySelectorAll('.view-info-btn[aria-expanded="true"]');
-    for (var j = 0; j < buttons.length; j++) buttons[j].setAttribute('aria-expanded', 'false');
-  }
-
-  // A small "i" button that, on click, shows a fixed-position popup with
-  // `text` right under it (clamped to the viewport width) — same
-  // open/close-on-outside-click/Escape pattern already used by the Overview
-  // screen's colour picker (components/overview.js openColorPicker).
-  function buildInfoIcon(text) {
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'view-info-btn';
-    btn.setAttribute('aria-label', 'What is this page for?');
-    btn.setAttribute('aria-expanded', 'false');
-    btn.textContent = 'i';
-    btn.addEventListener('click', function (ev) {
-      ev.stopPropagation();
-      var wasOpen = btn.getAttribute('aria-expanded') === 'true';
-      closeInfoPopups();
-      if (wasOpen) return; // this click just closed it — don't reopen
-
-      btn.setAttribute('aria-expanded', 'true');
-      var host = document.createElement('div');
-      host.className = 'view-info-popup-host';
-      var pop = document.createElement('div');
-      pop.className = 'view-info-popup';
-      pop.setAttribute('role', 'tooltip');
-      pop.textContent = text;
-      host.appendChild(pop);
-      document.body.appendChild(host);
-
-      var rect = btn.getBoundingClientRect();
-      var popW = 260;
-      var left = Math.min(rect.right - popW, (root.innerWidth || 1024) - popW - 16);
-      pop.style.top = (rect.bottom + 8) + 'px';
-      pop.style.left = Math.max(8, left) + 'px';
-
-      function onDocClick(e) { if (!host.contains(e.target) && e.target !== btn) closeInfoPopups(); }
-      function onKeydown(e) { if (e.key === 'Escape') closeInfoPopups(); }
-      // Deferred one tick so THIS click (which is still bubbling) doesn't
-      // immediately trigger onDocClick and close the popup it just opened.
-      root.setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
-      document.addEventListener('keydown', onKeydown);
-      host._cleanup = function () {
-        document.removeEventListener('click', onDocClick);
-        document.removeEventListener('keydown', onKeydown);
-      };
-    });
-    return btn;
-  }
+  // The "i" button + popup logic itself now lives in Render.buildInfoIcon
+  // (shared with components that want the same per-section explainer, e.g.
+  // Templates' visual field builder) — this map just supplies the per-page text.
 
   // --- view switching: show one mount section, hide the rest ---
   function showView(id) {
@@ -221,7 +178,10 @@
       h.className = 'view-title';
       h.textContent = s.label;
       headRow.appendChild(h);
-      if (VIEW_INFO[s.id]) headRow.appendChild(buildInfoIcon(VIEW_INFO[s.id]));
+      if (VIEW_INFO[s.id] && deps.Render) {
+        var icon = deps.Render.buildInfoIcon(VIEW_INFO[s.id], 'What is this page for?');
+        if (icon) headRow.appendChild(icon);
+      }
       sec.appendChild(headRow);
 
       var comp = components[s.id];
@@ -318,7 +278,15 @@
     // browser refresh, no separate per-view refetch plumbing needed).
     var brandHeader = Nav.buildBrandHeader && Nav.buildBrandHeader({
       onSettings: function () { select('settings'); },
-      onToggleTheme: toggleTheme,
+      // The Settings view is built once at boot and never re-rendered, so its
+      // theme <select> (tagged .set-select--theme) would otherwise show a
+      // stale value after this icon cycles the theme — keep it in sync here.
+      onToggleTheme: function () {
+        var next = toggleTheme();
+        var sels = document.querySelectorAll('.set-select--theme');
+        for (var i = 0; i < sels.length; i++) sels[i].value = next;
+        return next;
+      },
       onRefresh: reloadPage,
     });
     if (header && brandHeader) header.appendChild(brandHeader.el);
@@ -384,11 +352,11 @@
       Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
       Settings: dep('Settings'), Falc: dep('Falc'),
-      RateMeter: dep('RateMeter'),
+      RateMeter: dep('RateMeter'), Render: dep('Render'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
-    applyTheme(storedTheme() === 'dark' ? 'dark' : 'light');
+    applyTheme(storedTheme());
 
     // Attach any already-stored token to Api up front so config carries it too.
     var stored = getStoredToken();
@@ -434,6 +402,7 @@
     boot: boot,
     toggleTheme: toggleTheme,
     applyTheme: applyTheme,
+    setTheme: setTheme,
     getStoredToken: getStoredToken,
     showView: showView,
     storedAutoMode: storedAutoMode,
