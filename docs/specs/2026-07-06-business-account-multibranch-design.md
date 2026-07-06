@@ -44,7 +44,7 @@ binding links; a clerk logs in and sees **only their branch** (isolation holds);
 and uploads a receipt tagged to a staff member; it appears in the admin's master view under that
 branch/staff; a flagged receipt is decided by the clerk first and the admin can only override (with an
 N-day safety valve); the admin bulk-marks a month's bills paid while clerks see them read-only; export
-produces one pivotable sheet with Branch/Staff columns; deleting a branch revokes its clerk's login and
+produces one pivotable sheet with Branch/Staff columns **and the receipt image embedded per row** (also viewable on the dashboard, both ingestion paths); deleting a branch revokes its clerk's login and
 bot binding; and the work has passed independent Tier-2 review.
 
 ## 2. Key insight — rows, not workbooks (the whole tangling problem, designed away)
@@ -142,6 +142,22 @@ the admin Overview drills branch → staff → receipt. The clerk view calls the
 staff / date). **v1 = one sheet** with two added attribution columns (**Branch**, **Staff**) so an
 accountant can pivot/filter in Excel. The "one tab per branch" split is a later, data-free rendering
 change (out of scope, §10).
+
+**Receipt image embedded in the export (Owner: "very important", audit requirement).** Add a **"Receipt"
+column** that **embeds a thumbnail of the actual receipt image per row** (exceljs `workbook.addImage` +
+`worksheet.addImage` anchored to the cell, row height bumped), fetched from durable storage at export
+time, **plus a hyperlink on the cell to open the full-resolution image**. The exported `.xlsx` is then
+**self-contained** — an auditor sees each petty-cash receipt next to its row, offline. This applies to
+**both ingestion paths** (Telegram photo and dashboard upload) because the image is stored durably at
+ingestion. Rows without an image (old/failed) → blank cell (graceful).
+- **Hard dependency: durable receipt-image storage (ADR-018 / `docs/specs/2026-07-04-receipt-image-storage-design.md`)**
+  — for business accounts this is **required, not optional**: every receipt gets a permanent copy in the
+  private `receipts` bucket (`receipt_url`), so the exported file's images don't rot with a rotated
+  Telegram bot token. Dashboard display reuses ADR-018's serve route (no new frontend work).
+- **Size tradeoff (honest):** embedding real images grows the file, and we avoid a heavy resize dep
+  (`sharp` rejected, ADR-014). **Default = embed a display-scaled thumbnail + hyperlink to full-res;**
+  for very large exports offer a **"links-only" mode** (hyperlink per row, no embedded bytes). Petty-cash
+  audits (a month per branch, dozens of rows) embed comfortably.
 
 ### 3.6 Anomaly (staff-first) & payments — `routes/review.js` + `routes/expenses.js` extension (Jeevan)
 

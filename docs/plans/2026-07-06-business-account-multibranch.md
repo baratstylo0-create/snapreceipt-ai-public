@@ -113,9 +113,17 @@ Branch per phase: `feature/<owner>-m2-<phase>` off `main`.
 - [ ] `buildReport` gains `branch`/`staff` grouping dims; `routes/reports.js` drill-down params
   (branch→staff→receipt); clerk report pre-filtered by scope.
 - [ ] Export: `buildWorkbook` filtered by selection; add **Branch** + **Staff** columns (v1 single sheet).
+- [ ] **Durable receipt-image storage (ADR-018) is a prerequisite for business** — land/enable it first:
+  images stored to the private `receipts` bucket at ingestion from BOTH paths (Telegram + dashboard),
+  `receipt_url` set (Barat ingestion hook + Jeevan `lib/storage.js`, per `2026-07-04-receipt-image-storage-design.md`).
+- [ ] **Embed the receipt image in the export (`lib/excel.js`, Jeevan):** a "Receipt" column embedding a
+  display-scaled thumbnail per row (exceljs `workbook.addImage`/`worksheet.addImage`, row height bumped) +
+  a hyperlink to full-res; fetch bytes from storage at export time; blank cell when no image. Default =
+  embed; **"links-only" mode** for very large exports (no resize dep — `sharp` rejected, ADR-014).
 - [ ] Tests: master aggregate == sum of branch rows; clerk sees only own branch; export carries the two
-  columns; personal export unchanged (flag off → no Branch/Staff columns).
-- [ ] Commit: `feat(m2): branch/staff dimensions in reports + export`.
+  columns + an embedded image for rows with `receipt_url`, blank when absent; links-only mode emits
+  hyperlinks not bytes; personal export unchanged (flag off → no Branch/Staff/Receipt columns).
+- [ ] Commit: `feat(m2): branch/staff dimensions + embedded receipt image in export`.
 
 ## Phase 4 — Anomaly (staff-first) + payments + bulk pay  (Jeevan)
 
