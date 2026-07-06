@@ -287,23 +287,26 @@ body.theme-dark {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-auto-rows: minmax(0, auto);
-  /* Owner request 2026-07-05: the "Total spending until now" box is gone —
-     topcat/periods now span both bottom rows (taller cards) and the donut
-     gets that same extra row of height (was the #1 ask: "increase the
-     paichart box more length"). */
+  /* Owner request 2026-07-06 (final layout): the all-time "Overall spending
+     until now" card (with its year-by-year list) took over the bottom-right
+     LEFT cell that used to hold Top category; Top category moved into the
+     RIGHT cell that used to hold "Months with expenses" (now dropped
+     entirely, Owner said it wasn't needed). No more separate full-width
+     banner row — back to a clean 4-row grid. */
   grid-template-areas:
     "spend  chart   chart    chart"
     "count  chart   chart    chart"
-    "donut  donut   topcat   periods"
-    "donut  donut   topcat   periods";
+    "donut  donut   alltime  topcat"
+    "donut  donut   alltime  topcat";
   gap: 16px;
   align-items: stretch;
 }
 
 .ov-cell-spend   { grid-area: spend; }
 .ov-cell-count   { grid-area: count; }
+.ov-cell-alltime { grid-area: alltime; }
 .ov-cell-topcat  { grid-area: topcat; }
-.ov-cell-periods { grid-area: periods; }
+
 
 /* KPI card: big number centered with its label beneath (reference layout). */
 .ov-kpi {
@@ -339,6 +342,33 @@ body.theme-dark {
   letter-spacing: 0.05em;
   font-weight: 600;
 }
+.ov-kpi-sub {
+  color: var(--muted);
+  font-size: 10.5px;
+  margin-top: -2px;
+}
+.ov-kpi--accent .ov-kpi-sub { color: var(--accent-contrast); opacity: 0.75; }
+
+/* Total-bills card: per-category bill counts, listed under the big number. */
+.ov-kpi-breakdown {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.ov-kpi-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--txt);
+}
+.ov-kpi-breakdown-name { overflow-wrap: anywhere; }
+.ov-kpi-breakdown-count { font-weight: 600; color: var(--muted); flex-shrink: 0; }
 
 /* --- Overview: wide horizontal trend chart (top-right), sits in its own card --- */
 .ov-linechart {
@@ -1740,7 +1770,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
       "spend   count"
       "chart   chart"
       "donut   donut"
-      "topcat  periods";
+      "alltime topcat";
   }
 }
 
@@ -1757,8 +1787,8 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
       "count"
       "chart"
       "donut"
-      "topcat"
-      "periods";
+      "alltime"
+      "topcat";
   }
 }
 

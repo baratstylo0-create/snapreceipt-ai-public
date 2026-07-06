@@ -33,6 +33,13 @@ test('per-category breakdown within a bucket', () => {
   assert.deepStrictEqual(r.buckets[0].byCategory, { Food: 16, Petrol: 4 });
 });
 
+test('per-category BILL COUNT within a bucket (money total vs. number of bills are tracked separately)', () => {
+  const r = buildReport([
+    E('2026-06-02', 10, 'Food'), E('2026-06-03', 4, 'Petrol'), E('2026-06-04', 6, 'Food'),
+  ], 'month');
+  assert.deepStrictEqual(r.buckets[0].byCategoryCount, { Food: 2, Petrol: 1 });
+});
+
 test('date range [from,to] is inclusive and filters out the rest', () => {
   const r = buildReport([
     E('2026-05-31', 100), E('2026-06-01', 10), E('2026-06-30', 20), E('2026-07-01', 100),

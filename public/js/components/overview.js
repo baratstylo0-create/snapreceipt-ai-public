@@ -72,21 +72,84 @@
     return best;
   }
 
-  // reports totals -> KPI cards [{label, value}]. Values are display strings;
-  // the top-category name is kept RAW so the render layer escapes it (asserted
-  // by the tests). Never throws on null/undefined.
-  function kpiModel(reports) {
+  // Sum byCategoryCount (bill counts, not money) across every bucket ->
+  // [{name, count}] sorted biggest-first. Tolerant of buckets that predate
+  // byCategoryCount (older report shape) — just contributes nothing for those.
+  function categoryCountBreakdown(reports) {
+    var totals = {};
+    buckets(reports).forEach(function (b) {
+      var byCatCount = b && b.byCategoryCount;
+      if (!byCatCount || typeof byCatCount !== 'object') return;
+      Object.keys(byCatCount).forEach(function (cat) {
+        totals[cat] = (totals[cat] || 0) + toNum(byCatCount[cat]);
+      });
+    });
+    var rows = [];
+    Object.keys(totals).forEach(function (cat) {
+      if (totals[cat] > 0) rows.push({ name: cat, count: totals[cat] });
+    });
+    rows.sort(function (a, b) { return b.count - a.count; });
+    return rows;
+  }
+
+  // 'YYYY-MM-DD' -> local calendar date string, or '' for anything malformed.
+  function isoDateLocal(now) {
+    var d = new Date(typeof now === 'number' ? now : Date.now());
+    var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+    return y + '-' + (m < 10 ? '0' + m : String(m)) + '-' + (day < 10 ? '0' + day : String(day));
+  }
+
+  // An all-time (period=year) report's buckets -> [{name: 'YYYY', total}],
+  // most recent year first. Tolerant of missing/malformed input (never throws).
+  function yearlyBreakdown(allTimeReport) {
+    var rows = buckets(allTimeReport)
+      .map(function (b) { return { name: b && b.key !== undefined && b.key !== null ? String(b.key) : '', total: toNum(b && b.total) }; })
+      .filter(function (r) { return r.total > 0; });
+    rows.sort(function (a, b) { return b.name < a.name ? -1 : b.name > a.name ? 1 : 0; }); // desc, 'YYYY' sorts lexically fine
+    return rows;
+  }
+
+  // 'YYYY-MM-DD' start + end -> 'Jan 1 – Jul 6, 2026' (year only shown once,
+  // twice if the range spans two years). '' for missing/malformed input.
+  function formatDateRange(from, to) {
+    function parts(iso) {
+      if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+      var y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), d = Number(iso.slice(8, 10));
+      if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+      return { y: y, m: m, d: d };
+    }
+    var f = parts(from), t = parts(to);
+    if (!f || !t) return '';
+    var fromStr = MONTH_LABELS[f.m - 1] + ' ' + f.d + (f.y !== t.y ? ', ' + f.y : '');
+    var toStr = MONTH_LABELS[t.m - 1] + ' ' + t.d + ', ' + t.y;
+    return fromStr + ' – ' + toStr;
+  }
+
+  // reports totals -> KPI cards [{label, value, sub?, breakdown?}]. Values are
+  // display strings; the top-category name is kept RAW so the render layer
+  // escapes it (asserted by the tests). Never throws on null/undefined.
+  // `now` is an injectable clock (like overviewReportsPath), defaulting to
+  // Date.now(), so the "until today" sub-label is deterministic under test.
+  function kpiModel(reports, now) {
     var r = reports || {};
     var top = topCategory(r);
+    var year = (r && typeof r.from === 'string' && r.from.length >= 4)
+      ? r.from.slice(0, 4) : String(new Date(typeof now === 'number' ? now : Date.now()).getFullYear());
     return [
-      { label: 'Total spend', value: Format.formatMoney(r.total) },
+      // "start date and until [today]" — the year's start through the day the
+      // Overview was actually viewed (not the query's Dec-31 upper bound,
+      // which hasn't happened yet if the year isn't over).
+      { label: 'Total spend', value: Format.formatMoney(r.total), sub: formatDateRange(year + '-01-01', isoDateLocal(now)) },
       // "Expenses" was ambiguous (expenses as in cost, or as in a count?) —
       // Owner request 2026-07-05: make plain that this counts saved receipts.
-      { label: 'Total bills', value: Format.formatCount(r.count) },
-      { label: 'Top category', value: top ? top.name : '—' },
-      // "Periods: 4" gave no clue what a period even was. Overview always
-      // buckets by month for the current year, so spell that out directly.
-      { label: 'Months with expenses', value: Format.formatCount(buckets(r).length) },
+      { label: 'Total bills', value: Format.formatCount(r.count), breakdown: categoryCountBreakdown(r) },
+      // Computed from the year-scoped `r`, but showed as a bare category name
+      // with no context — Owner request 2026-07-06: a small "in <year>"
+      // sub-label, same idea as Total spend's date range. "Months with
+      // expenses" (the 4th card this used to sit beside) was dropped the same
+      // day — Owner said it wasn't needed, freeing that slot for the
+      // all-time/overall-spending card instead (see renderInto).
+      { label: 'Top category', value: top ? top.name : '—', sub: 'in ' + year },
     ];
   }
 
@@ -292,6 +355,27 @@
     Escape.setText(label, card.label);
     node.appendChild(value);
     node.appendChild(label);
+    if (card.sub) {
+      var sub = el('div', 'ov-kpi-sub');
+      Escape.setText(sub, card.sub);
+      node.appendChild(sub);
+    }
+    if (Array.isArray(card.breakdown) && card.breakdown.length) {
+      var list = el('ul', 'ov-kpi-breakdown');
+      card.breakdown.forEach(function (row) {
+        var li = el('li', 'ov-kpi-breakdown-row');
+        var name = el('span', 'ov-kpi-breakdown-name');
+        Escape.setText(name, row.name);
+        var count = el('span', 'ov-kpi-breakdown-count');
+        // Category rows carry a bill count (Total bills card); year rows carry
+        // a money total (Overall-spending card) — format whichever is present.
+        Escape.setText(count, typeof row.total === 'number' ? Format.formatMoney(row.total) : Format.formatCount(row.count));
+        li.appendChild(name);
+        li.appendChild(count);
+        list.appendChild(li);
+      });
+      node.appendChild(list);
+    }
     return node;
   }
 
@@ -614,12 +698,17 @@
   }
 
   // Render the whole Overview into `container` from a (year-scoped) reports
-  // object. `allTimeTotal` is accepted (and ignored) for backward-compat with
-  // callers that still pass it — Owner request 2026-07-05 removed the
-  // "Total spending until now" box entirely, freeing that space for a taller
-  // category donut. `donutOpts` ({overrides, onSwatchClick}) is forwarded
-  // straight to renderDonut for the custom-colour picker.
-  function renderInto(container, reports, allTimeTotal, donutOpts) {
+  // object. `allTimeReport` is the unscoped (period=year) reports response —
+  // its `.total` is every year's spend combined, and its `.buckets` (one per
+  // year) become the "past years" list under the number. Owner request
+  // 2026-07-06 (final layout): this card lives in the bottom-right's LEFT
+  // cell (where "Top category" used to sit), Top category moved into the
+  // RIGHT cell (where "Months with expenses" used to sit, now dropped
+  // entirely) — no more separate full-width banner row. Missing/malformed
+  // `allTimeReport` just skips the card (never throws). `donutOpts`
+  // ({overrides, onSwatchClick}) is forwarded straight to renderDonut for the
+  // custom-colour picker.
+  function renderInto(container, reports, allTimeReport, donutOpts) {
     if (!hasDom() || !container) return;
     clear(container);
     var rows = chartModel(reports);
@@ -638,15 +727,20 @@
 
     // Each piece is a direct grid child placed into a named area (see .ov-root
     // grid-template-areas in app.css): stat cards in the narrow left rail, the
-    // wide trend chart top-right, and the category donut spanning the full
-    // bottom row (taller now that the all-time box is gone).
-    var cards = kpiModel(reports);   // [Total spend, Total bills, Top category, Months with expenses]
+    // wide trend chart top-right, the category donut on the bottom-left, and
+    // the all-time / top-category pair on the bottom-right.
+    var cards = kpiModel(reports);   // [Total spend, Total bills, Top category]
     container.appendChild(renderKpiCard(cards[0], 'ov-cell-spend', true));
     container.appendChild(renderKpiCard(cards[1], 'ov-cell-count'));
     container.appendChild(renderLineChart(monthlySeries(reports, Number(year)), year));
     container.appendChild(renderDonut(categoryPercentBreakdown(reports), reports.total, year, donutOpts));
+    if (allTimeReport && typeof allTimeReport === 'object' && Number.isFinite(toNum(allTimeReport.total))) {
+      container.appendChild(renderKpiCard(
+        { label: 'Overall spending until now', value: Format.formatMoney(allTimeReport.total), breakdown: yearlyBreakdown(allTimeReport) },
+        'ov-cell-alltime'
+      ));
+    }
     container.appendChild(renderKpiCard(cards[2], 'ov-cell-topcat'));
-    container.appendChild(renderKpiCard(cards[3], 'ov-cell-periods'));
   }
 
   // Mount point wired by app.js. Builds the section content: a loading state,
@@ -667,7 +761,7 @@
     // that cache, then reconciled to the server truth once /api/settings loads.
     // It is mutated in place (never reassigned) so the donutOpts object closed
     // over below always sees the latest values.
-    var state = { loaded: false, loading: false, lastReports: null, colorOverrides: loadColorOverrides() };
+    var state = { loaded: false, loading: false, lastReports: null, lastAllTime: null, colorOverrides: loadColorOverrides() };
 
     // Best-effort push of the whole colour map to the server. Fire-and-forget:
     // a failure (offline / no token) is non-fatal — the change is already saved
@@ -691,7 +785,7 @@
     // used after a colour is picked/reset so the change shows immediately
     // without a network round-trip.
     function rerender() {
-      if (state.lastReports) renderInto(container, state.lastReports, undefined, donutOpts);
+      if (state.lastReports) renderInto(container, state.lastReports, state.lastAllTime, donutOpts);
     }
 
     var donutOpts = {
@@ -730,14 +824,22 @@
       state.loading = true;
       clear(container);
       container.appendChild(renderMessage('ov-loading muted', 'Loading overview…'));
-      // The all-time total is no longer displayed (the "Total spending until
-      // now" box was removed), so we no longer fetch allTimeReportsPath() here.
+      // Year-scoped report drives the chart/KPIs; the all-time (unscoped,
+      // period=year) report supplies the "Overall spending until now" box —
+      // its `.total` for the big number, its per-year `.buckets` for the
+      // "past years" list underneath. Fetched in parallel, non-fatal if it
+      // fails (the rest of the Overview still renders; the all-time card
+      // just doesn't show).
+      var allTimePromise = apiFetch(allTimeReportsPath()).catch(function () { return null; });
       apiFetch(overviewReportsPath()).then(function (reports) {
-        state.loading = false;
-        state.loaded = true;
-        state.lastReports = reports;
-        renderInto(container, reports, undefined, donutOpts);
-        syncColorsFromServer(); // reconcile local cache -> server truth
+        return allTimePromise.then(function (allTime) {
+          state.loading = false;
+          state.loaded = true;
+          state.lastReports = reports;
+          state.lastAllTime = (allTime && Number.isFinite(toNum(allTime.total))) ? allTime : null;
+          renderInto(container, reports, state.lastAllTime, donutOpts);
+          syncColorsFromServer(); // reconcile local cache -> server truth
+        });
       }).catch(function () {
         state.loading = false;
         // Leave loaded=false so a later revisit can retry.
@@ -749,7 +851,7 @@
     return {
       el: container,
       load: load,
-      renderInto: function (r, allTime) { state.lastReports = r; renderInto(container, r, allTime, donutOpts); },
+      renderInto: function (r, allTime) { state.lastReports = r; state.lastAllTime = allTime; renderInto(container, r, allTime, donutOpts); },
     };
   }
 
@@ -758,6 +860,9 @@
     chartModel: chartModel,
     kpiModel: kpiModel,
     topCategory: topCategory,
+    categoryCountBreakdown: categoryCountBreakdown,
+    yearlyBreakdown: yearlyBreakdown,
+    formatDateRange: formatDateRange,
     monthlySeries: monthlySeries,
     categoryPercentBreakdown: categoryPercentBreakdown,
     categoryColor: categoryColor,

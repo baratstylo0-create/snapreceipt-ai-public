@@ -8,6 +8,7 @@ const {
   chartModel, kpiModel, topCategory, overviewReportsPath,
   monthlySeries, categoryPercentBreakdown, categoryColor, formatPercent, allTimeReportsPath,
   smoothPathD, donutSlicePath, normaliseCategoryKey, resolveCategoryOverride, COLOR_PRESETS,
+  categoryCountBreakdown, formatDateRange, yearlyBreakdown,
 } = require('../../public/js/components/overview');
 
 // Overview scopes its report to the current year (fixes the all-years-mixed chart bug).
@@ -27,8 +28,8 @@ const sample = {
   total: 300,
   count: 5,
   buckets: [
-    { key: '2026-05', total: 100, count: 2, byCategory: { Food: 60, Petrol: 40 } },
-    { key: '2026-06', total: 200, count: 3, byCategory: { Food: 150, Software: 50 } },
+    { key: '2026-05', total: 100, count: 2, byCategory: { Food: 60, Petrol: 40 }, byCategoryCount: { Food: 1, Petrol: 1 } },
+    { key: '2026-06', total: 200, count: 3, byCategory: { Food: 150, Software: 50 }, byCategoryCount: { Food: 2, Software: 1 } },
   ],
   fetched_count: 5,
   truncated: false,
@@ -118,6 +119,94 @@ test('kpiModel is defensive against null/undefined input', () => {
   assert.doesNotThrow(() => kpiModel(undefined));
   const cards = kpiModel(null);
   assert.ok(Array.isArray(cards) && cards.length >= 3);
+});
+
+// --- categoryCountBreakdown (bill counts per category, for the Total-bills card) ---
+
+test('categoryCountBreakdown sums byCategoryCount across buckets, biggest first', () => {
+  // Food = 1 + 2 = 3, wins over Petrol 1, Software 1.
+  assert.deepStrictEqual(categoryCountBreakdown(sample), [
+    { name: 'Food', count: 3 },
+    { name: 'Petrol', count: 1 },
+    { name: 'Software', count: 1 },
+  ]);
+});
+
+test('categoryCountBreakdown returns [] for missing/malformed/empty input (never throws)', () => {
+  assert.deepStrictEqual(categoryCountBreakdown({ buckets: [] }), []);
+  assert.deepStrictEqual(categoryCountBreakdown({}), []);
+  assert.deepStrictEqual(categoryCountBreakdown(null), []);
+  // Older bucket shape with no byCategoryCount at all -> contributes nothing, doesn't throw.
+  assert.deepStrictEqual(categoryCountBreakdown({ buckets: [{ key: '2026-01', total: 10, count: 1, byCategory: { Food: 10 } }] }), []);
+});
+
+// --- formatDateRange (KPI-card sub-label: "Jan 1 – Jul 6, 2026") -------------
+
+test('formatDateRange formats a same-year range without repeating the year', () => {
+  assert.strictEqual(formatDateRange('2026-01-01', '2026-07-06'), 'Jan 1 – Jul 6, 2026');
+});
+
+test('formatDateRange includes both years when the range spans two years', () => {
+  assert.strictEqual(formatDateRange('2025-12-15', '2026-01-05'), 'Dec 15, 2025 – Jan 5, 2026');
+});
+
+test('formatDateRange returns "" for missing/malformed input (never throws)', () => {
+  assert.strictEqual(formatDateRange(null, null), '');
+  assert.strictEqual(formatDateRange('2026-01-01', null), '');
+  assert.strictEqual(formatDateRange('not-a-date', '2026-01-01'), '');
+});
+
+test('kpiModel adds a "Total spend" sub date-range (year start -> the injected clock date)', () => {
+  // Local time (not UTC) to match isoDateLocal's own local-time reading, so this
+  // is deterministic regardless of the test runner's timezone.
+  const now = new Date(2026, 6, 6).getTime(); // Jul 6 2026, local
+  const cards = kpiModel(sample, now);
+  const spend = cards.find((c) => c.label === 'Total spend');
+  assert.strictEqual(spend.sub, 'Jan 1 – Jul 6, 2026');
+});
+
+test('kpiModel "Total bills" card carries the category-count breakdown', () => {
+  const cards = kpiModel(sample);
+  const bills = cards.find((c) => c.label === 'Total bills');
+  assert.deepStrictEqual(bills.breakdown, categoryCountBreakdown(sample));
+});
+
+test('kpiModel "Top category" carries an "in <year>" sub-label', () => {
+  const now = new Date(2026, 6, 6).getTime();
+  const cardsWithClock = kpiModel(sample, now);
+  const top = cardsWithClock.find((c) => c.label === 'Top category');
+  assert.strictEqual(top.sub, 'in 2026');
+});
+
+test('kpiModel no longer has a "Months with expenses" card (dropped 2026-07-06, folded into all-time card instead)', () => {
+  const cards = kpiModel(sample);
+  assert.strictEqual(cards.find((c) => c.label === 'Months with expenses'), undefined);
+  assert.strictEqual(cards.length, 3);
+});
+
+// --- yearlyBreakdown (past-years list under "Overall spending until now") ---
+
+test('yearlyBreakdown maps an all-time (period=year) report to [{name, total}], most recent first', () => {
+  const allTime = {
+    period: 'year', total: 500, count: 20,
+    buckets: [
+      { key: '2024', total: 100, count: 5 },
+      { key: '2025', total: 150, count: 6 },
+      { key: '2026', total: 250, count: 9 },
+    ],
+  };
+  assert.deepStrictEqual(yearlyBreakdown(allTime), [
+    { name: '2026', total: 250 },
+    { name: '2025', total: 150 },
+    { name: '2024', total: 100 },
+  ]);
+});
+
+test('yearlyBreakdown drops zero/negative years and returns [] for missing/malformed input', () => {
+  assert.deepStrictEqual(yearlyBreakdown({ buckets: [{ key: '2026', total: 0 }] }), []);
+  assert.deepStrictEqual(yearlyBreakdown({ buckets: [] }), []);
+  assert.deepStrictEqual(yearlyBreakdown({}), []);
+  assert.deepStrictEqual(yearlyBreakdown(null), []);
 });
 
 // --- allTimeReportsPath -------------------------------------------------------
