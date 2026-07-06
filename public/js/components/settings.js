@@ -152,8 +152,17 @@
     var acc = collapsible('Account & session', true);
     var authBtn = el('button', model.signedIn ? 'set-btn set-btn--danger' : 'set-btn set-btn--primary');
     Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
+    // Bug fix: this used to call opts.logout() unconditionally — even when the
+    // button read "Log in" — so clicking "Log in" silently cleared the (already
+    // empty) token and reloaded, landing back on Overview with nothing entered.
+    // Branch on sign-in state: signed in -> log out; signed out -> show the
+    // real token-entry gate (opts.login).
     authBtn.addEventListener('click', function () {
-      if (typeof opts.logout === 'function') opts.logout();
+      if (model.signedIn) {
+        if (typeof opts.logout === 'function') opts.logout();
+      } else {
+        if (typeof opts.login === 'function') opts.login();
+      }
     });
     acc.body.appendChild(setRow(
       'Session',

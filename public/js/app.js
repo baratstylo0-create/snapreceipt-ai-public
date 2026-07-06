@@ -307,10 +307,17 @@
     var rateMeterHost = (brandHeader && brandHeader.actionsEl) || header;
     if (rateMeterHost && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(rateMeterHost, deps);
 
-    // Expose the real theme setter / logout / clear-local to view components
-    // (the Settings view uses these) via the shared deps object.
+    // Expose the real theme setter / login / logout / clear-local to view
+    // components (the Settings view uses these) via the shared deps object.
     deps.setTheme = setTheme;
     deps.logout = logout;
+    // Bug fix: Settings' "Log in" button used to call `logout()` unconditionally
+    // (there was no separate login path at all) — harmless-looking but wrong: in
+    // an open (no-token-required) dashboard, clearing an already-empty token and
+    // reloading just reboots straight back to Overview, which reads as "Log in
+    // does nothing but bounce me to Overview." `login()` shows the real
+    // token-entry gate in place, without a full page reload.
+    deps.login = function () { renderTokenGate(deps, function () { enterApp(deps); }); };
     deps.onClearLocal = reloadPage;
     deps.autoMode = storedAutoMode();
     deps.setAutoMode = setAutoMode;
