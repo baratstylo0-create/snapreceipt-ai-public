@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-07 · Claude-J1 (for Jeevan) · feature/jeevan-m2-excel-receipt-embed — M2 Phase 3 (final): receipt-image embed in export → Phase 3 COMPLETE
+- **Files:** `lib/excel.js` (buildWorkbook embeds a receipt thumbnail per row + hyperlink; links-only mode), `routes/excel.js` (fetch bytes from storage at export time, links-only over a threshold), tests: `tests/excel.receipt.test.js` (**new**, +6), `tests/excel.route.receipt.test.js` (**new**, +2).
+- **What — the last Phase 3 item (epic #106), TDD.** `buildWorkbook` gains an opt-in **Receipt** column: when `opts.receipts` (id→{buffer,ext}) is given it floats a scaled thumbnail over the cell (exceljs `addImage`, row height bumped) with a full-res hyperlink from `opts.receiptLinks`; `embedReceipts:false` is **links-only** for very large exports; only png/jpg/gif embed (pdf/webp fall back to the link); blank when a row has no receipt. `routes/excel.js` fetches bytes via `storage.fetchReceiptObject` for rows with `receipt_url`, hyperlinks to the authed `/receipt/by-id/:id` serve route, and switches to links-only past `EXCEL_EMBED_LIMIT` (300). **NOT flag-gated** — the receipt embed ships on the PERSONAL export too (only Branch/Staff are business-only); opt-in so existing 2/3-arg callers are unchanged.
+- **Tests: 1230/1230** (`.env` aside; +8 new; zero regressions). Embed/links-only/blank/non-embeddable/Branch+Staff+Receipt ordering all covered; route embeds from stubbed storage; no-receipt rows unchanged.
+- **Phase 3 COMPLETE** (across #113, #114, this): master-view grouping + clerk scope, capture-context stamping, Branch/Staff columns, receipt-image embed. Data layer for branch/staff attribution + export is done.
+- **What's next (Jeevan):** Phase 4 — staff-first anomaly valve + `payment_status` (admin-only) + chunked bulk mark-paid (`routes/review.js`, `routes/expenses.js`). (Barat: `assembleExpense` persist of branch/staff, #107, lights up the reports/columns with real data.)
+- **Assumptions:** hyperlink target is the authed `/receipt/by-id/:id` (same-origin relative URL); embed limit 300 rows (env `EXCEL_EMBED_LIMIT`); thumbnail 72×54 px, row height 44.
+
+---
+
 ## 2026-07-07 · Claude-J1 (for Jeevan) · feature/jeevan-m2-excel-branchstaff — M2 Phase 3 (part): Excel Branch/Staff columns
 - **Files:** `lib/excel.js` (buildWorkbook appends Branch/Staff columns via `opts.branchStaff` + name maps), `routes/excel.js` (business mode passes `branchStaff` + resolved id→name maps + clerk export scope), tests: `tests/excel.branchstaff.test.js` (**new**, +4), `tests/excel.route.scope.test.js` (**new**, +2).
 - **What — next Phase 3 slice (epic #106), TDD.** `buildWorkbook` now appends **Branch + Staff** columns after the FieldSpec columns when `opts.branchStaff` is set, resolving `branch_id`/`staff_user_id` to names via `opts.branchNames`/`opts.staffNames` (id fallback when a name is unknown, blank when the row has none). `routes/excel.js` turns this on **only in business mode** (`capabilities.multiUser`), resolving the two id→name maps once, and **scopes a clerk's export to their own branch** (admin exports all). Business-only by construction: personal exports get no Branch/Staff columns and are byte-for-byte unchanged (verified — all prior excel tests green).

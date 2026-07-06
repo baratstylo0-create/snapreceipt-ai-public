@@ -12,7 +12,12 @@ const { buildWorkbook } = require('../lib/excel');
 const { isISO } = require('../lib/reports');
 const { cfg } = require('../lib/config');
 const { getCapabilities } = require('../lib/account'); // business-mode gate (multiUser)
+const storage = require('../lib/storage');         // namespace import so tests can stub fetchReceiptObject
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
+
+// Above this many receipted rows, embed thumbnails is skipped (links-only) to keep the file size
+// and export time sane; every receipted row still gets a full-res hyperlink either way.
+const RECEIPT_EMBED_LIMIT = Number(process.env.EXCEL_EMBED_LIMIT) || 300;
 
 // Same cap philosophy as routes/reports.js's REPORT_ROW_LIMIT: never silently
 // undercount a money export; signal truncation instead (via a header, since
@@ -72,6 +77,26 @@ module.exports = function mountExcel(app) {
         buildOpts.branchStaff = true;
         buildOpts.branchNames = branchNames;
         buildOpts.staffNames = staffNames;
+      }
+
+      // Receipt images (ADR-018, personal + business): every row with a stored receipt gets a
+      // full-res hyperlink to the authed serve route; when the export is small enough we also
+      // embed a scaled thumbnail. Fetching is fail-safe (a null buffer just skips that image).
+      const withReceipt = scopedRows.filter((e) => e && e.id && e.receipt_url);
+      if (withReceipt.length > 0) {
+        const receiptLinks = {};
+        for (const e of withReceipt) receiptLinks[e.id] = '/receipt/by-id/' + e.id;
+        buildOpts.receiptLinks = receiptLinks;
+        if (withReceipt.length <= RECEIPT_EMBED_LIMIT) {
+          const receipts = {};
+          await Promise.all(withReceipt.map(async (e) => {
+            const buf = await storage.fetchReceiptObject(e.receipt_url);
+            if (buf) receipts[e.id] = { buffer: buf, ext: storage.extOf(buf) };
+          }));
+          buildOpts.receipts = receipts;
+        } else {
+          buildOpts.embedReceipts = false; // links-only for very large exports
+        }
       }
       const workbook = buildWorkbook(scopedRows, fieldSpec, buildOpts);
       const buf = await workbook.xlsx.writeBuffer();
