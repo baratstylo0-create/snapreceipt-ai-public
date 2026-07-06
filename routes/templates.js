@@ -8,11 +8,21 @@
 // column count / label length and rejects malformed input.
 
 const express = require('express');
-const { getFieldSpec, saveTemplate } = require('../lib/templates');
+const { getFieldSpec, saveTemplate, parseExcelTemplate } = require('../lib/templates');
 const { checkDash } = require('./expenses'); // reuse the optional dashboard-token gate
 const { createRateLimiter } = require('../lib/ratelimit');
 
 const BODY_LIMIT = '256kb';
+// A real .xlsx is a zipped-XML binary — bigger than a CSV of the same field
+// count, and it's still just a header row we read (data rows are ignored),
+// so this stays well clear of the mass-upload/PDF size limits elsewhere.
+const EXCEL_BODY_LIMIT = '2mb';
+// Content-Types a browser/OS may report for an .xlsx: the real MIME type, plus
+// generic octet-stream (some browsers omit the specific type on drag-and-drop).
+const EXCEL_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/octet-stream',
+];
 // P6 abuse defense: cap per-IP requests on the template routes (POST parses untrusted
 // CSV; both are behind the optional token, so a limiter also blunts token brute-force).
 // Tune via TEMPLATES_RATE_MAX. Runs before auth/body-parsing so limited requests are cheap.
@@ -30,27 +40,40 @@ module.exports = function mountTemplates(app) {
     }
   });
 
-  // Import a CSV template. Accepts a raw text/csv (or text/plain) body, or a
-  // JSON body { csv: "...", name?: "..." }. Optional ?name= to store under a name.
+  // Import a CSV OR a real Excel (.xlsx) template. Accepts a raw text/csv
+  // (or text/plain) body, a JSON body { csv: "...", name?: "..." }, or a raw
+  // binary .xlsx body (Content-Type: the spreadsheet MIME type, or
+  // application/octet-stream). Optional ?name= to store under a name.
   app.post('/api/templates',
     templatesLimiter,
     checkDash,
+    express.raw({ type: EXCEL_TYPES, limit: EXCEL_BODY_LIMIT }),
     express.text({ type: ['text/*'], limit: BODY_LIMIT }),
     express.json({ limit: BODY_LIMIT }),
     async (req, res) => {
       res.set('Access-Control-Allow-Origin', '*');
       try {
-        const csv = typeof req.body === 'string' ? req.body : (req.body && req.body.csv);
         const name = String(req.query.name || (req.body && req.body.name) || 'default').slice(0, 64);
+
+        if (Buffer.isBuffer(req.body)) {
+          if (req.body.length === 0) {
+            return res.status(400).json({ error: 'provide a CSV file/text, or an Excel (.xlsx) file' });
+          }
+          const columns = await parseExcelTemplate(req.body);
+          const spec = await saveTemplate(columns, { name });
+          return res.json(spec);
+        }
+
+        const csv = typeof req.body === 'string' ? req.body : (req.body && req.body.csv);
         if (typeof csv !== 'string' || csv.trim() === '') {
-          return res.status(400).json({ error: 'provide CSV text (text/csv body, or JSON {"csv": "..."})' });
+          return res.status(400).json({ error: 'provide CSV text (text/csv body, or JSON {"csv": "..."}), or an Excel (.xlsx) file' });
         }
         const spec = await saveTemplate(csv, { name });
         res.json(spec);
       } catch (e) {
         // parseTemplate/saveTemplate throw on invalid input -> client error (400);
         // anything else is an upstream/DB failure -> 502.
-        if (/^(parseTemplate|saveTemplate):/.test(e.message)) {
+        if (/^(parseTemplate|parseExcelTemplate|saveTemplate):/.test(e.message)) {
           return res.status(400).json({ error: e.message });
         }
         console.error('[api/templates post]', e.message);

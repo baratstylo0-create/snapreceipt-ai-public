@@ -144,12 +144,6 @@
         : (model.authRequired ? 'Not signed in.' : 'This dashboard is open (no token required in dev).'),
       authBtn
     ));
-    acc.body.appendChild(setRow(
-      'Identity',
-      'HQ admin / branch clerk account (from Supabase Auth in the live system).',
-      valueChip(model.signedIn ? 'token session' : '—'),
-      true
-    ));
     rootEl.appendChild(acc.el);
 
     // --- Appearance (real: theme) ---

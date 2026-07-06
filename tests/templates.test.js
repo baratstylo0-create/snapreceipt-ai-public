@@ -1,7 +1,18 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { parseTemplate, getFieldSpec, saveTemplate, DEFAULT_COLUMNS } = require('../lib/templates');
+const { parseTemplate, parseExcelTemplate, getFieldSpec, saveTemplate, DEFAULT_COLUMNS } = require('../lib/templates');
+const ExcelJS = require('exceljs');
+
+// Build a minimal real .xlsx buffer with the given header row (+ optional data rows),
+// so parseExcelTemplate is exercised against a genuine file, not a mock.
+async function makeXlsxBuffer(headerRow, dataRows = []) {
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet('Sheet1');
+  sheet.addRow(headerRow);
+  for (const row of dataRows) sheet.addRow(row);
+  return wb.xlsx.writeBuffer();
+}
 
 // getFieldSpec's happy path (a real stored template) is exercised by a live
 // round-trip at wire-up (see WORKLOG) rather than here. The two branch cases
@@ -122,6 +133,40 @@ test('DEFAULT_COLUMNS is a valid FieldSpec.columns shape', () => {
 
 test('exports the frozen contract functions', () => {
   assert.strictEqual(typeof parseTemplate, 'function');
+  assert.strictEqual(typeof parseExcelTemplate, 'function');
   assert.strictEqual(typeof getFieldSpec, 'function');
   assert.strictEqual(typeof saveTemplate, 'function');
+});
+
+// --- parseExcelTemplate (.xlsx import) ---------------------------------------
+
+test('parseExcelTemplate maps a real .xlsx header row to the same canonical columns as CSV', async () => {
+  const buffer = await makeXlsxBuffer(['Vendor', 'Purchase Date', 'Grand Total', 'GST']);
+  const columns = await parseExcelTemplate(Buffer.from(buffer));
+  assert.deepStrictEqual(columns.map(c => c.key), ['merchant', 'expense_date', 'amount', 'tax']);
+  assert.strictEqual(columns[0].label, 'Vendor'); // exact customer header preserved, same as CSV
+});
+
+test('parseExcelTemplate ignores data rows — only row 1 (headers) is read', async () => {
+  const buffer = await makeXlsxBuffer(
+    ['Store', 'Date', 'Amount'],
+    [['Acme Co', '2026-01-01', 42.5], ['Widgets Inc', '2026-01-02', 10]]
+  );
+  const columns = await parseExcelTemplate(Buffer.from(buffer));
+  assert.deepStrictEqual(columns.map(c => c.key), ['merchant', 'expense_date', 'amount']);
+});
+
+test('parseExcelTemplate keeps unknown headers verbatim as free-text columns, same as CSV', async () => {
+  const buffer = await makeXlsxBuffer(['Loyalty Points', 'Amount']);
+  const columns = await parseExcelTemplate(Buffer.from(buffer));
+  assert.strictEqual(columns[0].key, 'loyalty_points');
+  assert.strictEqual(columns[0].type, 'text');
+  assert.strictEqual(columns[0].label, 'Loyalty Points');
+});
+
+test('parseExcelTemplate rejects non-Buffer, empty-header, and non-Excel input without throwing an unrelated error', async () => {
+  await assert.rejects(() => parseExcelTemplate('not a buffer'), /must be a Buffer/);
+  await assert.rejects(() => parseExcelTemplate(Buffer.from([0, 1, 2, 3])), /could not read this as an Excel/);
+  const emptyHeaderBuffer = await makeXlsxBuffer([]);
+  await assert.rejects(() => parseExcelTemplate(Buffer.from(emptyHeaderBuffer)), /header row is empty/);
 });

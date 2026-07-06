@@ -49,7 +49,12 @@
 
     var init = Object.assign({}, opts, { headers: headers });
     // Serialise a plain-object body to JSON if the caller did not pre-encode it.
-    if (init.body && typeof init.body === 'object' && !(init.body instanceof FormData)) {
+    // Binary bodies (ArrayBuffer/Blob — e.g. an .xlsx template upload) are left
+    // exactly as-is; only a plain object gets JSON-stringified.
+    var isBinaryBody = (typeof ArrayBuffer !== 'undefined' && init.body instanceof ArrayBuffer)
+      || (typeof Blob !== 'undefined' && init.body instanceof Blob)
+      || (typeof FormData !== 'undefined' && init.body instanceof FormData);
+    if (init.body && typeof init.body === 'object' && !isBinaryBody) {
       if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(init.body);
     }

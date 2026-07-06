@@ -196,27 +196,48 @@
     });
   }
 
-  // Category name -> a stable palette class suffix ('c0'..'c9', or 'others').
-  // Mirrors activity.js's categoryColor exactly (same hash, same palette size)
-  // so a category's colour matches everywhere in the app (pills, donut).
+  // Category name -> a stable palette class suffix ('c0'..'c17', or 'others').
   // Duplicated rather than imported to keep components independently
   // loadable — same pattern as chartModel/categoryBreakdown existing
   // independently in reports.js. Never returns markup; never throws.
-  var PALETTE_SIZE = 10;
+  //
+  // Bug fix (owner report 2026-07-06): this used to be a pure hash into only
+  // 10 slots. With 17 real built-in categories (lib/categorize.js CATEGORIES),
+  // that's guaranteed collisions by pigeonhole — e.g. "Fuel & Auto" and
+  // "Office Supplies" both hashed to the same colour. Two different
+  // categories showing the identical colour made it LOOK like "colours
+  // change" whenever a delete/edit changed which categories were visible
+  // (a colliding pair appearing/disappearing), even though no single
+  // category's colour ever actually moved. Fixed by giving every KNOWN
+  // built-in category its own permanently-reserved slot (CATEGORY_ORDER,
+  // 0-16); only a genuinely custom/unrecognised category name still falls
+  // back to the hash (across all 18 slots — rare enough to accept).
+  var PALETTE_SIZE = 18;
+  // Same order as lib/categorize.js's CATEGORIES (minus 'Others', which is
+  // handled separately below) — keep in sync if that list ever changes.
+  var CATEGORY_ORDER = [
+    'meals & entertainment', 'groceries', 'fuel & auto', 'travel', 'lodging',
+    'software & subscriptions', 'office supplies', 'utilities', 'rent & lease',
+    'professional services', 'marketing & advertising', 'inventory & cogs',
+    'equipment & hardware', 'shipping & postage', 'bank & fees', 'healthcare',
+    'education & training',
+  ];
   function hashString(s) {
     var h = 5381;
     for (var i = 0; i < s.length; i++) { h = ((h << 5) + h + s.charCodeAt(i)) | 0; }
     return Math.abs(h);
   }
   // Shared key normalisation (trim + lowercase) — used both by categoryColor's
-  // hash AND by the custom-colour override map below, so "Rent & Lease" and
-  // " rent & lease " always resolve to the exact same override entry.
+  // lookup/hash AND by the custom-colour override map below, so "Rent & Lease"
+  // and " rent & lease " always resolve to the exact same override entry.
   function normaliseCategoryKey(name) {
     return String(name === null || name === undefined ? '' : name).trim().toLowerCase();
   }
   function categoryColor(name) {
     var key = normaliseCategoryKey(name);
     if (key === '' || key === 'others') return 'others';
+    var fixedIndex = CATEGORY_ORDER.indexOf(key);
+    if (fixedIndex !== -1) return 'c' + fixedIndex;
     return 'c' + (hashString(key) % PALETTE_SIZE);
   }
 

@@ -97,6 +97,80 @@
     try { if (root && root.location && typeof root.location.reload === 'function') root.location.reload(); } catch (e) { /* ignore */ }
   }
 
+  // Owner request 2026-07-06: a small "what is this page for" hint on every
+  // page, so a non-technical user always has a one-line explanation on hand
+  // without having to ask. Plain, static strings (never user input), so a
+  // direct .textContent assignment is safe — same convention this file
+  // already uses for s.label below.
+  var VIEW_INFO = {
+    overview: 'A quick snapshot of your spending: your total, the trend this year, and your top categories.',
+    activity: "Every receipt you've captured — search, filter, edit, or review any of them.",
+    upload: 'Add a receipt manually from this browser, instead of sending it to the Telegram bot.',
+    manage: "Teaches the app what information to pull off every receipt — like Merchant, Date, and Amount. Upload your own spreadsheet (CSV or Excel) once, and it copies your exact column names, so you never have to type them in by hand.",
+    reports: 'Deeper breakdowns of your spending by day, week, month, or year.',
+    settings: 'Adjust preferences like theme, categories, and account options.',
+  };
+
+  // Only one info popup open at a time — closing any previous one before a
+  // new click opens another (or re-clicking the same icon toggles it shut).
+  function closeInfoPopups() {
+    if (typeof document === 'undefined') return;
+    var existing = document.querySelectorAll('.view-info-popup-host');
+    for (var i = 0; i < existing.length; i++) {
+      if (typeof existing[i]._cleanup === 'function') existing[i]._cleanup();
+      if (existing[i].parentNode) existing[i].parentNode.removeChild(existing[i]);
+    }
+    var buttons = document.querySelectorAll('.view-info-btn[aria-expanded="true"]');
+    for (var j = 0; j < buttons.length; j++) buttons[j].setAttribute('aria-expanded', 'false');
+  }
+
+  // A small "i" button that, on click, shows a fixed-position popup with
+  // `text` right under it (clamped to the viewport width) — same
+  // open/close-on-outside-click/Escape pattern already used by the Overview
+  // screen's colour picker (components/overview.js openColorPicker).
+  function buildInfoIcon(text) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'view-info-btn';
+    btn.setAttribute('aria-label', 'What is this page for?');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.textContent = 'i';
+    btn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var wasOpen = btn.getAttribute('aria-expanded') === 'true';
+      closeInfoPopups();
+      if (wasOpen) return; // this click just closed it — don't reopen
+
+      btn.setAttribute('aria-expanded', 'true');
+      var host = document.createElement('div');
+      host.className = 'view-info-popup-host';
+      var pop = document.createElement('div');
+      pop.className = 'view-info-popup';
+      pop.setAttribute('role', 'tooltip');
+      pop.textContent = text;
+      host.appendChild(pop);
+      document.body.appendChild(host);
+
+      var rect = btn.getBoundingClientRect();
+      var popW = 260;
+      var left = Math.min(rect.right - popW, (root.innerWidth || 1024) - popW - 16);
+      pop.style.top = (rect.bottom + 8) + 'px';
+      pop.style.left = Math.max(8, left) + 'px';
+
+      function onDocClick(e) { if (!host.contains(e.target) && e.target !== btn) closeInfoPopups(); }
+      function onKeydown(e) { if (e.key === 'Escape') closeInfoPopups(); }
+      // Deferred one tick so THIS click (which is still bubbling) doesn't
+      // immediately trigger onDocClick and close the popup it just opened.
+      root.setTimeout(function () { document.addEventListener('click', onDocClick); }, 0);
+      document.addEventListener('keydown', onKeydown);
+      host._cleanup = function () {
+        document.removeEventListener('click', onDocClick);
+        document.removeEventListener('keydown', onKeydown);
+      };
+    });
+    return btn;
+  }
+
   // --- view switching: show one mount section, hide the rest ---
   function showView(id) {
     if (typeof document === 'undefined') return;
@@ -119,10 +193,15 @@
       var sec = document.createElement('section');
       sec.className = 'view';
       sec.setAttribute('data-view-section', s.id);
+
+      var headRow = document.createElement('div');
+      headRow.className = 'view-title-row';
       var h = document.createElement('h2');
       h.className = 'view-title';
       h.textContent = s.label;
-      sec.appendChild(h);
+      headRow.appendChild(h);
+      if (VIEW_INFO[s.id]) headRow.appendChild(buildInfoIcon(VIEW_INFO[s.id]));
+      sec.appendChild(headRow);
 
       var comp = components[s.id];
       if (comp && typeof comp.mount === 'function') {
@@ -204,15 +283,27 @@
     input.focus();
   }
 
-  // Enter the app proper: build nav + views, wire switching + theme.
+  // Enter the app proper: build the brand header + nav + views, wire switching + theme.
   function enterApp(deps) {
     var Nav = deps.Nav;
     var header = document.getElementById('app-header');
     var mount = document.getElementById('app');
     if (mount) mount.textContent = '';
+    if (header) header.textContent = '';
 
-    var nav = Nav.buildNav({ onSelect: select, onToggleTheme: toggleTheme });
-    if (header && nav) { header.textContent = ''; header.appendChild(nav.el); }
+    // Owner request 2026-07-06: two-tier header (big brand block above the
+    // pill nav), matching Mugi's reference mockup. Refresh re-loads the page
+    // (simplest, safest "get me current data" action — mirrors a normal
+    // browser refresh, no separate per-view refetch plumbing needed).
+    var brandHeader = Nav.buildBrandHeader && Nav.buildBrandHeader({
+      onSettings: function () { select('settings'); },
+      onToggleTheme: toggleTheme,
+      onRefresh: reloadPage,
+    });
+    if (header && brandHeader) header.appendChild(brandHeader.el);
+
+    var nav = Nav.buildNav({ onSelect: select });
+    if (header && nav) header.appendChild(nav.el);
 
     // QA report #1: after a dashboard upload, the user had no way to jump to what was
     // just saved. `select` (below) is the real switcher (updates the nav pill + lazy-
@@ -224,7 +315,8 @@
     // (via Api.onRateLimit) and warns near the edge. Hidden until the first limited
     // response arrives. Optional (older cached bundles may lack it) so it never blocks boot.
     var RateMeter = deps.RateMeter;
-    if (header && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(header, deps);
+    var rateMeterHost = (brandHeader && brandHeader.actionsEl) || header;
+    if (rateMeterHost && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(rateMeterHost, deps);
 
     // Expose the real theme setter / logout / clear-local to view components
     // (the Settings view uses these) via the shared deps object.

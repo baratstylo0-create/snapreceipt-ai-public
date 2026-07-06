@@ -164,6 +164,33 @@
     return isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate());
   }
 
+  // Owner request 2026-07-06: the Export button now asks "which timeframe?"
+  // every time, instead of silently exporting whatever's currently browsed.
+  // These 4 choices are always anchored to TODAY (not whatever period/anchor
+  // the user happens to be viewing on screen) — "Day" = today, "Week" = this
+  // calendar week, "Month" = this calendar month, "Overall" = no date bounds
+  // at all (routes/excel.js treats a missing from/to as "every expense ever").
+  var EXPORT_CHOICES = ['day', 'week', 'month', 'overall'];
+  function exportChoiceLabel(choice) {
+    if (choice === 'day') return 'Today';
+    if (choice === 'week') return 'This week';
+    if (choice === 'month') return 'This month';
+    return 'Overall (all time)';
+  }
+  function exportRangeFor(choice, now) {
+    var today = isIsoShaped(now) ? now : todayIso();
+    if (choice === 'day') return { from: today, to: today };
+    if (choice === 'week') {
+      var wr = weekRangeFor(startOfWeekIso(today));
+      return { from: wr.from, to: wr.to };
+    }
+    if (choice === 'month') {
+      var mr = monthRangeFor(Number(today.slice(0, 4)), Number(today.slice(5, 7)));
+      return { from: mr.from, to: mr.to };
+    }
+    return { from: null, to: null }; // overall — no bounds
+  }
+
   // ---- pure helpers: query + bucket builders ------------------------------
 
   // Build the actual /api/reports query for a UI period + its anchor. Anchor
@@ -529,6 +556,47 @@
     });
   }
 
+  // Small popup asking "which timeframe?" before export — same
+  // backdrop/Escape/outside-click-to-close pattern already used by
+  // templates.js's showConfirmDialog and overview.js's colour picker.
+  // onPick(choice) fires once, when a real choice button is clicked (never
+  // on Cancel/outside-click/Escape). No-op outside a browser.
+  function showExportChoiceDialog(onPick) {
+    if (!hasDom()) return;
+    var backdrop = el('div', 'rp-confirm-host');
+    var card = el('div', 'rp-confirm-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.appendChild(msg('rp-confirm-title', 'Export which timeframe?'));
+
+    var choices = el('div', 'rp-confirm-choices');
+    EXPORT_CHOICES.forEach(function (choice) {
+      var btn = el('button', 'rp-confirm-choice');
+      btn.type = 'button';
+      Escape.setText(btn, exportChoiceLabel(choice));
+      btn.addEventListener('click', function () { close(); onPick(choice); });
+      choices.appendChild(btn);
+    });
+    card.appendChild(choices);
+
+    var cancelBtn = el('button', 'rp-confirm-cancel');
+    cancelBtn.type = 'button';
+    Escape.setText(cancelBtn, 'Cancel');
+    cancelBtn.addEventListener('click', close);
+    card.appendChild(cancelBtn);
+
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+
+    function onKeydown(ev) { if (ev.key === 'Escape') close(); }
+    function close() {
+      if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+      document.removeEventListener('keydown', onKeydown);
+    }
+    document.addEventListener('keydown', onKeydown);
+    backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) close(); });
+  }
+
   // ---- render layer --------------------------------------------------------
 
   function mount(section, opts) {
@@ -657,18 +725,22 @@
     var exportBusy = false;
     exportBtn.addEventListener('click', function () {
       if (exportBusy) return;
-      exportBusy = true;
-      exportBtn.disabled = true;
-      Escape.setText(exportStatus, 'Preparing your export…');
-      exportExcel(currentQuery()).then(function () {
-        exportBusy = false;
-        exportBtn.disabled = false;
-        Escape.setText(exportStatus, 'Export downloaded.');
-      }).catch(function (err) {
-        exportBusy = false;
-        exportBtn.disabled = false;
-        var status = err && typeof err === 'object' ? err.status : 0;
-        Escape.setText(exportStatus, exportErrorMessage(status));
+      // Owner request 2026-07-06: ask which timeframe every time, instead of
+      // silently exporting whatever period/anchor happens to be on screen.
+      showExportChoiceDialog(function (choice) {
+        exportBusy = true;
+        exportBtn.disabled = true;
+        Escape.setText(exportStatus, 'Preparing your export…');
+        exportExcel(exportRangeFor(choice)).then(function () {
+          exportBusy = false;
+          exportBtn.disabled = false;
+          Escape.setText(exportStatus, 'Export downloaded.');
+        }).catch(function (err) {
+          exportBusy = false;
+          exportBtn.disabled = false;
+          var status = err && typeof err === 'object' ? err.status : 0;
+          Escape.setText(exportStatus, exportErrorMessage(status));
+        });
       });
     });
 
@@ -703,6 +775,9 @@
     yearRangeFor: yearRangeFor,
     excelFilename: excelFilename,
     exportErrorMessage: exportErrorMessage,
+    EXPORT_CHOICES: EXPORT_CHOICES,
+    exportChoiceLabel: exportChoiceLabel,
+    exportRangeFor: exportRangeFor,
     // render (browser)
     mount: mount,
     renderInto: renderInto,

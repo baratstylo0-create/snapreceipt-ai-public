@@ -71,6 +71,71 @@ test('POST /api/templates accepts a JSON body { csv }', async () => {
   });
 });
 
+test('POST /api/templates accepts a real .xlsx file (binary body) and reads its header row', async () => {
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet('Sheet1');
+  sheet.addRow(['Supplier', 'Purchase Date', 'Grand Total']);
+  sheet.addRow(['Acme Co', '2026-01-01', 42.5]); // a data row — must be ignored (headers only)
+  const buffer = await wb.xlsx.writeBuffer();
+
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      body: buffer,
+    });
+    assert.strictEqual(r.status, 200);
+    const spec = await r.json();
+    assert.deepStrictEqual(spec.columns.map(c => c.key), ['merchant', 'expense_date', 'amount']);
+    assert.strictEqual(spec.columns[0].label, 'Supplier'); // exact customer header preserved, same as CSV
+  });
+});
+
+test('POST /api/templates: an .xlsx sent as application/octet-stream (browser omitted the real MIME) still works', async () => {
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet('Sheet1').addRow(['Store', 'Date', 'Amount']);
+  const buffer = await wb.xlsx.writeBuffer();
+
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: buffer,
+    });
+    assert.strictEqual(r.status, 200);
+    const spec = await r.json();
+    assert.deepStrictEqual(spec.columns.map(c => c.key), ['merchant', 'expense_date', 'amount']);
+  });
+});
+
+test('POST /api/templates rejects an empty .xlsx-typed body with 400, not a 500/crash', async () => {
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      body: Buffer.alloc(0),
+    });
+    assert.strictEqual(r.status, 400);
+    const j = await r.json();
+    assert.match(j.error, /CSV|Excel/i);
+  });
+});
+
+test('POST /api/templates rejects a non-Excel binary blob sent with the .xlsx content type (400, not 500)', async () => {
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      body: Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]), // garbage, not a real zip/xlsx
+    });
+    assert.strictEqual(r.status, 400);
+    const j = await r.json();
+    assert.match(j.error, /parseExcelTemplate/);
+  });
+});
+
 test('POST /api/templates rejects an empty body with 400 (no DB write attempted)', async () => {
   await withServer(emptyDb, async (base) => {
     const r = await fetch(base + '/api/templates', {
