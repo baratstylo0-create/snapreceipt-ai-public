@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "setup-webhook": "node server.js --register-only",
+    "setup-admin": "node setup/provision.js",
     "test": "node --test"
   },
   "engines": {
