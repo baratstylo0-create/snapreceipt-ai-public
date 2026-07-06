@@ -19,6 +19,7 @@ const mountMisc = require('./routes/misc');
 const mountReview = require('./routes/review'); // #5 admin review queue
 const mountAgent = require('./routes/agent');   // #9 dashboard agent
 const mountUpload = require('./routes/upload'); // #7 mass upload
+const mountSettings = require('./routes/settings'); // per-account UI settings (category colours)
 
 assertConfig();
 
@@ -42,6 +43,7 @@ mountMisc(app);
 mountReview(app);
 mountAgent(app);
 mountUpload(app);
+mountSettings(app);
 
 // Global error handler: body-parser (express.json/text) throws synchronously
 // on malformed input, before any route's own try/catch runs. Without this,

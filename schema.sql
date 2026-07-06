@@ -177,3 +177,27 @@ $$;
 drop trigger if exists trg_assign_voucher_no on expenses;
 create trigger trg_assign_voucher_no before insert on expenses
   for each row execute function assign_voucher_no();
+
+-- ============================================================================
+-- Migration M6: per-account UI settings (owner request 2026-07-05)
+-- A generic key/value store for account-scoped display preferences that don't
+-- warrant their own table. First consumer: the Overview donut's custom
+-- category colours (key = 'category_colors', value = { "<category>": "#rrggbb" }),
+-- so a user's chosen colours sync across their browsers/devices instead of
+-- living only in one browser's localStorage.
+-- ============================================================================
+-- id primary key + a unique (account_id, key) index — mirrors field_templates,
+-- so the frozen lib/supabase.js sbUpdate helper (filters by id) works unchanged.
+create table if not exists account_settings (
+  id         uuid        primary key default gen_random_uuid(),
+  account_id text        not null default 'default',
+  key        text        not null,                    -- e.g. 'category_colors'
+  value      jsonb       not null default '{}'::jsonb, -- arbitrary per-key JSON
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists account_settings_account_key_idx
+  on account_settings (account_id, key);
+
+alter table account_settings enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied.

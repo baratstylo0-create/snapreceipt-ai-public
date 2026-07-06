@@ -187,6 +187,43 @@
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
   function msg(className, text) { var p = el('p', className); Escape.setText(p, text); return p; }
 
+  // Small centered popup confirm (Owner request 2026-07-05: "make the confirm
+  // message also as a popup window" — replaces the earlier inline two-click
+  // button state). Appended to document.body so it always sits centered over
+  // the whole page regardless of scroll position. Dismiss via Cancel, clicking
+  // the dimmed backdrop, or Escape; onConfirm only fires on the explicit
+  // confirm button.
+  function showConfirmDialog(message, confirmLabel, onConfirm) {
+    if (!hasDom()) return;
+    var overlay = el('div', 'tp-confirm-host');
+    var card = el('div', 'tp-confirm-card');
+    card.setAttribute('role', 'alertdialog');
+    card.setAttribute('aria-modal', 'true');
+    card.appendChild(msg('tp-confirm-msg', message));
+
+    var actions = el('div', 'tp-confirm-actions');
+    var cancelBtn = el('button', 'tp-confirm-cancel'); cancelBtn.type = 'button';
+    Escape.setText(cancelBtn, 'Cancel');
+    var confirmBtn = el('button', 'tp-confirm-ok'); confirmBtn.type = 'button';
+    Escape.setText(confirmBtn, confirmLabel || 'Confirm');
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    function onKeydown(ev) { if (ev.key === 'Escape') close(); }
+    function close() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKeydown);
+    }
+    document.addEventListener('keydown', onKeydown);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close(); });
+    cancelBtn.addEventListener('click', close);
+    confirmBtn.addEventListener('click', function () { close(); onConfirm(); });
+    confirmBtn.focus();
+  }
+
   function renderFieldSpecTable(vm) {
     var wrap = el('div', 'tp-spec');
 
@@ -256,11 +293,31 @@
 
   // ---- render layer --------------------------------------------------------
 
-  // Build one "field row" of the visual builder: name input, type select,
-  // required checkbox, remove button. Returns { el, getField(), setBusy(b) }.
-  function buildFieldRow(onRemove, initial) {
+  // Build one "field row" of the visual builder: order handle (up/down), name
+  // input, type select, required checkbox, remove button. Returns
+  // { el, getField(), setBusy(b), setMoveEnabled(canUp, canDown) }.
+  //
+  // Remove is a two-step confirm (same inline pattern as Activity's delete
+  // button, act-delete/is-confirming — no native confirm() dialog, CSP/UX
+  // consistent) so an accidental click on "Remove" no longer hard-deletes a
+  // row with zero warning. onMove(rowApi, delta) shifts this row's position in
+  // the rows array (delta -1/+1), which IS the CSV column order left-to-right
+  // (buildCsvHeader emits fields in array order).
+  function buildFieldRow(onRemove, onMove, initial) {
     var seed = isPlainObject(initial) ? initial : {};
     var row = el('div', 'tp-fb-row');
+
+    var moveWrap = el('div', 'tp-fb-move');
+    var upBtn = el('button', 'tp-fb-move-btn'); upBtn.type = 'button';
+    upBtn.setAttribute('aria-label', 'Move field up'); upBtn.title = 'Move up';
+    Escape.setText(upBtn, '▲');
+    var downBtn = el('button', 'tp-fb-move-btn'); downBtn.type = 'button';
+    downBtn.setAttribute('aria-label', 'Move field down'); downBtn.title = 'Move down';
+    Escape.setText(downBtn, '▼');
+    upBtn.addEventListener('click', function () { onMove(rowApi, -1); });
+    downBtn.addEventListener('click', function () { onMove(rowApi, 1); });
+    moveWrap.appendChild(upBtn); moveWrap.appendChild(downBtn);
+    row.appendChild(moveWrap);
 
     var nameInput = el('input', 'tp-fb-name');
     nameInput.type = 'text';
@@ -291,9 +348,17 @@
     var removeBtn = el('button', 'tp-fb-remove');
     removeBtn.type = 'button';
     Escape.setText(removeBtn, 'Remove');
-    removeBtn.addEventListener('click', function () { onRemove(rowApi); });
+    removeBtn.addEventListener('click', function () {
+      var name = nameInput.value.trim();
+      showConfirmDialog(
+        name ? 'Remove the field "' + name + '"?' : 'Remove this field?',
+        'Remove field',
+        function () { onRemove(rowApi); }
+      );
+    });
     row.appendChild(removeBtn);
 
+    var moveState = { canUp: true, canDown: true };
     var rowApi = {
       el: row,
       getField: function () {
@@ -301,6 +366,13 @@
       },
       setBusy: function (b) {
         nameInput.disabled = b; typeSelect.disabled = b; reqCheckbox.disabled = b; removeBtn.disabled = b;
+        upBtn.disabled = b || !moveState.canUp;
+        downBtn.disabled = b || !moveState.canDown;
+      },
+      setMoveEnabled: function (canUp, canDown) {
+        moveState.canUp = !!canUp; moveState.canDown = !!canDown;
+        upBtn.disabled = !canUp;
+        downBtn.disabled = !canDown;
       },
     };
     return rowApi;
@@ -485,18 +557,44 @@
 
     var rows = [];
 
+    // First/last row can't move further that way; every other row can move
+    // both directions. Re-run after every add/remove/move so the ▲/▼ buttons
+    // stay accurate.
+    function refreshMoveButtons() {
+      rows.forEach(function (r, i) {
+        r.setMoveEnabled(i > 0, i < rows.length - 1);
+      });
+    }
+
     function removeRow(rowApi) {
       var idx = rows.indexOf(rowApi);
       if (idx === -1) return;
       rows.splice(idx, 1);
       rowsWrap.removeChild(rowApi.el);
+      refreshMoveButtons();
+      refreshBuilderState();
+    }
+
+    // Shifts a row's position by delta (-1 = up/earlier column, +1 = down/later
+    // column) in BOTH the `rows` array and the DOM — array order is exactly
+    // what buildCsvHeader emits, so this IS the left-to-right column order.
+    function moveRow(rowApi, delta) {
+      var idx = rows.indexOf(rowApi);
+      var next = idx + delta;
+      if (idx === -1 || next < 0 || next >= rows.length) return;
+      rows.splice(idx, 1);
+      rows.splice(next, 0, rowApi);
+      if (delta < 0) rowsWrap.insertBefore(rowApi.el, rowsWrap.children[next]);
+      else rowsWrap.insertBefore(rowApi.el, rowsWrap.children[next + 1] || null);
+      refreshMoveButtons();
       refreshBuilderState();
     }
 
     function addRow(initial) {
-      var rowApi = buildFieldRow(removeRow, initial);
+      var rowApi = buildFieldRow(removeRow, moveRow, initial);
       rows.push(rowApi);
       rowsWrap.appendChild(rowApi.el);
+      refreshMoveButtons();
       refreshBuilderState();
       return rowApi;
     }

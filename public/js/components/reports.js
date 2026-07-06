@@ -1,12 +1,26 @@
-// components/reports.js — the Reports screen (Task F): a period selector
-// (day/week/month/year + optional date range) driving GET /api/reports, the
-// SAME inline-SVG bar-chart technique as overview.js, a per-category breakdown,
+// components/reports.js — the Reports screen (Task F): Day/Week/Month/Year
+// tabs that each "drill down" one level, driving GET /api/reports, the SAME
+// inline-SVG bar-chart technique as overview.js, a per-category breakdown,
 // and an "Export to Excel" button that downloads GET /api/excel as a Blob.
 //
+// Drill-down design (2026-07-05 redesign, replacing the old date-range picker):
+//   Day   -> ONE calendar day.  No time chart (a single day has no smaller time
+//            unit) — just the category breakdown for that day.
+//   Week  -> ONE calendar week (Sunday-Saturday). Bars = Sun..Sat, zero-filled.
+//   Month -> ONE calendar month. Bars = W1..W4 (simple day-count chunks: days
+//            1-7/8-14/15-21/22-end; the trailing days of a 29-31 day month
+//            fold into W4), zero-filled.
+//   Year  -> ONE calendar year. Bars = Jan..Dec, zero-filled.
+// Each tab shows Prev/Next arrows to step to the adjacent unit. The underlying
+// /api/reports contract is untouched (period=day|week|month|year&from=&to=) —
+// we just always send an EXPLICIT from/to computed from the current anchor,
+// requesting day-level granularity for Week/Month (so we can re-bucket into
+// weekdays / week-chunks ourselves) and month-level granularity for Year.
+//
 // TWO layers, kept apart so the math is unit-testable without a DOM:
-//   1. PURE transforms (chartModel / categoryBreakdown / buildReportsQuery /
-//      excelFilename / exportErrorMessage) — no DOM, no network, never throw on
-//      junk input. Covered by tests/frontend/reports.test.js.
+//   1. PURE transforms (date math, bucket builders, buildAnchorQuery,
+//      categoryBreakdown, excelFilename, exportErrorMessage) — no DOM, no
+//      network, never throw on junk. Covered by tests/frontend/reports.test.js.
 //   2. RENDER layer (mount + render*) — builds real DOM with createElement /
 //      createElementNS + textContent + Escape.setText. NEVER innerHTML with
 //      data. No-ops outside a browser. Loading / empty / error states live here.
@@ -41,8 +55,10 @@
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var PERIODS = ['day', 'week', 'month', 'year'];
+  var WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  // ---- pure helpers -------------------------------------------------------
+  // ---- pure helpers: numbers / shapes -------------------------------------
 
   function toNum(v) {
     if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
@@ -52,6 +68,7 @@
     }
     return 0;
   }
+  var round2 = function (v) { return Math.round((toNum(v) + Number.EPSILON) * 100) / 100; };
 
   function isPlainObject(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
 
@@ -59,20 +76,19 @@
     return reports && Array.isArray(reports.buckets) ? reports.buckets : [];
   }
 
-  // reports.buckets -> [{label, value}] in bucket order. Mirrors overview.js's
-  // chartModel exactly. Raw labels (escaped at render time), coerced numeric
-  // values, tolerant of missing/garbage fields.
-  function chartModel(reports) {
-    return buckets(reports).map(function (b) {
-      var key = b && b.key !== undefined && b.key !== null ? String(b.key) : '';
-      return { label: key, value: toNum(b && b.total) };
+  // reports.buckets -> { 'key': total, ... }, tolerant of junk. Used to overlay
+  // real data onto a zero-filled label grid (weekday / week-chunk / month).
+  function bucketTotalsByKey(reports) {
+    var map = {};
+    buckets(reports).forEach(function (b) {
+      var k = b && b.key !== undefined && b.key !== null ? String(b.key) : '';
+      map[k] = toNum(b && b.total);
     });
+    return map;
   }
 
   // Sum byCategory across every bucket and return the FULL sorted-desc list of
-  // {name, total}, filtering non-positive totals. Mirrors overview.js's
-  // topCategory aggregation logic, but returns everything instead of only the
-  // winner. Never throws on null/garbage input.
+  // {name, total}, filtering non-positive totals. Never throws on null/garbage.
   function categoryBreakdown(reports) {
     var totals = {};
     buckets(reports).forEach(function (b) {
@@ -90,61 +106,159 @@
     return rows;
   }
 
+  // ---- pure helpers: date math (UTC-based, mirrors lib/reports.js's isoWeekKey) --
+
   var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   function isIsoShaped(v) { return typeof v === 'string' && ISO_DATE_RE.test(v); }
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+  function isoOf(y, m, d) { return y + '-' + pad2(m) + '-' + pad2(d); } // m is 1-12
 
-  var YEAR_RE = /^\d{4}$/;
-  // A 4-digit year STRING (query values are strings) -> that year's full-calendar range.
-  // Anything else (2-digit, non-numeric, a number, null) -> null. Never throws.
-  function yearRange(year) {
-    if (typeof year !== 'string' || !YEAR_RE.test(year)) return null;
-    return { from: year + '-01-01', to: year + '-12-31' };
+  // Parse an ISO date string -> {y, m, d} (m is 1-12). Malformed input yields
+  // NaN fields; callers that need safety should validate with isIsoShaped first.
+  function parseIso(iso) {
+    var parts = String(iso || '').split('-').map(Number);
+    return { y: parts[0], m: parts[1], d: parts[2] };
   }
 
-  // Pull the distinct 4-digit year keys out of a period=year report's buckets, sorted
-  // descending (newest first) — used to populate the Year selector from real data.
-  // Tolerant of junk/empty/missing; never throws.
-  function yearsFromReport(report) {
-    var bs = report && Array.isArray(report.buckets) ? report.buckets : [];
-    var seen = {};
-    var out = [];
-    bs.forEach(function (b) {
-      var k = b && b.key !== undefined && b.key !== null ? String(b.key) : '';
-      if (YEAR_RE.test(k) && !seen[k]) { seen[k] = true; out.push(k); }
-    });
-    out.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; }); // desc
-    return out;
+  // Last day-of-month for (year, month 1-12). Date.UTC(y, m, 0) = "day 0 of the
+  // NEXT month" = the last day of THIS month; a well-known trick, avoids a
+  // hand-rolled leap-year table.
+  function daysInMonth(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
+
+  function addDaysIso(iso, n) {
+    var p = parseIso(iso);
+    var dt = new Date(Date.UTC(p.y, p.m - 1, p.d + n));
+    return isoOf(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
   }
 
-  // Which year the selector should default to: the current year if the data has it,
-  // otherwise the most recent year present, otherwise the current year. Never throws.
-  function pickDefaultYear(years, currentYear) {
-    var list = Array.isArray(years) ? years : [];
-    var cur = String(currentYear);
-    if (list.indexOf(cur) !== -1) return cur;
-    return list.length ? list[0] : cur;
+  // 0=Sun..6=Sat for an ISO date (UTC, so it never shifts across a DST edge).
+  function weekdayIndex(iso) {
+    var p = parseIso(iso);
+    return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
   }
 
-  // Validate period (day/week/month/year, default 'month') and from/to
-  // (YYYY-MM-DD-shaped strings, dropped if malformed/missing). Returns a
-  // query-string-ready object. Never throws on garbage input.
-  //
-  // BUG FIX (2026-07-04): month/week (and day) with NO explicit range used to bucket
-  // across EVERY year in the data at once (e.g. 2018-01, 2024-04, 2026-05 side by side).
-  // When a `year` is supplied and the caller hasn't set an explicit from/to, scope the
-  // query to that whole year (Jan 1 – Dec 31) so the chart shows ONE year's periods.
-  // The `year` period itself is deliberately NOT scoped — it exists to compare years.
-  function buildReportsQuery(period, from, to, year) {
-    var p = PERIODS.indexOf(period) !== -1 ? period : 'month';
-    var q = { period: p };
-    var hasFrom = isIsoShaped(from), hasTo = isIsoShaped(to);
-    if (hasFrom) q.from = from;
-    if (hasTo) q.to = to;
-    if (!hasFrom && !hasTo && p !== 'year') {
-      var yr = yearRange(year);
-      if (yr) { q.from = yr.from; q.to = yr.to; }
+  // The Sunday on/before `iso` — the start of the week that contains it.
+  function startOfWeekIso(iso) { return addDaysIso(iso, -weekdayIndex(iso)); }
+
+  function monthRangeFor(year, month) {
+    return { from: isoOf(year, month, 1), to: isoOf(year, month, daysInMonth(year, month)) };
+  }
+  function weekRangeFor(weekStartIso) { return { from: weekStartIso, to: addDaysIso(weekStartIso, 6) }; }
+  function yearRangeFor(year) { return { from: year + '-01-01', to: year + '-12-31' }; }
+
+  // Anchor stepping — Prev/Next moves exactly one unit of the active period.
+  function shiftDay(iso, delta) { return addDaysIso(iso, delta); }
+  function shiftWeek(weekStartIso, delta) { return addDaysIso(weekStartIso, delta * 7); }
+  // Month arithmetic via a flat "months since epoch" count sidesteps Date's
+  // day-of-month rollover quirks (e.g. Jan 31 + 1 month silently becoming Mar 3).
+  function shiftMonth(year, month, delta) {
+    var total = (year * 12 + (month - 1)) + delta;
+    var y = Math.floor(total / 12);
+    var m = (total - y * 12) + 1;
+    return { year: y, month: m };
+  }
+  function shiftYear(year, delta) { return year + delta; }
+
+  function todayIso() {
+    var d = new Date();
+    return isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  }
+
+  // ---- pure helpers: query + bucket builders ------------------------------
+
+  // Build the actual /api/reports query for a UI period + its anchor. Anchor
+  // shapes: day/week -> an ISO date string (week anchor = its Sunday); month ->
+  // {year, month}; year -> a year number. Week/Month request DAY-level
+  // granularity (so we can re-bucket into weekdays / week-chunks ourselves);
+  // Year requests MONTH-level granularity. Tolerant of a malformed anchor
+  // (falls back to today) — never throws.
+  function buildAnchorQuery(uiPeriod, anchor) {
+    var p = PERIODS.indexOf(uiPeriod) !== -1 ? uiPeriod : 'month';
+    if (p === 'week') {
+      var wAnchor = isIsoShaped(anchor) ? anchor : todayIso();
+      var wr = weekRangeFor(wAnchor);
+      return { period: 'day', from: wr.from, to: wr.to };
     }
-    return q;
+    if (p === 'month') {
+      var mAnchor = isPlainObject(anchor) && Number.isInteger(anchor.year) && anchor.month >= 1 && anchor.month <= 12
+        ? anchor : { year: Number(todayIso().slice(0, 4)), month: Number(todayIso().slice(5, 7)) };
+      var mr = monthRangeFor(mAnchor.year, mAnchor.month);
+      return { period: 'day', from: mr.from, to: mr.to };
+    }
+    if (p === 'year') {
+      var yAnchor = Number.isInteger(anchor) ? anchor : Number(todayIso().slice(0, 4));
+      var yr = yearRangeFor(yAnchor);
+      return { period: 'month', from: yr.from, to: yr.to };
+    }
+    // day
+    var dAnchor = isIsoShaped(anchor) ? anchor : todayIso();
+    return { period: 'day', from: dAnchor, to: dAnchor };
+  }
+
+  // Week view: 7 bars Sun..Sat, zero-filled, from a period=day report over that
+  // week's range.
+  function weekdayBuckets(reports, weekStartIso) {
+    var totals = bucketTotalsByKey(reports);
+    var anchor = isIsoShaped(weekStartIso) ? weekStartIso : todayIso();
+    var rows = [];
+    for (var i = 0; i < 7; i++) {
+      var iso = addDaysIso(anchor, i);
+      rows.push({ label: WEEKDAY_LABELS[i], value: totals[iso] || 0 });
+    }
+    return rows;
+  }
+
+  // Month view: exactly 4 bars W1..W4 (day-count chunks: 1-7/8-14/15-21/22-end;
+  // W4 absorbs any trailing days of a 29-31 day month), zero-filled, from a
+  // period=day report over that month's range.
+  function monthWeekBuckets(reports, year, month) {
+    var y = Number.isInteger(year) ? year : Number(todayIso().slice(0, 4));
+    var m = (Number.isInteger(month) && month >= 1 && month <= 12) ? month : Number(todayIso().slice(5, 7));
+    var totals = bucketTotalsByKey(reports);
+    var last = daysInMonth(y, m);
+    var sums = [0, 0, 0, 0];
+    for (var d = 1; d <= last; d++) {
+      var idx = d <= 7 ? 0 : d <= 14 ? 1 : d <= 21 ? 2 : 3;
+      sums[idx] += totals[isoOf(y, m, d)] || 0;
+    }
+    return sums.map(function (v, i) { return { label: 'W' + (i + 1), value: round2(v) }; });
+  }
+
+  // Year view: 12 bars Jan..Dec, zero-filled, from a period=month report over
+  // that year's range.
+  function yearMonthBuckets(reports, year) {
+    var y = Number.isInteger(year) ? year : Number(todayIso().slice(0, 4));
+    var totals = bucketTotalsByKey(reports);
+    var rows = [];
+    for (var m = 1; m <= 12; m++) {
+      rows.push({ label: MONTH_LABELS[m - 1], value: totals[y + '-' + pad2(m)] || 0 });
+    }
+    return rows;
+  }
+
+  // ---- pure helpers: heading labels (what Prev/Next steps between) -------
+
+  function formatDayHeading(iso) {
+    var v = isIsoShaped(iso) ? iso : todayIso();
+    var p = parseIso(v);
+    var wd = WEEKDAY_LABELS[weekdayIndex(v)];
+    return wd + ', ' + MONTH_LABELS[p.m - 1] + ' ' + p.d + ', ' + p.y;
+  }
+  function formatWeekHeading(weekStartIso) {
+    var v = isIsoShaped(weekStartIso) ? weekStartIso : todayIso();
+    var endIso = addDaysIso(v, 6);
+    var s = parseIso(v), e = parseIso(endIso);
+    var startStr = MONTH_LABELS[s.m - 1] + ' ' + s.d;
+    var endStr = MONTH_LABELS[e.m - 1] + ' ' + e.d;
+    return startStr + '–' + endStr + ', ' + e.y;
+  }
+  function formatMonthHeading(year, month) {
+    var y = Number.isInteger(year) ? year : Number(todayIso().slice(0, 4));
+    var m = (Number.isInteger(month) && month >= 1 && month <= 12) ? month : Number(todayIso().slice(5, 7));
+    return MONTH_LABELS[m - 1] + ' ' + y;
+  }
+  function formatYearHeading(year) {
+    return String(Number.isInteger(year) ? year : Number(todayIso().slice(0, 4)));
   }
 
   // Extract a filename from a Content-Disposition header value
@@ -200,20 +314,36 @@
 
   // Plain inline SVG bar chart — SAME technique as overview.js's renderChart
   // (no library; bars scaled to the max value; label/value via textContent).
+  // Owner request 2026-07-05: show every bar's exact total as an always-visible
+  // pill above the bar (not just an on-hover <title>), matching the Overview
+  // line chart's callouts.
   function renderChart(rows) {
     var figure = el('figure', 'ov-chart');
     var caption = el('figcaption', 'ov-chart-caption');
     Escape.setText(caption, 'Spend by period');
     figure.appendChild(caption);
 
-    var width = 640, height = 260, padL = 8, padR = 8, padTop = 8, padBottom = 44;
+    var width = 640, height = 260, padL = 8, padR = 8, padBottom = 30;
+    // calloutZone: headroom above the tallest bar so its value pill has room
+    // to sit above the bar instead of overlapping it.
+    var calloutZone = 30;
+    var padTop = 8 + calloutZone;
     var plotW = width - padL - padR;
     var plotH = height - padTop - padBottom;
     var max = rows.reduce(function (m, r) { return r.value > m ? r.value : m; }, 0);
-    var denom = max > 0 ? max : 1;
+    // Owner report 2026-07-05: on a view with a single bar (e.g. the Week tab
+    // showing just "W1"), that one bar IS the max by definition, so it always
+    // filled the entire plot height — looking oversized/exaggerated compared
+    // to views with several bars. Reserve a fixed 25% headroom above the
+    // tallest bar on EVERY view (1 bar or 12), so a lone bar renders at the
+    // same "standard" scale instead of always maxing out the chart.
+    var denom = max > 0 ? max / 0.75 : 1;
     var n = rows.length;
     var slot = n > 0 ? plotW / n : plotW;
-    var barW = Math.max(1, slot * 0.6);
+    // Cap bar width too — with 1 slot, 60% of the full plot width is still a
+    // huge block; clamp so a lone bar matches the width a bar would have in a
+    // normal multi-bar view instead of ballooning to fill the space.
+    var barW = Math.max(1, Math.min(slot * 0.6, 70));
 
     var svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
@@ -247,12 +377,41 @@
 
       var lbl = document.createElementNS(SVG_NS, 'text');
       lbl.setAttribute('x', x + barW / 2);
-      lbl.setAttribute('y', padTop + plotH + 14);
+      lbl.setAttribute('y', padTop + plotH + 18);
       lbl.setAttribute('class', 'ov-bar-label');
-      lbl.setAttribute('text-anchor', 'end');
-      lbl.setAttribute('transform', 'rotate(-35 ' + (x + barW / 2) + ' ' + (padTop + plotH + 14) + ')');
+      lbl.setAttribute('text-anchor', 'middle');
       Escape.setText(lbl, r.label);
       svg.appendChild(lbl);
+
+      // Always-visible value pill above the bar (skip a true-zero bar — nothing
+      // to show above an invisible bar, and it would sit right on the axis).
+      if (r.value > 0) {
+        var text = Format.formatMoney(r.value).replace(/\.00$/, '');
+        var pillW = Math.max(28, text.length * 7.5 + 12);
+        var pillH = 18;
+        var pillX = Math.min(Math.max(x + barW / 2 - pillW / 2, 0), width - pillW);
+        var pillY = Math.max(y - pillH - 8, 0);
+
+        var group = document.createElementNS(SVG_NS, 'g');
+        group.setAttribute('class', 'ov-chart-callout');
+        var pill = document.createElementNS(SVG_NS, 'rect');
+        pill.setAttribute('x', pillX);
+        pill.setAttribute('y', pillY);
+        pill.setAttribute('width', pillW);
+        pill.setAttribute('height', pillH);
+        pill.setAttribute('rx', 5);
+        pill.setAttribute('class', 'ov-chart-callout-bg');
+        group.appendChild(pill);
+
+        var plabel = document.createElementNS(SVG_NS, 'text');
+        plabel.setAttribute('x', pillX + pillW / 2);
+        plabel.setAttribute('y', pillY + pillH / 2 + 3.5);
+        plabel.setAttribute('text-anchor', 'middle');
+        plabel.setAttribute('class', 'ov-chart-callout-text ov-chart-callout-text--sm');
+        Escape.setText(plabel, text);
+        group.appendChild(plabel);
+        svg.appendChild(group);
+      }
     });
 
     figure.appendChild(svg);
@@ -285,12 +444,21 @@
     return wrap;
   }
 
+  // Pick the right zero-filled bucket rows for the active UI period. Day has
+  // no time chart (a single day has no smaller time unit) — returns [].
+  function rowsForPeriod(uiPeriod, reports, anchor) {
+    if (uiPeriod === 'week') return weekdayBuckets(reports, anchor);
+    if (uiPeriod === 'month') return monthWeekBuckets(reports, anchor && anchor.year, anchor && anchor.month);
+    if (uiPeriod === 'year') return yearMonthBuckets(reports, anchor);
+    return []; // day
+  }
+
   // Render the whole Reports body into `container` from a reports object.
-  function renderInto(container, reports) {
+  function renderInto(container, reports, uiPeriod, anchor) {
     if (!hasDom() || !container) return;
     clear(container);
-    var rows = chartModel(reports);
-    var hasData = (reports && toNum(reports.count) > 0) || rows.length > 0;
+    var period = PERIODS.indexOf(uiPeriod) !== -1 ? uiPeriod : 'month';
+    var hasData = reports && toNum(reports.count) > 0;
 
     if (reports && reports.truncated) {
       container.appendChild(msg('up-notice rp-notice', 'This report only covers the first ' +
@@ -302,13 +470,11 @@
       return;
     }
 
-    var totalCard = renderKpis([
+    container.appendChild(renderKpis([
       { label: 'Total spend', value: Format.formatMoney(reports.total) },
-      { label: 'Expenses', value: Format.formatCount(reports.count) },
-      { label: 'Periods', value: Format.formatCount(rows.length) },
-    ]);
-    container.appendChild(totalCard);
-    container.appendChild(renderChart(rows));
+      { label: 'Total bills', value: Format.formatCount(reports.count) },
+    ]));
+    if (period !== 'day') container.appendChild(renderChart(rowsForPeriod(period, reports, anchor)));
     container.appendChild(renderCategoryBreakdown(categoryBreakdown(reports)));
   }
 
@@ -373,7 +539,7 @@
     var rootEl = el('div', 'rp-root');
     section.appendChild(rootEl);
 
-    // --- toolbar: period buttons + optional from/to date inputs ---
+    // --- toolbar: period tabs + Prev/current-unit/Next drill-down nav ---
     var toolbar = el('div', 'rp-toolbar');
 
     var periodGroup = el('div', 'rp-period-group');
@@ -383,9 +549,10 @@
       btn.type = 'button';
       Escape.setText(btn, p.charAt(0).toUpperCase() + p.slice(1));
       btn.addEventListener('click', function () {
-        if (state.period === p) return;
-        state.period = p;
+        if (state.uiPeriod === p) return;
+        state.uiPeriod = p;
         setActivePeriod(p);
+        updateNavLabel();
         fetchAndRender();
       });
       periodGroup.appendChild(btn);
@@ -393,40 +560,20 @@
     });
     toolbar.appendChild(periodGroup);
 
-    // --- Year selector (bug fix): scopes day/week/month to one year so the chart
-    // shows that year's periods, not every year's mixed together. Hidden for the
-    // 'year' period (which compares across years). Populated from real data on load. ---
-    var yearGroup = el('div', 'rp-year-group');
-    var yearLabel = el('label', 'rp-range-label');
-    yearLabel.setAttribute('for', 'rp-year-select');
-    Escape.setText(yearLabel, 'Year');
-    var yearSelect = el('select', 'rp-year-select');
-    yearSelect.id = 'rp-year-select';
-    yearGroup.appendChild(yearLabel);
-    yearGroup.appendChild(yearSelect);
-    toolbar.appendChild(yearGroup);
-
-    var rangeGroup = el('div', 'rp-range-group');
-
-    var fromLabel = el('label', 'rp-range-label');
-    fromLabel.setAttribute('for', 'rp-from-input');
-    Escape.setText(fromLabel, 'From');
-    var fromInput = el('input', 'rp-date-input');
-    fromInput.type = 'date';
-    fromInput.id = 'rp-from-input';
-    rangeGroup.appendChild(fromLabel);
-    rangeGroup.appendChild(fromInput);
-
-    var toLabel = el('label', 'rp-range-label');
-    toLabel.setAttribute('for', 'rp-to-input');
-    Escape.setText(toLabel, 'To');
-    var toInput = el('input', 'rp-date-input');
-    toInput.type = 'date';
-    toInput.id = 'rp-to-input';
-    rangeGroup.appendChild(toLabel);
-    rangeGroup.appendChild(toInput);
-
-    toolbar.appendChild(rangeGroup);
+    var navGroup = el('div', 'rp-nav-group');
+    var prevBtn = el('button', 'rp-nav-btn');
+    prevBtn.type = 'button';
+    prevBtn.setAttribute('aria-label', 'Previous');
+    Escape.setText(prevBtn, '‹');
+    var navLabel = el('span', 'rp-nav-label');
+    var nextBtn = el('button', 'rp-nav-btn');
+    nextBtn.type = 'button';
+    nextBtn.setAttribute('aria-label', 'Next');
+    Escape.setText(nextBtn, '›');
+    navGroup.appendChild(prevBtn);
+    navGroup.appendChild(navLabel);
+    navGroup.appendChild(nextBtn);
+    toolbar.appendChild(navGroup);
 
     var exportBtn = el('button', 'rp-export-btn');
     exportBtn.type = 'button';
@@ -447,77 +594,65 @@
       });
     }
 
-    var state = { loaded: false, loading: false, period: 'month', year: String(new Date().getFullYear()), yearsLoaded: false };
-    setActivePeriod(state.period);
+    var today = todayIso();
+    var todayYear = Number(today.slice(0, 4)), todayMonth = Number(today.slice(5, 7));
+    var state = {
+      loaded: false, loading: false, uiPeriod: 'month',
+      dayAnchor: today,
+      weekAnchor: startOfWeekIso(today),
+      monthAnchor: { year: todayYear, month: todayMonth },
+      yearAnchor: todayYear,
+    };
+    setActivePeriod(state.uiPeriod);
 
-    // The Year selector is meaningful for the sub-year granularities; hidden for 'year'
-    // (which is the cross-year comparison view) — mirrors buildReportsQuery's scoping rule.
-    function updateYearVisibility() {
-      yearGroup.style.display = (state.period === 'year') ? 'none' : '';
-    }
-    updateYearVisibility();
-
-    function populateYearSelect(years) {
-      clear(yearSelect);
-      var list = (years && years.length) ? years : [String(new Date().getFullYear())];
-      list.forEach(function (y) {
-        var opt = el('option'); opt.value = y; Escape.setText(opt, y); yearSelect.appendChild(opt);
-      });
-    }
-
-    // Discover which years the account actually has data in (one period=year query),
-    // populate the selector, and default to the current year (or the latest present).
-    // Runs once; subsequent calls invoke the callback immediately.
-    function ensureYearsLoaded(cb) {
-      if (state.yearsLoaded || !apiFetch) { cb(); return; }
-      apiFetch('/api/reports?period=year').then(function (report) {
-        state.yearsLoaded = true;
-        var years = yearsFromReport(report);
-        populateYearSelect(years);
-        state.year = pickDefaultYear(years, new Date().getFullYear());
-        yearSelect.value = state.year;
-        cb();
-      }).catch(function () {
-        state.yearsLoaded = true;                 // don't wedge the screen on a discovery failure
-        populateYearSelect([state.year]);
-        yearSelect.value = state.year;
-        cb();
-      });
+    function currentAnchor() {
+      if (state.uiPeriod === 'day') return state.dayAnchor;
+      if (state.uiPeriod === 'week') return state.weekAnchor;
+      if (state.uiPeriod === 'month') return state.monthAnchor;
+      return state.yearAnchor;
     }
 
-    function currentQuery() {
-      return buildReportsQuery(state.period, fromInput.value, toInput.value, state.year);
+    function updateNavLabel() {
+      var text = state.uiPeriod === 'day' ? formatDayHeading(state.dayAnchor)
+        : state.uiPeriod === 'week' ? formatWeekHeading(state.weekAnchor)
+        : state.uiPeriod === 'month' ? formatMonthHeading(state.monthAnchor.year, state.monthAnchor.month)
+        : formatYearHeading(state.yearAnchor);
+      Escape.setText(navLabel, text);
     }
+    updateNavLabel();
+
+    function shiftAnchor(delta) {
+      if (state.uiPeriod === 'day') state.dayAnchor = shiftDay(state.dayAnchor, delta);
+      else if (state.uiPeriod === 'week') state.weekAnchor = shiftWeek(state.weekAnchor, delta);
+      else if (state.uiPeriod === 'month') state.monthAnchor = shiftMonth(state.monthAnchor.year, state.monthAnchor.month, delta);
+      else state.yearAnchor = shiftYear(state.yearAnchor, delta);
+    }
+
+    function currentQuery() { return buildAnchorQuery(state.uiPeriod, currentAnchor()); }
 
     function fetchAndRender() {
       if (!apiFetch) return;
       state.loading = true;
       clear(body);
       body.appendChild(msg('ov-loading muted', 'Loading report…'));
-      ensureYearsLoaded(function () {
-        updateYearVisibility();
-        var q = currentQuery();
-        var params = [];
-        Object.keys(q).forEach(function (k) { params.push(k + '=' + encodeURIComponent(q[k])); });
-        var path = '/api/reports' + (params.length ? '?' + params.join('&') : '');
-        apiFetch(path).then(function (reports) {
-          state.loading = false;
-          state.loaded = true;
-          renderInto(body, reports);
-        }).catch(function () {
-          state.loading = false;
-          clear(body);
-          body.appendChild(msg('ov-error', 'Could not load your report. Please try again shortly.'));
-        });
+      var q = currentQuery();
+      var params = [];
+      Object.keys(q).forEach(function (k) { params.push(k + '=' + encodeURIComponent(q[k])); });
+      var path = '/api/reports' + (params.length ? '?' + params.join('&') : '');
+      var period = state.uiPeriod, anchor = currentAnchor();
+      apiFetch(path).then(function (reports) {
+        state.loading = false;
+        state.loaded = true;
+        renderInto(body, reports, period, anchor);
+      }).catch(function () {
+        state.loading = false;
+        clear(body);
+        body.appendChild(msg('ov-error', 'Could not load your report. Please try again shortly.'));
       });
     }
 
-    yearSelect.addEventListener('change', function () {
-      state.year = yearSelect.value;
-      fetchAndRender();
-    });
-    fromInput.addEventListener('change', fetchAndRender);
-    toInput.addEventListener('change', fetchAndRender);
+    prevBtn.addEventListener('click', function () { shiftAnchor(-1); updateNavLabel(); fetchAndRender(); });
+    nextBtn.addEventListener('click', function () { shiftAnchor(1); updateNavLabel(); fetchAndRender(); });
 
     var exportBusy = false;
     exportBtn.addEventListener('click', function () {
@@ -543,17 +678,29 @@
       fetchAndRender();
     }
 
-    return { el: rootEl, load: load, renderInto: function (r) { renderInto(body, r); } };
+    return { el: rootEl, load: load, renderInto: function (r) { renderInto(body, r, state.uiPeriod, currentAnchor()); } };
   }
 
   return {
     // pure
-    chartModel: chartModel,
     categoryBreakdown: categoryBreakdown,
-    buildReportsQuery: buildReportsQuery,
-    yearRange: yearRange,
-    yearsFromReport: yearsFromReport,
-    pickDefaultYear: pickDefaultYear,
+    buildAnchorQuery: buildAnchorQuery,
+    weekdayBuckets: weekdayBuckets,
+    monthWeekBuckets: monthWeekBuckets,
+    yearMonthBuckets: yearMonthBuckets,
+    formatDayHeading: formatDayHeading,
+    formatWeekHeading: formatWeekHeading,
+    formatMonthHeading: formatMonthHeading,
+    formatYearHeading: formatYearHeading,
+    startOfWeekIso: startOfWeekIso,
+    addDaysIso: addDaysIso,
+    shiftDay: shiftDay,
+    shiftWeek: shiftWeek,
+    shiftMonth: shiftMonth,
+    shiftYear: shiftYear,
+    monthRangeFor: monthRangeFor,
+    weekRangeFor: weekRangeFor,
+    yearRangeFor: yearRangeFor,
     excelFilename: excelFilename,
     exportErrorMessage: exportErrorMessage,
     // render (browser)
