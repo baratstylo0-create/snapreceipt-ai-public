@@ -108,6 +108,14 @@ module.exports = function mountUpload(app, deps = {}) {
 
       const fieldSpec = await getFieldSpec();
       const meta = { repName: 'Dashboard', fileId: null };
+      // Business mode (multiUser, Phase 3): stamp the capturer's branch onto every row so
+      // branch/staff reports + exports can attribute it. req.user is the session resolved by
+      // checkDash — a clerk captures to their own branch, an admin to their Head Office branch
+      // (both carried on the session's branch_id). Personal mode: req.user is undefined → the
+      // field stays absent and rows are untagged (unchanged). staff_user_id is set by the bot's
+      // "which staff?" step; the dashboard leaves it null in v1. (Persistence of these onto the
+      // row is assembleExpense's job — lib/ocr.js, Barat — this only supplies the context.)
+      if (req.user && req.user.branch_id) meta.branch_id = req.user.branch_id;
       // ADR-018: upload each image (a PDF is already rasterized to a page image here) to the
       // private `receipts` bucket and carry its object path per-image as `receipt_url`, so
       // assembleExpense stores a durable URL — the dashboard-upload path had NO image before.
