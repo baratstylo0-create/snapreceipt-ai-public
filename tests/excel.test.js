@@ -111,32 +111,40 @@ test('two FieldSpec columns sharing a key each get their own cell (no silent dat
 
 // --- summarize() (pure, unit-testable without a workbook) --------------------
 
-test('summarize: totals + per-category breakdown, sorted by total descending', () => {
+test('summarize: totals + per-category breakdown (with % of total), sorted by total descending', () => {
   const expenses = [
-    { amount: 10, category: 'Food' },
-    { amount: 5, category: 'Food' },
-    { amount: 20, category: 'Travel' },
+    { amount: 10, category: 'Food', expense_date: '2026-07-01' },
+    { amount: 5, category: 'Food', expense_date: '2026-07-03' },
+    { amount: 20, category: 'Travel', expense_date: '2026-06-15' },
   ];
   const s = summarize(expenses);
   assert.strictEqual(s.total, 35);
   assert.strictEqual(s.count, 3);
   assert.deepStrictEqual(s.categories, [
-    { name: 'Travel', total: 20, count: 1 },
-    { name: 'Food', total: 15, count: 2 },
+    { name: 'Travel', total: 20, count: 1, pct: Math.round((20 / 35) * 1000) / 10 },
+    { name: 'Food', total: 15, count: 2, pct: Math.round((15 / 35) * 1000) / 10 },
   ]);
+  assert.strictEqual(s.earliestDate, '2026-06-15');
+  assert.strictEqual(s.latestDate, '2026-07-03');
 });
 
 test('summarize: missing category falls back to "Others"; garbage amounts are excluded entirely', () => {
   const s = summarize([{ amount: 5 }, { amount: 'nope', category: 'Food' }, { amount: Infinity }]);
   assert.strictEqual(s.total, 5);
   assert.strictEqual(s.count, 1);
-  assert.deepStrictEqual(s.categories, [{ name: 'Others', total: 5, count: 1 }]);
+  assert.deepStrictEqual(s.categories, [{ name: 'Others', total: 5, count: 1, pct: 100 }]);
 });
 
-test('summarize: empty/null/garbage input never throws', () => {
-  assert.deepStrictEqual(summarize([]), { total: 0, count: 0, categories: [] });
-  assert.deepStrictEqual(summarize(null), { total: 0, count: 0, categories: [] });
-  assert.deepStrictEqual(summarize([null, undefined]), { total: 0, count: 0, categories: [] });
+test('summarize: empty/null/garbage input never throws, dates are null', () => {
+  assert.deepStrictEqual(summarize([]), { total: 0, count: 0, categories: [], earliestDate: null, latestDate: null });
+  assert.deepStrictEqual(summarize(null), { total: 0, count: 0, categories: [], earliestDate: null, latestDate: null });
+  assert.deepStrictEqual(summarize([null, undefined]), { total: 0, count: 0, categories: [], earliestDate: null, latestDate: null });
+});
+
+test('summarize: a garbage/missing expense_date is excluded from earliest/latest, not crashed', () => {
+  const s = summarize([{ amount: 5, expense_date: 'not-a-date' }, { amount: 5 }]);
+  assert.strictEqual(s.earliestDate, null);
+  assert.strictEqual(s.latestDate, null);
 });
 
 // --- buildWorkbook's Summary sheet (2nd worksheet) ---------------------------
@@ -148,22 +156,40 @@ test('buildWorkbook: Summary is the SECOND worksheet, Expenses stays first (back
   assert.strictEqual(wb.worksheets[1].name, 'Summary');
 });
 
-test('buildWorkbook: Summary sheet shows the range label, totals, and category rows', () => {
+test('buildWorkbook: Summary sheet shows title, period, data-covers, generated-at, totals, average, and category rows with %', () => {
   const expenses = [
-    { merchant: 'Cafe', amount: 10, category: 'Food' },
-    { merchant: 'Shop', amount: 20, category: 'Travel' },
+    { merchant: 'Cafe', amount: 10, category: 'Food', expense_date: '2026-07-01' },
+    { merchant: 'Shop', amount: 20, category: 'Travel', expense_date: '2026-07-03' },
   ];
-  const wb = buildWorkbook(expenses, FIELD_SPEC, { rangeLabel: 'This week' });
+  const wb = buildWorkbook(expenses, FIELD_SPEC, { rangeLabel: 'This week', generatedAt: '2026-07-06T12:00:00.000Z' });
   const s = wb.worksheets[1];
-  assert.deepStrictEqual(s.getRow(1).values.slice(1), ['Report period', 'This week']);
-  assert.deepStrictEqual(s.getRow(2).values.slice(1), ['Total spend', 30]);
-  assert.deepStrictEqual(s.getRow(3).values.slice(1), ['Total bills', 2]);
-  assert.deepStrictEqual(s.getRow(5).values.slice(1), ['Category', 'Total', 'Bills']);
-  assert.deepStrictEqual(s.getRow(6).values.slice(1), ['Travel', 20, 1]);
-  assert.deepStrictEqual(s.getRow(7).values.slice(1), ['Food', 10, 1]);
+  // Title cell is merged across A1:D1 — ExcelJS's row.values replicates the
+  // master value across every cell in a merge, so assert the cell directly.
+  assert.strictEqual(s.getRow(1).getCell(1).value, 'Expense Report');
+  assert.deepStrictEqual(s.getRow(3).values.slice(1), ['Report period', 'This week']);
+  assert.deepStrictEqual(s.getRow(4).values.slice(1), ['Data covers', '2026-07-01 to 2026-07-03']);
+  assert.deepStrictEqual(s.getRow(5).values.slice(1), ['Report generated', '2026-07-06T12:00:00.000Z']);
+  assert.deepStrictEqual(s.getRow(7).values.slice(1), ['Total spend', 30]);
+  assert.deepStrictEqual(s.getRow(8).values.slice(1), ['Total bills', 2]);
+  assert.deepStrictEqual(s.getRow(9).values.slice(1), ['Average per bill', 15]);
+  assert.deepStrictEqual(s.getRow(11).values.slice(1), ['Category', 'Total', 'Bills', '% of Total']);
+  assert.deepStrictEqual(s.getRow(12).values.slice(1), ['Travel', 20, 1, 66.7]);
+  assert.deepStrictEqual(s.getRow(13).values.slice(1), ['Food', 10, 1, 33.3]);
 });
 
-test('buildWorkbook: Summary sheet defaults rangeLabel to "All time" when omitted', () => {
+test('buildWorkbook: Summary sheet defaults rangeLabel to "All time" and shows "no expenses" when empty', () => {
   const wb = buildWorkbook([], FIELD_SPEC);
-  assert.deepStrictEqual(wb.worksheets[1].getRow(1).values.slice(1), ['Report period', 'All time']);
+  const s = wb.worksheets[1];
+  assert.deepStrictEqual(s.getRow(3).values.slice(1), ['Report period', 'All time']);
+  assert.deepStrictEqual(s.getRow(4).values.slice(1), ['Data covers', 'No expenses in this period']);
+  assert.deepStrictEqual(s.getRow(9).values.slice(1), ['Average per bill', 0]);
+});
+
+test('buildWorkbook: Summary sheet money/percent cells carry a number format (not just raw numbers)', () => {
+  const wb = buildWorkbook([{ merchant: 'Cafe', amount: 10, category: 'Food', expense_date: '2026-07-01' }], FIELD_SPEC);
+  const s = wb.worksheets[1];
+  assert.strictEqual(s.getRow(7).getCell(2).numFmt, '#,##0.00');   // Total spend
+  assert.strictEqual(s.getRow(9).getCell(2).numFmt, '#,##0.00');   // Average per bill
+  assert.strictEqual(s.getRow(12).getCell(2).numFmt, '#,##0.00');  // category Total
+  assert.strictEqual(s.getRow(12).getCell(4).numFmt, '0.0"%"');    // category % of Total
 });

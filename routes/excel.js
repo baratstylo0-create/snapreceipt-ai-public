@@ -48,7 +48,7 @@ module.exports = function mountExcel(app) {
       const rangeLabel = !from && !to ? 'All time'
         : from && to && from === to ? from
         : (from || '…') + ' to ' + (to || '…');
-      const workbook = buildWorkbook(filtered, fieldSpec, { rangeLabel });
+      const workbook = buildWorkbook(filtered, fieldSpec, { rangeLabel, generatedAt: new Date().toISOString() });
       const buf = await workbook.xlsx.writeBuffer();
 
       // Filenames are built ONLY from already-ISO-validated strings (or fixed
