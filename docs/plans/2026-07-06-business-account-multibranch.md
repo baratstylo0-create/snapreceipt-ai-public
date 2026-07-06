@@ -35,6 +35,15 @@ one-codebase flags, ADR-015 custody, ADR-020 delivery model).
    `lib/supabase.js`. No route hand-rolls its own scope filter. Isolation tests are mandatory.
 4. **Tier-2 discipline** (auth + DB schema + isolation): TDD, independent cross-review before merge,
    secrets never logged, `.env` moved aside for the suite (standing convention below).
+5. **🔒 SECURITY GATE (ADR-025, `docs/specs/2026-07-07-security-hardening-audit.md`).** Every phase carries
+   its slice of the SEC-1…SEC-10 backlog and **no paying-client instance goes live until the ⚠️/yes items
+   close.** Non-negotiables baked into each task: **RLS `enable`d on every new table** (SEC-8); every
+   business route funnels through `scopeForUser` **server-side** + an **isolation test** (SEC-2); all M2
+   writes **server-validated** incl. `payment_status` admin-only (SEC-5); every M2 route has a **rate
+   limiter** (generous env default, SEC-7); **file uploads magic-byte-validated + stored to the private
+   bucket, never a DB blob** (SEC-3, ADR-018); no PII/images in logs (ADR-002). Password policy (SEC-1),
+   business offline-cache handling (SEC-4), security-event logging (SEC-6), CI `npm audit` (SEC-9), and
+   JWT-scoped RLS (SEC-10) tracked in the audit.
 
 **Standing project convention — run before/after `npm test`:**
 ```bash
@@ -49,9 +58,9 @@ mv .env.local.bak .env
 
 | Area | Owner |
 |---|---|
-| **Supabase schema + migrations, identity/auth, provisioning, reports/master, payments, ALL frontend** | **Jeevan** |
+| **Supabase schema + migrations, identity/auth, provisioning, reports/master, payments, frontend implementation** | **Jeevan** |
 | **`lib/supabase.js` scope-helper (central bouncer), the business Telegram bot (`lib/bot.js` + `routes/webhook.js`), Groq ZDR + OCR-provider config knob (`lib/groq.js`), FieldSpec business-category/shape plumbing (`lib/templates.js`/`lib/ocr.js`)** | **Barat** |
-| **Frontend** | **Jeevan** (Mugi off this epic unless a frontend edit is explicitly handed over) |
+| **Frontend** | **Jeevan implements**, following **Mugi's design in `concept-fresh.html`** (Owner 2026-07-07: this is NOT an ownership transfer — Mugi retains frontend design authority (#3); we build the M2 dashboard to his design + customise as needed). |
 
 Coordination: `scopeForUser` is a **frozen contract** (below) — Jeevan produces the scope object from a
 session; Barat enforces it in `lib/supabase.js`. Announce shared-file touches in WORKLOG (SOP §4.6).

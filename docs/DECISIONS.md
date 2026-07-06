@@ -1,6 +1,18 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-025 · Security posture + hardening launch-gate for the business layer
+**Date:** 2026-07-07 · **Status:** Accepted (Owner: Jeevan). Audit: `docs/specs/2026-07-07-security-hardening-audit.md`. Trigger: Owner security directive + *Vibe Coder Security Checklist* + a file-storage video.
+**Context:** M2 adds auth roles, cross-branch isolation, file storage, and more untrusted input — concentrating new risk. Owner: "no hackers can hack us, no raw data can infiltrate/inject our DB, make sure RLS are all there," rate-limiting present but generous for the first client.
+**Decisions:**
+- **Defense in depth, four layers:** (1) **physical per-deployment isolation** (managed silos, ADR-020 — cross-company leak impossible); (2) the single **`scopeForUser` bouncer** for within-company branch scoping; (3) **RLS + service-role mediation** at the DB (anon denied on every table); (4) validation / rate-limiting / strict CSP at the edges.
+- **RLS everywhere is a hard rule:** *no new table ships without `enable row level security`* and no permissive anon/public policy (verified 5/5 on `schema.sql`). **Honest caveat:** the service-role key bypasses RLS, so RLS guards against direct/anon DB access — within-company branch isolation is the app-side bouncer (tested), with **JWT-scoped RLS on the roadmap** (belt-and-suspenders).
+- **No SQL injection by construction:** no string-built SQL anywhere; PostgREST values are `encodeURIComponent`-escaped and treated as data; RPC args parameterised. Untrusted OCR/model text is "caged data, never instructions."
+- **Files never in the DB (video = our ADR-018):** blobs → private Supabase Storage bucket (object storage) + CDN; the DB stores only the `receipt_url` string. Add magic-byte upload validation + keep the bucket private (signed/proxied reads).
+- **Rate limiting = on everywhere, generous for the first client** (env-tunable caps); only *failed* auth is throttled, never valid traffic.
+- **A launch-gate hardening backlog (SEC-1…SEC-10)** is folded into the plan as a **Security Gate applied to every phase** — the ⚠️/**yes** items must close before any paying-client instance goes live (password policy, server-side role gating + isolation tests, file-upload validation, business offline-cache handling, M2 input validation, security logging, per-route rate limits, RLS on all new tables, dependency scan in CI).
+**Consequences:** No single new dependency; mostly discipline + tests + a few small guards. Security review of the M2 auth/isolation code is **Tier-2** (independent cross-review, never self-merge). Remaining true gaps are operationalisation (hosting/HTTPS, monitoring, log-aggregation, CI dependency scan — 16-layer #7/#12/#13/#8).
+
 ## ADR-024 · `pdfkit` (pure-JS) for the Petty Cash Statement PDF export
 **Date:** 2026-07-07 · **Status:** Accepted (Owner: Jeevan) — CTO decision, Owner brief "we want the exact export of a PDF, just like the sample". Implements the PDF half of ADR-023. Spec: `docs/specs/2026-07-06-petty-cash-statement-format.md` §3.
 **Context:** ADR-023 requires a **PDF** statement that is pixel-faithful to the client's filed output (styled table — red title, blue headings, grey/ yellow/ green fills, borders, sign-off block) **followed by the appended receipt pages**. Our existing tools can't produce it: `exceljs` writes `.xlsx` only; `@hyzyla/pdfium` *reads/rasterises* PDFs but cannot author them. We need a PDF **writer**.
