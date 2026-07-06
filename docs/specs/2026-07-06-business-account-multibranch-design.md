@@ -28,7 +28,9 @@ This feature adds a **per-client business-account layer** (turned on only for cl
 ADR-010/020) so that, on one delivered instance:
 
 - An **HQ Admin** creates branches; each branch gets a **Branch Clerk** with **auto-generated login
-  credentials** and a **one-time Telegram binding link**.
+  credentials** and a **one-time Telegram binding link**. The **admin is also a capturer** — HQ has its
+  own petty-cash receipts to audit, so the admin gets the dashboard upload + a Telegram binding too,
+  scoped to a **"Head Office" branch** (auto-created on setup). Staff never get a login or a bot.
 - Clerks capture receipts (dashboard + a business-flavoured Telegram bot), tagging each to a **staff**
   member (a name in the branch's directory — attribution only, no login, no bot).
 - The Admin sees a **live, aggregated master view** across every branch, with branch/staff drill-down,
@@ -148,7 +150,10 @@ change (out of scope, §10).
   the **clerk decides first** (audit records `decided_by_role='clerk'`); the admin sees items already
   stamped "approved/rejected by clerk" and can **override** an existing decision but **not originate**
   one — **except** an admin **safety valve**: after an item sits unresolved **N days** (`ANOMALY_VALVE_DAYS`)
-  the admin may force-decide, so the queue never jams.
+  the admin may force-decide, so the queue never jams. **HQ ("Head Office") carve-out:** for the admin's
+  own petty-cash items there is no clerk beneath them, so the admin is the *first* decider on Head-Office
+  items — this doesn't violate "admin can't originate," which only governs *branch/clerk* items (admin
+  overrides a clerk, never pre-empts one).
 - **Payments:** new per-receipt `payment_status` (`pending` default / `paid`) + `paid_at` + `paid_note`.
   **Admin edits, clerk views** (enforced by the bouncer — only role=admin may write `payment_status`).
   Pending/Paid tabs = a filter; **bulk mark-as-paid** is a role-guarded batch `PATCH` over a selected id
@@ -157,8 +162,11 @@ change (out of scope, §10).
 
 ### 3.7 Business Telegram bot — `lib/bot.js` + `routes/webhook.js` extension (Barat boundary; Jeevan logic)
 
-A **clerk tool** (only clerks are bound). Reuses today's-bills, weekly, media-group batch, confirm-delete,
-category-picker, and `rep_chat_id` ownership plumbing; reshapes scope from person → branch:
+A **capture tool for clerks AND the HQ admin** (both are bot-bound; **staff are not**). HQ has its own
+petty-cash receipts to audit, so the admin captures too — modelled cleanly by treating **HQ as a branch
+("Head Office")**: the admin's `/start` binding is scoped to that branch and their uploads flow through
+the same rows/master view/export as any branch. Reuses today's-bills, weekly, media-group batch,
+confirm-delete, category-picker, and `rep_chat_id` ownership plumbing; reshapes scope from person → branch:
 
 - **First contact = role lock:** `/start <token>` validates the one-time link → binds
   `chat_id → clerk/branch/role` in `bot_bindings`, locked. Unbound chats are refused ("ask your admin for

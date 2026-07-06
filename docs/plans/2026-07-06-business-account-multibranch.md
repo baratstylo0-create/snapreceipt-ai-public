@@ -94,6 +94,10 @@ Branch per phase: `feature/<owner>-m2-<phase>` off `main`.
 - [ ] **`lib/branches.js`** (TDD): `createBranch` (→ branch row + clerk user + one-time `bot_bindings`
   token; returns username+password ONCE), `listBranches`, `softDeleteBranch` (active=false + revoke
   sessions + refuse binding), `addStaff`/`listStaff`/`removeStaff` (name-only).
+- [ ] **On account setup, auto-create a "Head Office" branch and bind the HQ admin to it** (admin is also
+  a capturer — HQ petty cash). Admin gets a `/start` binding scoped to Head Office + dashboard upload;
+  admin reads still see ALL branches (scope has no branch filter), but admin *captures* tag to Head Office.
+  Tests: Head Office exists after setup; admin binding scoped to it; admin upload tags Head Office.
 - [ ] **`routes/branches.js`**: admin-scoped CRUD; clerk may manage only their own branch's staff.
   Enforce `max_branches`. All writes role-guarded via `scopeForUser`.
 - [ ] Tests: cap enforced; created creds shown once then only hash stored; soft-delete flips active +
@@ -133,8 +137,9 @@ Branch per phase: `feature/<owner>-m2-<phase>` off `main`.
 `lib/groq.js` (ZDR note + OCR-provider config knob) · `lib/templates.js`/`lib/ocr.js` (categories from
 FieldSpec).
 
-- [ ] `/start <token>` validates the one-time link → binds `chat_id → clerk/branch/role` (locked);
-  unbound chats refused. Enable **Groq ZDR** on the account (ops step) + document the OCR-provider knob.
+- [ ] `/start <token>` validates the one-time link → binds `chat_id → user/branch/role` (locked) for
+  **both clerk and admin** (admin bound to Head Office; staff never bound); unbound chats refused. Enable
+  **Groq ZDR** on the account (ops step) + document the OCR-provider knob.
 - [ ] Upload → "which staff?" inline buttons (remember-last default) → tag `staff_user_id`; `branch_id`
   from binding. Personal-expense approve gate (existing detector). Categories from FieldSpec.
 - [ ] Simplified today's-bills: list today's receipts + single Delete → "enter number" → "Bill deleted."
