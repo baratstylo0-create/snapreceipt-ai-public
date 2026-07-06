@@ -54,29 +54,93 @@
     return wrap;
   }
 
-  // Build the nav bar. onSelect(id) fires when a section button is clicked;
-  // onToggleTheme() fires when the dark/light toggle is clicked. Returns the
-  // <nav> element, or null outside a browser. Static text only via textContent.
+  // Owner request 2026-07-06: match Mugi's reference mockup's TWO-tier header
+  // — a big brand block (badge + title + tagline + icon actions) sitting
+  // above a separate pill-shaped nav bar — instead of the one combined row
+  // this used to build. Split into buildBrandHeader() (the big block) and
+  // buildNav() (now just the pill bar of section links). Personal-only:
+  // no "Team" tab, no mascot illustration — those are business-mockup extras,
+  // out of scope here.
+
+  // Build the big top block: logo badge + "AutoReceipt Dashboard" title +
+  // tagline, plus 3 icon actions (settings shortcut, theme toggle, refresh).
+  // onSettings/onToggleTheme/onRefresh are called on their respective button
+  // clicks. Returns { el } or null outside a browser.
+  function buildBrandHeader(opts) {
+    if (typeof document === 'undefined') return null;
+    opts = opts || {};
+    var onSettings = typeof opts.onSettings === 'function' ? opts.onSettings : function () {};
+    var onToggleTheme = typeof opts.onToggleTheme === 'function' ? opts.onToggleTheme : function () {};
+    var onRefresh = typeof opts.onRefresh === 'function' ? opts.onRefresh : function () {};
+
+    var top = document.createElement('div');
+    top.className = 'app-header-top';
+
+    var brand = document.createElement('div');
+    brand.className = 'brand';
+    var badge = document.createElement('div');
+    badge.className = 'emblem';
+    badge.setAttribute('aria-hidden', 'true');
+    var emblem = buildEmblem();
+    if (emblem) badge.appendChild(emblem);
+    brand.appendChild(badge);
+
+    var titleWrap = document.createElement('div');
+    var h1 = document.createElement('h1');
+    h1.className = 'brand-title';
+    h1.textContent = 'AutoReceipt Dashboard (Personal)';
+    var sub = document.createElement('div');
+    sub.className = 'brand-sub';
+    sub.textContent = 'snap a receipt · auto-extract · auto-categorize';
+    titleWrap.appendChild(h1);
+    titleWrap.appendChild(sub);
+    brand.appendChild(titleWrap);
+    top.appendChild(brand);
+
+    var actions = document.createElement('div');
+    actions.className = 'header-actions';
+
+    var settingsBtn = document.createElement('button');
+    settingsBtn.type = 'button';
+    settingsBtn.className = 'icon-btn';
+    settingsBtn.title = 'Settings';
+    settingsBtn.setAttribute('aria-label', 'Settings');
+    settingsBtn.textContent = '⚙';
+    settingsBtn.addEventListener('click', function () { onSettings(); });
+    actions.appendChild(settingsBtn);
+
+    var themeBtn = document.createElement('button');
+    themeBtn.type = 'button';
+    themeBtn.className = 'icon-btn';
+    themeBtn.title = 'Cycle theme (Light / Warm / Dark)';
+    themeBtn.setAttribute('aria-label', 'Cycle theme (Light / Warm / Dark)');
+    themeBtn.textContent = '☾';
+    themeBtn.addEventListener('click', function () { onToggleTheme(); });
+    actions.appendChild(themeBtn);
+
+    var refreshBtn = document.createElement('button');
+    refreshBtn.type = 'button';
+    refreshBtn.className = 'icon-btn';
+    refreshBtn.title = 'Refresh';
+    refreshBtn.setAttribute('aria-label', 'Refresh');
+    refreshBtn.textContent = '↻';
+    refreshBtn.addEventListener('click', function () { onRefresh(); });
+    actions.appendChild(refreshBtn);
+
+    top.appendChild(actions);
+    return { el: top, actionsEl: actions };
+  }
+
+  // Build the pill-shaped nav bar (just the section links now — brand/theme
+  // moved to buildBrandHeader above). onSelect(id) fires when a section
+  // button is clicked. Returns the <nav> element, or null outside a browser.
   function buildNav(opts) {
     if (typeof document === 'undefined') return null;
     opts = opts || {};
     var onSelect = typeof opts.onSelect === 'function' ? opts.onSelect : function () {};
-    var onToggleTheme = typeof opts.onToggleTheme === 'function' ? opts.onToggleTheme : function () {};
 
     var nav = document.createElement('nav');
     nav.className = 'nav';
-
-    // Brand block: Mugi's leaf emblem + wordmark. The emblem is decorative
-    // (aria-hidden); the wordmark carries the accessible name.
-    var brand = document.createElement('span');
-    brand.className = 'nav-brand';
-    var emblem = buildEmblem();
-    if (emblem) brand.appendChild(emblem);
-    var wordmark = document.createElement('span');
-    wordmark.className = 'nav-wordmark';
-    wordmark.textContent = 'AutoReceipt';
-    brand.appendChild(wordmark);
-    nav.appendChild(brand);
 
     var links = document.createElement('div');
     links.className = 'nav-links';
@@ -94,19 +158,6 @@
     });
     nav.appendChild(links);
 
-    var greeting = document.createElement('span');
-    greeting.className = 'nav-greeting';
-    greeting.textContent = 'Welcome back';
-    nav.appendChild(greeting);
-
-    var theme = document.createElement('button');
-    theme.type = 'button';
-    theme.className = 'nav-theme';
-    theme.textContent = 'Theme';
-    theme.setAttribute('aria-label', 'Toggle dark/light theme');
-    theme.addEventListener('click', function () { onToggleTheme(); });
-    nav.appendChild(theme);
-
     // Mark the active button so app.js can reflect the current view.
     function setActive(id) {
       SECTIONS.forEach(function (s) {
@@ -117,5 +168,5 @@
     return { el: nav, setActive: setActive };
   }
 
-  return { buildNav: buildNav, buildEmblem: buildEmblem, SECTIONS: SECTIONS };
+  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS };
 });

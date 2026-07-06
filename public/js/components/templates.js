@@ -139,22 +139,23 @@
     return namedFields(fields).length > 0;
   }
 
-  // QA report #4: importing a real .xlsx got read via FileReader.readAsText, which
-  // garbles binary bytes into a string; POSTing that garbage broke JSON.parse
+  // QA report #4: importing a real .xlsx used to get read via FileReader.readAsText,
+  // which garbles binary bytes into a string; POSTing that garbage broke JSON.parse
   // server-side, surfacing only "malformed request body" — a dead end for the user.
-  // Catch it client-side, BEFORE attempting to read the file, from its name/type (the
-  // `accept=".csv"` picker filter is a hint only, not an enforcement — a user can still
-  // pick "All files" or drag a non-CSV in). Never throws on a garbage/missing file.
-  var NON_CSV_EXTENSIONS = ['xlsx', 'xls', 'xlsm', 'docx', 'doc', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'zip'];
+  // Real .xlsx is now properly supported (readFileAsArrayBuffer + isExcelFile below) —
+  // this blocklist now only covers formats we genuinely can't read (legacy .xls/.xlsm,
+  // Word/PDF/images/zip). Never throws on a garbage/missing file.
+  var NON_CSV_EXTENSIONS = ['xls', 'xlsm', 'docx', 'doc', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'zip'];
   function isNonCsvFile(file) {
     if (!file) return false;
     var name = str(file.name);
     var m = /\.([a-z0-9]+)$/i.exec(name);
     var ext = m ? m[1].toLowerCase() : '';
-    if (ext === 'csv') return false;
+    if (ext === 'csv' || ext === 'xlsx') return false;
     if (NON_CSV_EXTENSIONS.indexOf(ext) !== -1) return true;
     var type = str(file.type);
-    return type !== '' && type !== 'text/csv' && type !== 'text/plain' && type.indexOf('text/') !== 0;
+    return type !== '' && type !== 'text/csv' && type !== 'text/plain' && type.indexOf('text/') !== 0
+      && type !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   }
 
   // Map an HTTP status + parsed body to a display message.
@@ -291,6 +292,28 @@
     });
   }
 
+  // Read a File as raw bytes (for a real .xlsx upload — reading it as text
+  // would corrupt the binary, same reasoning as the QA #4 fix above). Resolves
+  // an ArrayBuffer, or rejects.
+  function readFileAsArrayBuffer(file) {
+    return new Promise(function (resolve, reject) {
+      if (!hasFileReader()) { reject(new Error('no FileReader')); return; }
+      var fr = new FileReader();
+      fr.onload = function () { resolve(fr.result); };
+      fr.onerror = function () { reject(fr.error || new Error('read failed')); };
+      fr.readAsArrayBuffer(file);
+    });
+  }
+
+  // A real Excel file, by extension — kept separate from isNonCsvFile's
+  // blocklist so both stay simple: this is a small allowlist of "we now know
+  // how to read this one", that one is "definitely refuse these".
+  function isExcelFile(file) {
+    if (!file) return false;
+    var name = str(file.name);
+    return /\.xlsx$/i.test(name);
+  }
+
   // ---- render layer --------------------------------------------------------
 
   // Build one "field row" of the visual builder: order handle (up/down), name
@@ -386,7 +409,7 @@
     var rootEl = el('div', 'tp-root');
     section.appendChild(rootEl);
 
-    rootEl.appendChild(msg('tp-intro muted', 'Import a CSV to define your field template, or view the current one.'));
+    rootEl.appendChild(msg('tp-intro muted', 'Import a CSV or a real Excel (.xlsx) file to define your field template, or view the current one.'));
 
     // Current FieldSpec area.
     var specArea = el('div', 'tp-spec-area');
@@ -407,7 +430,7 @@
 
     var fileLabel = el('label', 'tp-form-label');
     fileLabel.setAttribute('for', 'tp-csv-file');
-    Escape.setText(fileLabel, 'Or choose a CSV file');
+    Escape.setText(fileLabel, 'Or choose a CSV or Excel (.xlsx) file');
     form.appendChild(fileLabel);
 
     // QA report #1b: give the CSV file picker the same drag-and-drop affordance
@@ -415,12 +438,12 @@
     var fileZone = el('div', 'tp-file-zone');
     fileZone.setAttribute('role', 'button');
     fileZone.setAttribute('tabindex', '0');
-    fileZone.appendChild(msg('tp-file-zone-text muted', 'Drop a CSV file here, or choose one below'));
+    fileZone.appendChild(msg('tp-file-zone-text muted', 'Drop a CSV or Excel file here, or choose one below'));
 
     var fileInput = el('input', 'tp-csv-file');
     fileInput.type = 'file';
     fileInput.id = 'tp-csv-file';
-    fileInput.setAttribute('accept', '.csv,text/csv');
+    fileInput.setAttribute('accept', '.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     fileZone.appendChild(fileInput);
     form.appendChild(fileZone);
 
@@ -446,17 +469,30 @@
     rootEl.appendChild(form);
 
     var busy = false;
+    // Set when the user picked a real .xlsx file — the Import button submits THIS
+    // instead of the textarea's CSV text when set. Cleared if they type into the
+    // textarea by hand (a clear sign they've switched back to the CSV path) or
+    // after a successful/attempted import.
+    var pendingExcelFile = null;
 
     // Shared by the file input's change AND the drop zone — QA report #4: reject an
-    // obvious non-CSV (e.g. .xlsx) BEFORE attempting to read it as text, with a message
+    // obvious non-CSV/non-Excel file BEFORE attempting to read it, with a message
     // that tells the user exactly what to do, instead of a cryptic server 400 later.
     function handleChosenFile(file) {
       if (!file) return;
       if (isNonCsvFile(file)) {
-        Escape.setText(statusEl, 'That looks like a ' + (str(file.name).split('.').pop() || 'non-CSV') +
-          ' file, not a CSV. Please export/save it as CSV (in Excel: File → Save As → CSV) and choose that file instead.');
+        pendingExcelFile = null;
+        Escape.setText(statusEl, 'That looks like a ' + (str(file.name).split('.').pop() || 'unsupported') +
+          ' file. Please use a CSV, or a real Excel (.xlsx) file, instead.');
         return;
       }
+      if (isExcelFile(file)) {
+        pendingExcelFile = file;
+        textarea.value = '';
+        Escape.setText(statusEl, '"' + str(file.name) + '" ready — click Import template to read its columns.');
+        return;
+      }
+      pendingExcelFile = null;
       readFileAsText(file).then(function (text) {
         Escape.setText(statusEl, '');
         textarea.value = text;
@@ -464,6 +500,7 @@
         Escape.setText(statusEl, 'Could not read that file. Please paste the CSV text instead.');
       });
     }
+    textarea.addEventListener('input', function () { pendingExcelFile = null; });
     fileInput.addEventListener('change', function () {
       handleChosenFile(fileInput.files && fileInput.files[0]);
     });
@@ -535,16 +572,66 @@
       });
     }
 
+    // Excel counterpart to submitCsv: reads the file as raw bytes (readAsText
+    // would corrupt it — same QA #4 reasoning) and POSTs the buffer directly,
+    // with ?name= carrying the template name (the body itself is pure binary,
+    // unlike submitCsv's JSON {csv, name}).
+    function submitExcelFile(file, name, statusTarget, setBusyFn, onSuccess) {
+      if (!apiFetch) return;
+      var trimmedName = str(name).trim() || 'default';
+      setBusyFn(true);
+      Escape.setText(statusTarget, 'Reading Excel file…');
+      readFileAsArrayBuffer(file).then(function (buffer) {
+        Escape.setText(statusTarget, 'Saving…');
+        return apiFetch('/api/templates?name=' + encodeURIComponent(trimmedName), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+          body: buffer,
+        });
+      }).then(function (spec) {
+        setBusyFn(false);
+        Escape.setText(statusTarget, 'Template saved.');
+        renderSpec(spec);
+        if (typeof onSuccess === 'function') onSuccess(spec);
+      }).catch(function (err) {
+        setBusyFn(false);
+        // A FileReader failure rejects with a plain Error (no .status); an
+        // apiFetch failure rejects with a { status, body } pair.
+        if (err instanceof Error) {
+          Escape.setText(statusTarget, 'Could not read that Excel file. Please try again, or use a CSV instead.');
+          return;
+        }
+        var status = err && typeof err === 'object' ? err.status : 0;
+        var body = err && typeof err === 'object' ? err.body : null;
+        Escape.setText(statusTarget, errorMessage(status, body, 'save'));
+      });
+    }
+
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       if (busy) return;
+      if (pendingExcelFile) {
+        var excelFile = pendingExcelFile;
+        submitExcelFile(excelFile, nameInput.value, statusEl, setBusy, function () { pendingExcelFile = null; });
+        return;
+      }
       submitCsv(textarea.value, nameInput.value, statusEl, setBusy);
     });
 
     // ---- visual field builder section (additive) ---------------------------
     var builderWrap = el('div', 'tp-fb');
 
-    builderWrap.appendChild(msg('tp-fb-title', 'Or build your fields visually'));
+    var fbTitleRow = el('div', 'view-title-row');
+    fbTitleRow.appendChild(msg('tp-fb-title', 'Or build your fields visually'));
+    if (opts.Render && opts.Render.buildInfoIcon) {
+      var fbIcon = opts.Render.buildInfoIcon(
+        'An alternative to pasting CSV text above: add one row per field (e.g. Merchant, Date, Amount), pick a type, ' +
+        'then save. It builds the exact same field template — just without needing to know CSV formatting.',
+        'What does this section do?'
+      );
+      if (fbIcon) fbTitleRow.appendChild(fbIcon);
+    }
+    builderWrap.appendChild(fbTitleRow);
     builderWrap.appendChild(msg('tp-fb-sub muted',
       'No CSV knowledge needed — add a row per field, then save. This builds the same CSV header the paste box above sends.'));
     builderWrap.appendChild(msg('tp-fb-note muted',
@@ -700,6 +787,7 @@
     buildCsvHeader: buildCsvHeader,
     canSaveBuilder: canSaveBuilder,
     isNonCsvFile: isNonCsvFile,
+    isExcelFile: isExcelFile,
     fieldDisplayName: fieldDisplayName,
     FIELD_TYPES: FIELD_TYPES,
     // render (browser)

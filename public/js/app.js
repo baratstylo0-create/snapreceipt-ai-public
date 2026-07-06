@@ -30,6 +30,7 @@
       try {
         if (name === 'Escape') return require('./escape');
         if (name === 'Api') return require('./api');
+        if (name === 'Render') return require('./render');
         if (name === 'AuthGate') return require('./authgate');
         if (name === 'Nav') return require('./components/nav');
         if (name === 'Overview') return require('./components/overview');
@@ -60,28 +61,40 @@
   }
 
   // --- theme (visual only: toggle a class on <body>, persist the choice) ---
+  // Owner request 2026-07-07: a 3rd "Warm" theme alongside Light/Dark (the
+  // sepia-toned body.theme-warm CSS block) — THEME_CYCLE is the single source
+  // of truth for valid values and cycle order, used by both the header icon
+  // (full cycle) and setTheme (direct pick from the Settings dropdown).
+  var THEME_CYCLE = ['light', 'warm', 'dark'];
   function storedTheme() {
     var s = ss();
     try { return s ? s.getItem(THEME_KEY) : null; } catch (e) { return null; }
   }
   function applyTheme(theme) {
     if (typeof document === 'undefined' || !document.body) return;
-    var light = theme === 'light';
-    document.body.classList.toggle('theme-light', light);
-    document.body.classList.toggle('theme-dark', !light);
+    var t = THEME_CYCLE.indexOf(theme) !== -1 ? theme : 'light';
+    document.body.classList.toggle('theme-light', t === 'light');
+    document.body.classList.toggle('theme-warm', t === 'warm');
+    document.body.classList.toggle('theme-dark', t === 'dark');
   }
-  function toggleTheme() {
-    var next = (storedTheme() === 'light') ? 'dark' : 'light';
-    setTheme(next);
-    return next;
-  }
-  // Set an explicit theme (used by the Settings view's Light/Dark picker).
+  // Set an explicit theme (used by the Settings view's Light/Warm/Dark picker).
   // Persists to sessionStorage and applies immediately.
   function setTheme(theme) {
-    var next = theme === 'dark' ? 'dark' : 'light';
+    var next = THEME_CYCLE.indexOf(theme) !== -1 ? theme : 'light';
     var s = ss();
     try { if (s) s.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
     applyTheme(next);
+    return next;
+  }
+  // Header icon: cycles Light -> Warm -> Dark -> Light. No stored value yet
+  // means the visual baseline is 'light' (applyTheme's own default), so an
+  // unrecognised/missing stored value is treated as index 0 BEFORE advancing
+  // -- not as "the answer" -- otherwise the very first click would silently
+  // no-op instead of moving to 'warm'.
+  function toggleTheme() {
+    var idx = THEME_CYCLE.indexOf(storedTheme());
+    var next = THEME_CYCLE[((idx === -1 ? 0 : idx) + 1) % THEME_CYCLE.length];
+    setTheme(next);
     return next;
   }
 
@@ -118,6 +131,24 @@
     try { if (root && root.location && typeof root.location.reload === 'function') root.location.reload(); } catch (e) { /* ignore */ }
   }
 
+  // Owner request 2026-07-06: a small "what is this page for" hint on every
+  // page, so a non-technical user always has a one-line explanation on hand
+  // without having to ask. Plain, static strings (never user input), so a
+  // direct .textContent assignment is safe — same convention this file
+  // already uses for s.label below.
+  var VIEW_INFO = {
+    overview: 'A quick snapshot of your spending: your total, the trend this year, and your top categories.',
+    activity: "Every receipt you've captured — search, filter, edit, or review any of them.",
+    upload: 'Add a receipt manually from this browser, instead of sending it to the Telegram bot.',
+    manage: "Teaches the app what information to pull off every receipt — like Merchant, Date, and Amount. Upload your own spreadsheet (CSV or Excel) once, and it copies your exact column names, so you never have to type them in by hand.",
+    reports: 'Deeper breakdowns of your spending by day, week, month, or year.',
+    settings: 'Adjust preferences like theme, categories, and account options.',
+  };
+
+  // The "i" button + popup logic itself now lives in Render.buildInfoIcon
+  // (shared with components that want the same per-section explainer, e.g.
+  // Templates' visual field builder) — this map just supplies the per-page text.
+
   // --- view switching: show one mount section, hide the rest ---
   function showView(id) {
     if (typeof document === 'undefined') return;
@@ -140,10 +171,18 @@
       var sec = document.createElement('section');
       sec.className = 'view';
       sec.setAttribute('data-view-section', s.id);
+
+      var headRow = document.createElement('div');
+      headRow.className = 'view-title-row';
       var h = document.createElement('h2');
       h.className = 'view-title';
       h.textContent = s.label;
-      sec.appendChild(h);
+      headRow.appendChild(h);
+      if (VIEW_INFO[s.id] && deps.Render) {
+        var icon = deps.Render.buildInfoIcon(VIEW_INFO[s.id], 'What is this page for?');
+        if (icon) headRow.appendChild(icon);
+      }
+      sec.appendChild(headRow);
 
       var comp = components[s.id];
       if (comp && typeof comp.mount === 'function') {
@@ -225,15 +264,35 @@
     input.focus();
   }
 
-  // Enter the app proper: build nav + views, wire switching + theme.
+  // Enter the app proper: build the brand header + nav + views, wire switching + theme.
   function enterApp(deps) {
     var Nav = deps.Nav;
     var header = document.getElementById('app-header');
     var mount = document.getElementById('app');
     if (mount) mount.textContent = '';
+    if (header) header.textContent = '';
 
-    var nav = Nav.buildNav({ onSelect: select, onToggleTheme: toggleTheme });
-    if (header && nav) { header.textContent = ''; header.appendChild(nav.el); }
+    // Owner request 2026-07-06: two-tier header (big brand block above the
+    // pill nav), matching Mugi's reference mockup. Refresh re-loads the page
+    // (simplest, safest "get me current data" action — mirrors a normal
+    // browser refresh, no separate per-view refetch plumbing needed).
+    var brandHeader = Nav.buildBrandHeader && Nav.buildBrandHeader({
+      onSettings: function () { select('settings'); },
+      // The Settings view is built once at boot and never re-rendered, so its
+      // theme <select> (tagged .set-select--theme) would otherwise show a
+      // stale value after this icon cycles the theme — keep it in sync here.
+      onToggleTheme: function () {
+        var next = toggleTheme();
+        var sels = document.querySelectorAll('.set-select--theme');
+        for (var i = 0; i < sels.length; i++) sels[i].value = next;
+        return next;
+      },
+      onRefresh: reloadPage,
+    });
+    if (header && brandHeader) header.appendChild(brandHeader.el);
+
+    var nav = Nav.buildNav({ onSelect: select });
+    if (header && nav) header.appendChild(nav.el);
 
     // QA report #1: after a dashboard upload, the user had no way to jump to what was
     // just saved. `select` (below) is the real switcher (updates the nav pill + lazy-
@@ -245,12 +304,20 @@
     // (via Api.onRateLimit) and warns near the edge. Hidden until the first limited
     // response arrives. Optional (older cached bundles may lack it) so it never blocks boot.
     var RateMeter = deps.RateMeter;
-    if (header && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(header, deps);
+    var rateMeterHost = (brandHeader && brandHeader.actionsEl) || header;
+    if (rateMeterHost && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(rateMeterHost, deps);
 
-    // Expose the real theme setter / logout / clear-local to view components
-    // (the Settings view uses these) via the shared deps object.
+    // Expose the real theme setter / login / logout / clear-local to view
+    // components (the Settings view uses these) via the shared deps object.
     deps.setTheme = setTheme;
     deps.logout = logout;
+    // Bug fix: Settings' "Log in" button used to call `logout()` unconditionally
+    // (there was no separate login path at all) — harmless-looking but wrong: in
+    // an open (no-token-required) dashboard, clearing an already-empty token and
+    // reloading just reboots straight back to Overview, which reads as "Log in
+    // does nothing but bounce me to Overview." `login()` shows the real
+    // token-entry gate in place, without a full page reload.
+    deps.login = function () { renderTokenGate(deps, function () { enterApp(deps); }); };
     deps.onClearLocal = reloadPage;
     deps.autoMode = storedAutoMode();
     deps.setAutoMode = setAutoMode;
@@ -292,11 +359,11 @@
       Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
       Settings: dep('Settings'), Falc: dep('Falc'),
-      RateMeter: dep('RateMeter'),
+      RateMeter: dep('RateMeter'), Render: dep('Render'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
-    applyTheme(storedTheme() === 'dark' ? 'dark' : 'light');
+    applyTheme(storedTheme());
 
     // Attach any already-stored token to Api up front so config carries it too.
     var stored = getStoredToken();
@@ -342,6 +409,7 @@
     boot: boot,
     toggleTheme: toggleTheme,
     applyTheme: applyTheme,
+    setTheme: setTheme,
     getStoredToken: getStoredToken,
     showView: showView,
     storedAutoMode: storedAutoMode,

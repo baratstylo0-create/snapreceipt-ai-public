@@ -10,6 +10,7 @@ const supabase = require('../lib/supabase');       // namespace import so tests 
 const templates = require('../lib/templates');     // namespace import so tests can stub getFieldSpec
 const { buildWorkbook } = require('../lib/excel');
 const { isISO } = require('../lib/reports');
+const { cfg } = require('../lib/config');
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
 
 // Same cap philosophy as routes/reports.js's REPORT_ROW_LIMIT: never silently
@@ -43,7 +44,12 @@ module.exports = function mountExcel(app) {
       });
 
       const fieldSpec = await templates.getFieldSpec();
-      const workbook = buildWorkbook(filtered, fieldSpec);
+      // Human-readable heading for the Summary sheet — same from/to values
+      // already validated above, just phrased for a reader instead of a URL.
+      const rangeLabel = !from && !to ? 'All time'
+        : from && to && from === to ? from
+        : (from || '…') + ' to ' + (to || '…');
+      const workbook = buildWorkbook(filtered, fieldSpec, { rangeLabel, generatedAt: new Date().toISOString(), currency: cfg.DEFAULT_CURRENCY });
       const buf = await workbook.xlsx.writeBuffer();
 
       // Filenames are built ONLY from already-ISO-validated strings (or fixed

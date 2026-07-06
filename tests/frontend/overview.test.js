@@ -274,6 +274,30 @@ test('categoryColor: a real category never lands on "others"', () => {
   assert.notStrictEqual(categoryColor('Fuel & Auto'), 'others');
 });
 
+// Bug fix 2026-07-06: every one of the app's 17 built-in categories
+// (lib/categorize.js CATEGORIES, minus 'Others') must get its OWN slot — no
+// two of them may ever collide. This is the actual reported bug: "Fuel & Auto"
+// and "Office Supplies" used to hash to the same colour, so deleting bills
+// that changed which categories were visible made it look like colours were
+// randomly changing, when really a collision was becoming visible/invisible.
+test('categoryColor: every built-in category gets its own unique slot (no collisions)', () => {
+  const builtIns = [
+    'Meals & Entertainment', 'Groceries', 'Fuel & Auto', 'Travel', 'Lodging',
+    'Software & Subscriptions', 'Office Supplies', 'Utilities', 'Rent & Lease',
+    'Professional Services', 'Marketing & Advertising', 'Inventory & COGS',
+    'Equipment & Hardware', 'Shipping & Postage', 'Bank & Fees', 'Healthcare',
+    'Education & Training',
+  ];
+  const slots = builtIns.map(categoryColor);
+  assert.strictEqual(new Set(slots).size, builtIns.length, 'expected ' + builtIns.length + ' unique slots, got: ' + slots.join(', '));
+  // Specifically the two categories the bug report actually named:
+  assert.notStrictEqual(categoryColor('Fuel & Auto'), categoryColor('Office Supplies'));
+});
+
+test('categoryColor: a custom/unrecognised category still gets a deterministic (if not guaranteed-unique) slot', () => {
+  assert.strictEqual(categoryColor('My Custom Field'), categoryColor('my custom field'));
+});
+
 // --- formatPercent -----------------------------------------------------------
 
 test('formatPercent: one decimal + a % sign, tolerant of garbage', () => {
