@@ -150,6 +150,10 @@ time, **plus a hyperlink on the cell to open the full-resolution image**. The ex
 **self-contained** — an auditor sees each petty-cash receipt next to its row, offline. This applies to
 **both ingestion paths** (Telegram photo and dashboard upload) because the image is stored durably at
 ingestion. Rows without an image (old/failed) → blank cell (graceful).
+- **NOT business-gated — the Receipt embed applies to PERSONAL exports too** (Owner, 2026-07-06). It's a
+  general `lib/excel.js` enhancement (personal-first); a personal user's export also carries their receipt
+  images. **Only the Branch/Staff columns are business-only** (flag-gated). Because it's not tied to M2,
+  the embed can ship on the personal product before/independently of this epic.
 - **Hard dependency: durable receipt-image storage (ADR-018 / `docs/specs/2026-07-04-receipt-image-storage-design.md`)**
   — for business accounts this is **required, not optional**: every receipt gets a permanent copy in the
   private `receipts` bucket (`receipt_url`), so the exported file's images don't rot with a rotated

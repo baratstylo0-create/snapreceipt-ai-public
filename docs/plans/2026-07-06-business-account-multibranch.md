@@ -122,7 +122,10 @@ Branch per phase: `feature/<owner>-m2-<phase>` off `main`.
   embed; **"links-only" mode** for very large exports (no resize dep — `sharp` rejected, ADR-014).
 - [ ] Tests: master aggregate == sum of branch rows; clerk sees only own branch; export carries the two
   columns + an embedded image for rows with `receipt_url`, blank when absent; links-only mode emits
-  hyperlinks not bytes; personal export unchanged (flag off → no Branch/Staff/Receipt columns).
+  hyperlinks not bytes; **the Receipt embed also appears in a PERSONAL export (NOT flag-gated)** — only
+  Branch/Staff columns are business-only (flag off → no Branch/Staff, but Receipt column present).
+- [ ] **Note:** the Receipt-image embed is a general `lib/excel.js` enhancement (applies to personal +
+  business) and may be split out to ship on the personal product independently of this epic.
 - [ ] Commit: `feat(m2): branch/staff dimensions + embedded receipt image in export`.
 
 ## Phase 4 — Anomaly (staff-first) + payments + bulk pay  (Jeevan)
