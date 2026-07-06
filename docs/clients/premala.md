@@ -37,6 +37,8 @@ in `lib/account.js`):
 
 ```
 multiUser        = true    # branches + admin/clerk roles (M2)
+companyDimension = true    # Group → Company → Branch → Staff (ADR-023; Premala runs multiple companies)
+pettyCash        = true    # petty-cash floats + claim maths + Monthly Statement (ADR-023)
 liveMasterMerge  = false   # NO live all-branch master workbook
 excelLiteGrid    = false   # NO in-dashboard live cell editing
 branchSubmission = true    # "Send to Admin" in-dashboard hand-off
@@ -54,11 +56,28 @@ provisioning per ADR-020).
    notification, not a file transfer.
 3. **Audit trail for free:** who submitted, which branch, which period, when — the WhatsApp flow has none.
 
+## 4b. Petty cash + claim + monthly statement (ADR-023 — samples received 2026-07-06)
+
+Premala's core deliverable is a **Petty Cash Monthly Statement of Account** (one per company × branch ×
+month) with **receipt snapshots appended**, exported as **both Excel and PDF**. Full anonymised format:
+`docs/specs/2026-07-06-petty-cash-statement-format.md`. Key points:
+
+- **Company dimension:** Premala runs **multiple companies** → Group → **Company** → Branch → Staff. Each
+  company has its own **category set** (chart of accounts). Focus: build for Premala first.
+- **Admin sets the petty-cash FLOAT per branch per month** (incl. the admin's Head-Office branch).
+- **Claim = overspend maths:** `Balance = Cash-in-hand − Expenditure`; negative balance = claim owed to
+  staff → reimburse via `payment_status`. (Their sample's `−75.09` is a manual sign error; ours computes
+  the correct `+75.09` surplus — see spec §6.)
+- **Dual export required, faithful to the sample:** Excel (real totals, embedded receipt thumbnails) +
+  PDF (statement + appended receipt pages). Never reproduce their `#REF!`/sign bugs.
+- **Flags:** add `pettyCash = true` to the Premala profile (§3 above).
+
 ## 5. Open items / pending Owner input
 
-- [ ] **PDF export samples** — the exact Excel-with-embedded-snapshots → PDF layout Premala uses. Blocks
-  the client-specific export build. (Owner: "I'll give the samples soon.")
-- [ ] Confirm branches/office list + which staff attribution names.
+- [x] **Export samples received** (2026-07-06) — Petty Cash Monthly Statement (Excel template + completed
+  PDF). Format captured (anonymised) in `docs/specs/2026-07-06-petty-cash-statement-format.md`.
+- [ ] **Confirm faithful reproduction** once the exporter is built (visual diff vs the client sample).
+- [ ] Premala's **company list** + each company's category set + branches/offices + staff names.
 - [ ] Provision Premala's isolated instance (own Supabase project + Telegram bot token + Groq keys) per
   the ADR-015 custody ladder — before any real data.
 

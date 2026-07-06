@@ -206,6 +206,64 @@ payment tabs, excel-lite grid).
 
 ---
 
+## Phase 8 — Company dimension  (Jeevan; ADR-023)
+> Premala runs **multiple companies**. Adds Group → **Company** → Branch → Staff. Additive/flag-gated
+> (`companyDimension`); off ⇒ single-company behaviour (today). Spec:
+> `docs/specs/2026-07-06-petty-cash-statement-format.md` §5.
+
+**Files:** `schema.sql` (`companies` + `branches.company_id` + `expenses.company_id`) · `lib/auth.js`
+(`scopeForUser` gains optional `company_id`) · `lib/branches.js`/`routes/branches.js` (company CRUD) ·
+`lib/reports.js` (company grouping dim).
+
+- [ ] Schema: `companies (id, account_id, name, currency, category_set/template_id, active)`;
+  `branches.company_id`; `expenses.company_id` (stamped from branch/session). Nullable ⇒ back-compat.
+- [ ] `scopeForUser` + `lib/supabase.js` scope (Barat) carry `company_id` when present; admin sees all
+  companies, a clerk is pinned to their branch's company. Tests: cross-company isolation.
+- [ ] Company CRUD (admin-only); each company owns its category set (FieldSpec #12). Reports gain a
+  company grouping dim. Tests: aggregate per company; clerk can't read another company.
+- [ ] Commit: `feat(m2): company dimension (Group→Company→Branch→Staff)`.
+
+## Phase 9 — Petty-cash floats + claim engine  (Jeevan; ADR-023)
+**Files:** `schema.sql` (`petty_cash_floats`, `cash_in`, `expenses.claim_override`) · `lib/pettyCash.js`
+(**new** — balance/claim maths) · `routes/pettyCash.js` (**new** — admin float edit; period summary).
+
+- [ ] Schema: `petty_cash_floats (account_id, company_id, branch_id, period 'YYYY-MM', balance_bf,
+  currency, updated_by, updated_at)`; `cash_in (…, date, description, amount, currency)`;
+  `expenses.claim_override text` (null=auto, 'claim'|'petty_cash').
+- [ ] **Admin sets/edits the float per branch per month** (incl. Head-Office branch). Clerk read-only.
+  Tests: admin write / clerk 403; float scoped per branch+period.
+- [ ] `lib/pettyCash.js` (TDD): `cashInHand(branch,period)` = balance_bf + Σ cash_in; `expenditure` =
+  Σ branch expenses in period; **`balance` = cashInHand − expenditure**; `claims()` = order expenses by
+  date, flag the overspend past cashInHand, honour `claim_override`. **Positive balance = surplus (no
+  claim); negative = claim.** Tests: under-budget (surplus, no claim), over-budget (claim = |balance|,
+  correct expenses flagged), override forces in/out, sign correctness (the +75.09-not-−75.09 case).
+- [ ] Claims reuse **Phase 4 `payment_status`** (pending → paid = reimbursed). Tests: a claim shows
+  pending; bulk mark-paid reimburses.
+- [ ] Commit: `feat(m2): petty-cash floats + claim engine (balance maths, reimbursement)`.
+
+## Phase 10 — Petty Cash Monthly Statement — dual Excel/PDF export  (Jeevan; ADR-023)
+> **Both** exports required, **faithful to the client sample** (Owner). Excel template = layout source of
+> truth. Foundation: receipt-image storage (ADR-018), currency (ADR-005), `exceljs` (ADR-012).
+
+**Files:** `lib/excel.js` (statement layout — Sections A/B, numbered categories + SUBTOTALs, cash-in-hand/
+expenditure/balance, sign-off block, embedded receipt thumbnails) · `lib/statementPdf.js` (**new** —
+statement page(s) + one appended page per receipt image) · `routes/reports.js` or `routes/statement.js`
+(generate endpoint, `format=xlsx|pdf`).
+
+- [ ] **Excel:** reproduce the layout with real computed subtotals/totals (SUBTOTAL/SUM), **never
+  `#REF!`**; embed a receipt thumbnail per row + hyperlink; optional 2nd-currency column; NAME(staff)
+  column when the company enables it. Tests: totals correct, balance sign correct, categories from the
+  company FieldSpec, image present when `receipt_url` set.
+- [ ] **PDF:** statement first, then one appended page per receipt image (from durable storage).
+  Render approach **reuse-existing-deps-first** (`@hyzyla/pdfium`/HTML→PDF before any new dep; `sharp`
+  stays rejected). Tests: page count = statement + N receipts; missing image → skipped gracefully.
+- [ ] `format=xlsx|pdf` on the generate endpoint; admin (all companies/branches) + clerk (own branch).
+  Tests: both formats emit; scope enforced.
+- [ ] **Manual accuracy check** vs the client sample (visual diff) before sign-off.
+- [ ] Commit: `feat(m2): Petty Cash Monthly Statement — dual Excel/PDF export with appended receipts`.
+
+---
+
 ## Verification (end-to-end, after phases land)
 
 - `npm test` green throughout (personal baseline unchanged; new business tests added per phase).
