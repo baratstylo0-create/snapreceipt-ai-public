@@ -409,6 +409,17 @@ body.theme-warm {
   cursor: pointer;
 }
 
+.token-gate-cancel {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.token-gate-cancel:hover { color: var(--txt); border-color: var(--txt); }
+
 .app-error {
   max-width: 480px;
   margin: 40px auto;
