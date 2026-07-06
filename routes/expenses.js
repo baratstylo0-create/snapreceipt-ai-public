@@ -6,6 +6,8 @@ const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
 const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sanitizeExpensePatch } = require('../lib/expenseValidation');
+const { getCapabilities } = require('../lib/account'); // ADR-010 flags (multiUser)
+const { lookupSession, scopeForUser } = require('../lib/auth'); // ADR-021 business identity
 
 // P6 abuse defense (§4.4): checkDash IS the auth gate for every dashboard/API route (they all
 // import it from here) — without a limit it's brute-forceable (guess DASHBOARD_TOKEN). Runs
@@ -36,7 +38,15 @@ function safeTokenEqual(presented, secret) {
 //     so `npm start` with an empty .env still works out of the box, but log a loud warning on
 //     every request that slips through unauthenticated so it's never silently forgotten.
 // Production MUST set DASHBOARD_TOKEN — see README.md and .env.example.
+//
+// Business mode (ADR-021): when capabilities.multiUser is ON, the single static
+// DASHBOARD_TOKEN is replaced by per-user opaque SESSIONS. The bearer is resolved via
+// lookupSession → { account_id, branch_id, role }, attached to req as req.user/req.scope
+// (the frozen scopeForUser contract) for downstream branch-scoped queries. The personal
+// path below is left byte-for-byte unchanged when the flag is OFF, so all existing
+// (~1104) personal tests are unaffected.
 function checkDash(req, res, next) {
+  if (getCapabilities().multiUser) return checkDashSession(req, res, next);
   if (!cfg.DASHBOARD_TOKEN) {
     if (cfg.AUTH_REQUIRED) {
       return res.status(500).json({ error: 'server misconfigured: DASHBOARD_TOKEN is required in production' });
@@ -56,6 +66,27 @@ function checkDash(req, res, next) {
   if (safeTokenEqual(presented, cfg.DASHBOARD_TOKEN)) return next();
   // Failed auth → rate-limit the attempts (per-IP) to blunt token brute-force, then 401.
   return dashAuthLimiter(req, res, () => res.status(401).json({ error: 'unauthorized' }));
+}
+
+// Business-mode gate (multiUser ON): resolve an opaque session bearer to a scoped
+// identity. A VALID session bypasses the limiter (like the valid-token path above —
+// only FAILED auth is rate-limited, so a busy dashboard's many fetches never 429 a
+// legit user). On success, req.user + req.scope are set for downstream scoping.
+async function checkDashSession(req, res, next) {
+  const a = req.get('Authorization') || '';
+  const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
+  const deny = () => dashAuthLimiter(req, res, () => res.status(401).json({ error: 'unauthorized' }));
+  if (!presented) return deny();
+  try {
+    const sess = await lookupSession(presented);
+    if (!sess) return deny();
+    req.user = sess;
+    req.scope = scopeForUser(sess); // frozen contract; throws only on a corrupt session row
+    return next();
+  } catch (e) {
+    console.error('[checkDash session]', e.message);
+    return res.status(502).json({ error: 'auth check failed' });
+  }
 }
 
 // P6 hardening (§4.5): Access-Control-Allow-Origin was hardcoded to '*' on every token-gated

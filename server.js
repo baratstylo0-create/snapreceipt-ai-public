@@ -10,6 +10,7 @@ const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
 
 const mountWebhook = require('./routes/webhook');
+const mountAuth = require('./routes/auth');       // ADR-021 business login (multiUser only)
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountReports = require('./routes/reports');
@@ -34,6 +35,7 @@ app.use(securityHeaders);
 // runs, so a cross-origin dashboard deploy (DASHBOARD_ORIGIN set) actually works.
 app.use(corsPreflight);
 mountWebhook(app);
+mountAuth(app);
 mountExpenses(app);
 mountReceipt(app);
 mountReports(app);
