@@ -107,6 +107,33 @@
     return 'Tools used: ' + seen.join(', ');
   }
 
+  // ---- write-proposal helpers (ADR-019) -----------------------------------
+
+  // A pending write action arrives as { id, kind, summary, diff }. `diff` is a
+  // small object whose values are display strings (field -> "before → after",
+  // or a `caveat` string for the template-add kind). We do NOT assume a fixed
+  // key set — render whatever keys are present, generically. This pure helper
+  // flattens the diff object into an ordered [{label, value}] list for the
+  // render layer to escape + display. Both label and value stay raw here (the
+  // render layer owns escaping, matching activity.js's pure/render split);
+  // values may embed OCR'd merchant names, so they're untrusted text.
+  // Tolerates a missing/non-object diff (-> []). Never throws.
+  function diffPairs(diff) {
+    if (!isPlainObject(diff)) return [];
+    return Object.keys(diff).map(function (k) {
+      return { label: k, value: str(diff[k]) };
+    });
+  }
+
+  // Is `proposal` a well-formed pending write proposal? The server omits the
+  // field entirely (never null) when there's nothing to confirm, so a plain
+  // truthiness+shape check is enough. Requires an id (needed to POST the
+  // confirm) — a proposal without one can't be actioned, so we treat it as
+  // absent. Never throws.
+  function hasProposal(proposal) {
+    return isPlainObject(proposal) && typeof proposal.id === 'string' && proposal.id !== '';
+  }
+
   // Map an HTTP status to a fixed, friendly message. Status-only (mirrors
   // upload.js's errorMessage / reports.js's exportErrorMessage) — body text
   // is never surfaced (house convention: never leak server internals).
@@ -174,12 +201,75 @@
     return bubbleWrap;
   }
 
+  // Render the confirm card for a pending write proposal (ADR-019). Shows the
+  // proposal summary + a readable diff, with Confirm / Cancel buttons. EVERY
+  // piece of text (summary, diff labels AND values, later confirmation/error
+  // lines) goes through Escape.setText — never innerHTML — because diffs embed
+  // OCR'd merchant names (untrusted), same bar as every other bubble here.
+  //
+  // handlers: { onConfirm(card, buttons, msgEl), onCancel(card) }
+  //   - onConfirm gets the card element, its two buttons (to disable), and the
+  //     status line element to write into.
+  //   - onCancel just removes the card.
+  function renderConfirmCard(list, proposal, handlers) {
+    var card = el('div', 'ag-confirm');
+
+    card.appendChild(msg('ag-confirm-summary', proposal && proposal.summary));
+
+    var pairs = diffPairs(proposal && proposal.diff);
+    if (pairs.length) {
+      var dl = el('div', 'ag-confirm-diff');
+      pairs.forEach(function (p) {
+        var row = el('div', 'ag-confirm-diff-row');
+        row.appendChild(msg('ag-confirm-diff-label', p.label));
+        row.appendChild(msg('ag-confirm-diff-value', p.value));
+        dl.appendChild(row);
+      });
+      card.appendChild(dl);
+    }
+
+    var statusEl = msg('ag-confirm-msg muted', '');
+    var actions = el('div', 'ag-confirm-actions');
+
+    var confirmBtn = el('button', 'ag-confirm-yes');
+    confirmBtn.type = 'button';
+    Escape.setText(confirmBtn, 'Confirm');
+
+    var cancelBtn = el('button', 'ag-confirm-no');
+    cancelBtn.type = 'button';
+    Escape.setText(cancelBtn, 'Cancel');
+
+    confirmBtn.addEventListener('click', function () {
+      handlers.onConfirm(card, [confirmBtn, cancelBtn], statusEl);
+    });
+    cancelBtn.addEventListener('click', function () {
+      handlers.onCancel(card);
+    });
+
+    actions.appendChild(confirmBtn);
+    actions.appendChild(cancelBtn);
+    card.appendChild(actions);
+    card.appendChild(statusEl);
+
+    list.appendChild(card);
+    list.scrollTop = list.scrollHeight;
+    return card;
+  }
+
   // ---- render layer --------------------------------------------------------
 
   function mount(section, opts) {
     if (!hasDom() || !section) return null;
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
+    // getAutoMode is called FRESH on every submit (never snapshotted at mount),
+    // so flipping the Settings switch mid-session takes effect on the very next
+    // send with no remount. Defaults to always-off. Tolerant of a non-function
+    // or a throwing implementation (-> false).
+    var getAutoMode = typeof opts.getAutoMode === 'function' ? opts.getAutoMode : function () { return false; };
+    function readAutoMode() {
+      try { return getAutoMode() === true; } catch (e) { return false; }
+    }
 
     var rootEl = el('div', 'ag-root');
     section.appendChild(rootEl);
@@ -218,10 +308,26 @@
     // sessionStorage on mount (e.g. after a page refresh) so the conversation survives.
     var transcript = loadPersistedTranscript();
     var busy = false;
+    // True while a write-proposal confirm card is on screen and unresolved: a
+    // new message must not be sendable mid-confirmation ("can't land ambiguously
+    // mid-confirmation"). Cleared the instant the card is Confirmed/Cancelled or
+    // errors. Input is disabled whenever EITHER busy or a proposal is pending.
+    var proposalPending = false;
+
+    function refreshInputEnabled() {
+      var disabled = busy || proposalPending;
+      sendBtn.disabled = disabled;
+      textarea.disabled = disabled;
+    }
 
     function setBusy(b) {
       busy = b;
-      sendBtn.disabled = b;
+      refreshInputEnabled();
+    }
+
+    function setProposalPending(p) {
+      proposalPending = p;
+      refreshInputEnabled();
     }
 
     function setNotice(text) {
@@ -243,6 +349,50 @@
       setNotice('');
       clear(list);
       textarea.value = '';
+      setProposalPending(false);
+    }
+
+    // Render the confirm card for a pending write proposal and lock input until
+    // it resolves. Confirm -> POST /api/agent/confirm exactly once (buttons
+    // disabled on click to block a double-submit); Cancel -> client-side only,
+    // no network. Either outcome (and any error) re-enables the textarea/Send.
+    function showProposal(proposal) {
+      setProposalPending(true);
+      renderConfirmCard(list, proposal, {
+        onConfirm: function (card, buttons, statusEl) {
+          buttons.forEach(function (b) { b.disabled = true; }); // no double-click
+          Escape.setText(statusEl, 'Applying…');
+          apiFetch('/api/agent/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: { proposalId: proposal.id },
+          }).then(function (res) {
+            if (res && res.ok) {
+              // Replace the interactive card content with a short done line.
+              clear(card);
+              var kindLabel = res.kind ? ' (' + str(res.kind) + ')' : '';
+              card.appendChild(msg('ag-confirm-done', 'Done.' + kindLabel));
+            } else {
+              // Server returned { ok:false, error } — error is already a safe,
+              // sanitized string. Show it and let the user try again.
+              Escape.setText(statusEl, (res && res.error) || 'Something went wrong. Please try again.');
+              buttons.forEach(function (b) { b.disabled = false; });
+            }
+            setProposalPending(false);
+          }).catch(function () {
+            // Network/transport failure: never surface raw internals; re-enable
+            // so the user can retry or ask something else.
+            Escape.setText(statusEl, 'Something went wrong. Please try again.');
+            buttons.forEach(function (b) { b.disabled = false; });
+            setProposalPending(false);
+          });
+        },
+        onCancel: function (card) {
+          // Cancel is purely client-side (nothing to undo server-side).
+          if (card.parentNode) card.parentNode.removeChild(card);
+          setProposalPending(false);
+        },
+      });
     }
 
     // Show whatever was restored from sessionStorage (if anything) right away.
@@ -282,7 +432,9 @@
       apiFetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: { messages: transcript },
+        // autoMode read FRESH here (not cached at mount) so toggling the
+        // Settings switch mid-session takes effect on the very next send.
+        body: { messages: transcript, autoMode: readAutoMode() },
       }).then(function (response) {
         setBusy(false);
         if (thinking.parentNode) thinking.parentNode.removeChild(thinking);
@@ -293,6 +445,12 @@
         persistTranscript(transcript);
         var toolsLabel = toolsUsedLabel(response && response.toolCalls);
         renderTranscript(toolsLabel);
+        // A pending write action (ADR-019) arrives as response.proposal ONLY
+        // when human confirmation is required (omitted otherwise). Render the
+        // confirm card below the just-rendered answer bubble and lock the input
+        // until the user Confirms/Cancels.
+        var proposal = response && response.proposal;
+        if (hasProposal(proposal)) showProposal(proposal);
       }).catch(function (err) {
         setBusy(false);
         if (thinking.parentNode) thinking.parentNode.removeChild(thinking);
@@ -322,6 +480,8 @@
     exceedsCaps: exceedsCaps,
     toolsUsedLabel: toolsUsedLabel,
     agentErrorMessage: agentErrorMessage,
+    diffPairs: diffPairs,
+    hasProposal: hasProposal,
     loadPersistedTranscript: loadPersistedTranscript,
     persistTranscript: persistTranscript,
     clearPersistedTranscript: clearPersistedTranscript,

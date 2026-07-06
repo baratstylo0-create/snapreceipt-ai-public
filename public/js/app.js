@@ -20,6 +20,7 @@
 
   var TOKEN_KEY = 'dashboard_token';
   var THEME_KEY = 'theme';
+  var AUTO_MODE_KEY = 'auto_mode';
 
   // Resolve dependencies from either CommonJS (Node) or the browser globals that
   // the earlier <script> tags attached. In Node these are only used by boot(),
@@ -81,6 +82,26 @@
     var s = ss();
     try { if (s) s.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
     applyTheme(next);
+    return next;
+  }
+
+  // --- agent auto-mode (ADR-019: skip confirmation for edits & review decisions) ---
+  // Persisted state only — unlike theme, there's nothing to "apply" to the DOM;
+  // Falc/Agent re-read the current value fresh on every message submit via
+  // getAutoMode (see enterApp below), so a Settings toggle flip takes effect on
+  // the very next request with no remount/reload needed.
+  function storedAutoMode() {
+    var s = ss();
+    try {
+      var raw = s ? s.getItem(AUTO_MODE_KEY) : null;
+      return raw === 'true';
+    } catch (e) { return false; }
+  }
+  // Coerce to a strict boolean, persist (best-effort, never throws), and return it.
+  function setAutoMode(value) {
+    var next = !!value;
+    var s = ss();
+    try { if (s) s.setItem(AUTO_MODE_KEY, next ? 'true' : 'false'); } catch (e) { /* ignore */ }
     return next;
   }
 
@@ -231,6 +252,8 @@
     deps.setTheme = setTheme;
     deps.logout = logout;
     deps.onClearLocal = reloadPage;
+    deps.autoMode = storedAutoMode();
+    deps.setAutoMode = setAutoMode;
 
     var instances = mount ? buildViews(Nav, mount, deps) : {};
 
@@ -239,7 +262,14 @@
     // Optional (older cached bundles may lack it) so it never blocks boot.
     var Falc = deps.Falc;
     if (Falc && typeof Falc.mount === 'function') {
-      Falc.mount({ Agent: deps.Agent, Api: deps.Api, apiFetch: deps.Api && deps.Api.apiFetch });
+      Falc.mount({
+        Agent: deps.Agent, Api: deps.Api, apiFetch: deps.Api && deps.Api.apiFetch,
+        // Pass the FUNCTION itself (not a snapshotted call) so every fresh
+        // Agent.mount() readAutoMode() picks up the current persisted value —
+        // a Settings toggle flip is visible on the very next request, no
+        // remount/reload needed (ADR-019).
+        getAutoMode: storedAutoMode,
+      });
     }
 
     function select(id) {
@@ -314,5 +344,7 @@
     applyTheme: applyTheme,
     getStoredToken: getStoredToken,
     showView: showView,
+    storedAutoMode: storedAutoMode,
+    setAutoMode: setAutoMode,
   };
 });
