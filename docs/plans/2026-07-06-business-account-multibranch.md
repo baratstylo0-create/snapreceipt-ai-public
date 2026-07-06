@@ -176,6 +176,36 @@ payment tabs, excel-lite grid).
 
 ---
 
+## Phase 7 — Per-client profiles + "Send to Admin" branch submission  (Jeevan; ADR-022)
+> Added 2026-07-06 for **Premala** (first client). A per-client **flag profile**, not a fork — see
+> `docs/clients/premala.md`. The general phases above are unchanged; this layers config + one general
+> flag-gated feature on top. Slots in **after Phase 3** (needs the branch data layer) and can run
+> parallel to Phases 4–6.
+
+**Files:** `lib/account.js` (`getCapabilities` — new flags) · `lib/branchSubmission.js` (**new**) ·
+`routes/branches.js` or a new `routes/submissions.js` (submit/list endpoints) · frontend (Phase 6 shell).
+
+- [ ] **New capability flags** in `getCapabilities()`: `liveMasterMerge` (default **true** = general
+  product), `excelLiteGrid` (default **true**), `branchSubmission` (default **false**). Premala profile:
+  `multiUser=true, liveMasterMerge=false, excelLiteGrid=false, branchSubmission=true`. Tests: defaults
+  reproduce today's/general behaviour; Premala flag combo resolves as specified.
+- [ ] **`liveMasterMerge=false` / `excelLiteGrid=false` behaviour:** admin master view still shows **live
+  reports/analysis** (data layer unchanged — the branch rows are all in the DB); what's suppressed is the
+  live-editable/merged master **spreadsheet** surface only. Tests: with the flags off, reports endpoint
+  still aggregates live; no excel-lite PATCH surface is exposed.
+- [ ] **"Send to Admin" branch submission (`branchSubmission`, GENERAL feature):** a clerk submits their
+  branch's compiled export for a period → a `submissions` record (branch_id, period, submitted_by,
+  submitted_at, status) → surfaces in the admin dashboard; admin can compile/export. **Reversible;
+  audit-trailed.** Keeps the hand-off in-dashboard (no WhatsApp/chat-app leak). Tests: clerk can submit
+  only their own branch; admin sees all submissions; re-submit updates not duplicates; flag off → route 404.
+- [ ] **Premala PDF export format — PARKED (blocked on client samples).** Their Excel-with-embedded-
+  receipt-snapshots → PDF layout. Foundation = Phase 3 receipt-image embed (ADR-018/021). Do **not** build
+  blind; decide the PDF-render approach (reuse `@hyzyla/pdfium`/`exceljs` before adding any dep) when
+  samples arrive.
+- [ ] Commit: `feat(m2): per-client capability profiles + Send-to-Admin branch submission (ADR-022)`.
+
+---
+
 ## Verification (end-to-end, after phases land)
 
 - `npm test` green throughout (personal baseline unchanged; new business tests added per phase).

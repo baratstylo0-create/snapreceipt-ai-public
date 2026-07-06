@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-06 · Claude-J1 (for Jeevan) · docs/jeevan-business-account-multibranch-spec — Premala client profile (ADR-022)
+- **Files:** `docs/DECISIONS.md` (new **ADR-022**), `docs/clients/premala.md` (**new** — first client profile), `docs/plans/2026-07-06-business-account-multibranch.md` (new **Phase 7** — per-client profiles + Send-to-Admin), this WORKLOG.
+- **What — Owner's new update for Premala (our first client).** Premala's real workflow ≠ the default M2 "live merged master" model: each branch keeps its **own** formatted Excel (receipt snapshots embedded) exported **as PDF** in their existing layout, and hands it to the admin **over WhatsApp** today; the **admin's master file = admin's OWN HQ/petty-cash expenses**, NOT a live all-branch merge. But admin **does** want **live reports/analysis**. Captured as **ADR-022: per-client behaviour = capability-flag PROFILES** (extends ADR-010/020) — Premala is the first profile, NOT a fork.
+- **The key CTO framing:** split into a **live-data layer** (rows-not-workbooks, ADR-021 — unchanged; branch receipts still flow into the shared DB so admin analytics stay live) and a **document layer** (flagged off for Premala). Premala flags: `multiUser=true, liveMasterMerge=false, excelLiteGrid=false, branchSubmission=true`.
+- **New GENERAL feature — "Send to Admin" branch submission (`branchSubmission`, flag-gated, reusable):** clerk submits their branch's compiled export in-dashboard → lands in the admin dashboard. Replaces the WhatsApp hand-off. **Why it's an upgrade, not just a customisation:** kills a real PII/data-leak vector (receipts leaving the isolated managed-silo instance via a chat app — ADR-021 §11 posture), it's **cheap** (rows already in the DB → lightweight state-change, not a file transfer), and it yields a **free audit trail** (who/branch/period/when). Endorsed by Owner.
+- **Parked (blocked on Owner):** Premala's exact PDF export layout (Excel-with-embedded-snapshots → PDF) — samples incoming; build deferred, foundation is Phase 3's receipt-image embed. Don't build blind.
+- **What's next:** general MVP build **continues untouched** (Phase 1 identity is up as PR #108 off `feature/jeevan-m2-identity`; Phases 2–6 proceed as the default product). Premala is a flag profile on the same build. When samples land → build the client-specific PDF export. Provision Premala's isolated instance (own Supabase + bot token + Groq keys, ADR-015) before real data.
+- **Assumptions:** new flags default to the **general** product behaviour (`liveMasterMerge`/`excelLiteGrid` default true, `branchSubmission` default false) so no existing/other-client behaviour shifts; Premala overrides them. Docs-only; no code this push.
+
+---
+
 ## 2026-07-06 · Claude-J1 (for Jeevan) · docs/jeevan-business-account-multibranch-spec
 - **Files:** `docs/specs/2026-07-06-business-account-multibranch-design.md` (new — full house-format spec), `docs/plans/2026-07-06-business-account-multibranch.md` (new — phased implementation plan + task split), `docs/DECISIONS.md` (new **ADR-021**), this WORKLOG.
 - **What — CTO design conversation for the M2 business-account (multi-branch / multi-staff) layer**, landed section-by-section with Owner sign-off from the planning PDF (`receipt analy business.pdf`) + the `concept-fresh.html` admin/team mockup. This is the long-deferred per-client multi-user layer (MUGI.md §5), now specced. **Additive, flag-gated, per-client** (ADR-010/020) — no change to the base product, all existing features intact.
