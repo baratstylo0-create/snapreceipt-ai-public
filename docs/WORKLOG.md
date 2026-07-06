@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-07 · Claude-J1 (for Jeevan) · feature/jeevan-m2-excel-branchstaff — M2 Phase 3 (part): Excel Branch/Staff columns
+- **Files:** `lib/excel.js` (buildWorkbook appends Branch/Staff columns via `opts.branchStaff` + name maps), `routes/excel.js` (business mode passes `branchStaff` + resolved id→name maps + clerk export scope), tests: `tests/excel.branchstaff.test.js` (**new**, +4), `tests/excel.route.scope.test.js` (**new**, +2).
+- **What — next Phase 3 slice (epic #106), TDD.** `buildWorkbook` now appends **Branch + Staff** columns after the FieldSpec columns when `opts.branchStaff` is set, resolving `branch_id`/`staff_user_id` to names via `opts.branchNames`/`opts.staffNames` (id fallback when a name is unknown, blank when the row has none). `routes/excel.js` turns this on **only in business mode** (`capabilities.multiUser`), resolving the two id→name maps once, and **scopes a clerk's export to their own branch** (admin exports all). Business-only by construction: personal exports get no Branch/Staff columns and are byte-for-byte unchanged (verified — all prior excel tests green).
+- **Tests: 1222/1222** (`.env` aside; +6 new; zero regressions). Admin export carries Branch/Staff with names; clerk export excludes other branches; personal export unchanged.
+- **What's next (remaining Phase 3, Jeevan):** the **receipt-image embed** in the export (`lib/excel.js` `addImage` + links-only mode, ADR-018 storage already on main) — the last Phase 3 item. Then Phase 4 (anomaly valve + payments).
+- **Assumptions:** Branch column shows the branch office name (id fallback); Staff shows display_name; clerk export scope mirrors the reports clerk scope (in-memory until Barat's sbSelect scope hook filters at fetch too).
+
+---
+
 ## 2026-07-07 · Claude-J1 (for Jeevan) · feature/jeevan-m2-datadims — M2 Phase 3 (part): master-view grouping + capture-context stamping
 - **Files:** `lib/reports.js` (buildReport branch/staff grouping + branch/staff filters), `routes/reports.js` (groupBy + admin drill-down + clerk hard-scope), `routes/upload.js` (stamp `meta.branch_id` from the session), tests: `tests/reports.groupby.test.js` (**new**, +7), `tests/reports.route.scope.test.js` (**new**, +3), `tests/upload.route.scope.test.js` (**new**, +2).
 - **What — Phase 3 of the M2 epic (#106), built TDD on the merged Phase 1+2.** (1) **Master view:** `buildReport` gains an optional `groupBy` (`branch|staff`) producing per-group totals with the load-bearing invariant **sum(groups)==report.total**, plus branch/staff drill-down filters. `routes/reports.js` exposes `?groupBy=` + admin `?branch=/?staff=` drill-down and **hard-scopes a clerk to their own branch** via `req.scope` (a clerk asking for another branch still only sees their own — isolation). (2) **Capture-context:** the dashboard-upload path stamps the capturer's `branch_id` (from the session `req.user`) onto the per-image `meta` so ingestion can attribute each row. Additive: personal mode + no-groupBy shapes byte-for-byte unchanged.

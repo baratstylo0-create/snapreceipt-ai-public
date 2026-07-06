@@ -11,6 +11,7 @@ const templates = require('../lib/templates');     // namespace import so tests 
 const { buildWorkbook } = require('../lib/excel');
 const { isISO } = require('../lib/reports');
 const { cfg } = require('../lib/config');
+const { getCapabilities } = require('../lib/account'); // business-mode gate (multiUser)
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
 
 // Same cap philosophy as routes/reports.js's REPORT_ROW_LIMIT: never silently
@@ -43,13 +44,36 @@ module.exports = function mountExcel(app) {
         return true;
       });
 
+      // Business mode (multiUser, Phase 3): a CLERK's export is scoped to their own branch
+      // (req.scope set by checkDash); an admin exports everything. Personal mode: no scope, no
+      // filter (unchanged).
+      const business = getCapabilities().multiUser;
+      const scope = req.scope;
+      const scopedRows = (business && scope && scope.role === 'clerk')
+        ? filtered.filter((e) => String(e.branch_id == null ? '' : e.branch_id) === String(scope.branch_id))
+        : filtered;
+
       const fieldSpec = await templates.getFieldSpec();
       // Human-readable heading for the Summary sheet — same from/to values
       // already validated above, just phrased for a reader instead of a URL.
       const rangeLabel = !from && !to ? 'All time'
         : from && to && from === to ? from
         : (from || '…') + ' to ' + (to || '…');
-      const workbook = buildWorkbook(filtered, fieldSpec, { rangeLabel, generatedAt: new Date().toISOString(), currency: cfg.DEFAULT_CURRENCY });
+      const buildOpts = { rangeLabel, generatedAt: new Date().toISOString(), currency: cfg.DEFAULT_CURRENCY };
+      // Business exports carry Branch + Staff columns; resolve the ids to names once (id→office,
+      // id→display_name). Personal exports omit both (buildWorkbook leaves the sheet unchanged).
+      if (business) {
+        const [branches, users] = await Promise.all([
+          supabase.sbSelect('branches', {}),
+          supabase.sbSelect('users', {}),
+        ]);
+        const branchNames = {}; for (const b of (branches || [])) branchNames[b.id] = b.office;
+        const staffNames = {}; for (const u of (users || [])) staffNames[u.id] = u.display_name || u.username || '';
+        buildOpts.branchStaff = true;
+        buildOpts.branchNames = branchNames;
+        buildOpts.staffNames = staffNames;
+      }
+      const workbook = buildWorkbook(scopedRows, fieldSpec, buildOpts);
       const buf = await workbook.xlsx.writeBuffer();
 
       // Filenames are built ONLY from already-ISO-validated strings (or fixed
