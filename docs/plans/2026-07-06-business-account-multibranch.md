@@ -241,26 +241,37 @@ payment tabs, excel-lite grid).
   pending; bulk mark-paid reimburses.
 - [ ] Commit: `feat(m2): petty-cash floats + claim engine (balance maths, reimbursement)`.
 
-## Phase 10 — Petty Cash Monthly Statement — dual Excel/PDF export  (Jeevan; ADR-023)
-> **Both** exports required, **faithful to the client sample** (Owner). Excel template = layout source of
-> truth. Foundation: receipt-image storage (ADR-018), currency (ADR-005), `exceljs` (ADR-012).
+## Phase 10 — Petty Cash Monthly Statement — dual Excel/PDF export  (Jeevan; ADR-023 + ADR-024)
+> **Both** exports required, **faithful to the client sample** (Owner: "the exact export of a PDF, just
+> like the sample"). Styling contract = spec §2b; Excel template = layout source of truth. Foundation:
+> receipt-image storage (ADR-018), currency (ADR-005), `exceljs` (ADR-012), `@hyzyla/pdfium` (rasterise
+> PDF receipts), **`pdfkit`** (ADR-024, new pure-JS dep — PDF writer).
+> **One model, two renderers** (spec §3).
 
-**Files:** `lib/excel.js` (statement layout — Sections A/B, numbered categories + SUBTOTALs, cash-in-hand/
-expenditure/balance, sign-off block, embedded receipt thumbnails) · `lib/statementPdf.js` (**new** —
-statement page(s) + one appended page per receipt image) · `routes/reports.js` or `routes/statement.js`
-(generate endpoint, `format=xlsx|pdf`).
+**Files:** `lib/statement.js` (**new** — StatementModel builder + maths, pure) · `lib/statementXlsx.js`
+(**new**, or extend `lib/excel.js`) · `lib/statementPdf.js` (**new** — pdfkit) · `routes/statement.js`
+(**new** — `format=xlsx|pdf`) · `package.json` (+`pdfkit`).
 
-- [ ] **Excel:** reproduce the layout with real computed subtotals/totals (SUBTOTAL/SUM), **never
-  `#REF!`**; embed a receipt thumbnail per row + hyperlink; optional 2nd-currency column; NAME(staff)
-  column when the company enables it. Tests: totals correct, balance sign correct, categories from the
-  company FieldSpec, image present when `receipt_url` set.
-- [ ] **PDF:** statement first, then one appended page per receipt image (from durable storage).
-  Render approach **reuse-existing-deps-first** (`@hyzyla/pdfium`/HTML→PDF before any new dep; `sharp`
-  stays rejected). Tests: page count = statement + N receipts; missing image → skipped gracefully.
-- [ ] `format=xlsx|pdf` on the generate endpoint; admin (all companies/branches) + clerk (own branch).
-  Tests: both formats emit; scope enforced.
-- [ ] **Manual accuracy check** vs the client sample (visual diff) before sign-off.
-- [ ] Commit: `feat(m2): Petty Cash Monthly Statement — dual Excel/PDF export with appended receipts`.
+- [ ] **`lib/statement.js` (TDD, no I/O):** build the StatementModel — Section A (balance-b/f + cash-in),
+  Section B (expenses grouped by the company category set, per-category subtotals + fixed empty padding
+  rows), cash-in-hand / expenditure / **balance (correct sign, §6)** / claims, sign-off roles. Reuses
+  `lib/pettyCash.js` (Phase 9) + `lib/currency.js` (2nd currency). Tests: totals, balance sign
+  (+75.09-not-−75.09), category grouping from FieldSpec, claim rows, empty-company month.
+- [ ] **`lib/statementXlsx.js`:** StatementModel → `.xlsx` via exceljs — styling per §2b (red title, blue
+  headings, grey headers, category banners, **yellow** category totals, **green** subtotal, red negative
+  balance, borders), real SUBTOTAL/SUM (**never `#REF!`**), embedded receipt thumbnail per row +
+  hyperlink; optional 2nd-currency + NAME(staff) columns. Tests: totals correct, sign correct, fills
+  applied, image present when `receipt_url` set.
+- [ ] **`lib/statementPdf.js`:** StatementModel → `.pdf` via **pdfkit** — draw statement page(s) to match
+  §2b, then append receipts **in statement-line order**: image → 1 page; PDF receipt → N pages rasterised
+  via pdfium; **fit-inside-page, aspect preserved, top-aligned**; missing/unreadable image → skip
+  gracefully. Tests: page count = statement + Σ receipt pages, multi-page receipt expands, missing image
+  skipped, no PII in logs.
+- [ ] **`routes/statement.js`:** `GET /api/statement?company=&branch=&period=&format=xlsx|pdf`; admin =
+  all companies/branches, clerk = own branch (via `scopeForUser`). Tests: both formats emit correct
+  content-type; scope enforced; bad params 400.
+- [ ] **Manual accuracy check** vs the client sample (render + visual diff) before sign-off.
+- [ ] Commit: `feat(m2): Petty Cash Monthly Statement — dual Excel/PDF export (pdfkit) with appended receipts`.
 
 ---
 

@@ -1,6 +1,16 @@
 # DECISIONS — Receipt Analyser SaaS (ADR-lite)
 > Why we chose X. Append as decisions are made.
 
+## ADR-024 · `pdfkit` (pure-JS) for the Petty Cash Statement PDF export
+**Date:** 2026-07-07 · **Status:** Accepted (Owner: Jeevan) — CTO decision, Owner brief "we want the exact export of a PDF, just like the sample". Implements the PDF half of ADR-023. Spec: `docs/specs/2026-07-06-petty-cash-statement-format.md` §3.
+**Context:** ADR-023 requires a **PDF** statement that is pixel-faithful to the client's filed output (styled table — red title, blue headings, grey/ yellow/ green fills, borders, sign-off block) **followed by the appended receipt pages**. Our existing tools can't produce it: `exceljs` writes `.xlsx` only; `@hyzyla/pdfium` *reads/rasterises* PDFs but cannot author them. We need a PDF **writer**.
+**Decision:** Add **`pdfkit`** — a pure-JavaScript PDF generation library (MIT, **no native binaries**). It draws the styled statement (rects/fills/borders/text to match §2b) AND embeds receipt images as pages. Source receipts that are themselves PDFs are rasterised page-by-page via the existing `@hyzyla/pdfium`, then embedded — so `pdfkit` + `pdfium` cover every receipt format (image or PDF, single- or multi-page).
+**Why pdfkit over the alternatives:**
+- **vs `pdf-lib`:** both are pure-JS; pdfkit's higher-level text/table primitives mean far less hand-written layout code to hit the fidelity bar. (pdf-lib is a fine fallback if pdfkit's transitive-dep weight is ever a concern.)
+- **vs hand-rolling a PDF writer (no new dep):** a styled table with fills/borders is tedious and fragile to emit by hand; the "exact as the sample" requirement makes false economy of saving one pure-JS dep.
+- **vs `sharp` (rejected, ADR-014):** different category — `sharp` is a *native* image lib (build/binary risk); `pdfkit` is pure-JS, so it honours the "no native binary / no build step" constraint.
+**Consequences:** Runtime deps go from `express, dotenv, exceljs, @hyzyla/pdfium` → **+`pdfkit`**. Still pure-JS, still no build step. Only exercised on the `pettyCash`/statement path (a business feature), though it installs for all deployments (normal dependency). **Tier-2** (produces financial documents). Revisit only if a lighter writer becomes necessary. Personal product behaviour unchanged.
+
 ## ADR-023 · Company dimension + petty-cash/claim model + Petty Cash Monthly Statement (dual Excel/PDF export)
 **Date:** 2026-07-06 · **Status:** Accepted (Owner: Jeevan) — CTO calls confirmed. Extends ADR-021/022. Format spec: `docs/specs/2026-07-06-petty-cash-statement-format.md`. **Confidential source samples** kept out of the repo (real company/staff/bank data); design anonymised.
 **Context:** Premala's actual deliverable (from two real sample files) is a **Petty Cash Monthly Statement of Account** — one per **company × branch × month** — with the **receipt snapshots appended one per page**, currently hand-built in Excel (broken `=#REF!` formulas + a sign error) and emailed over WhatsApp. Premala also operates **multiple companies** (legal entities), each with its own branches, categories, and petty-cash floats.

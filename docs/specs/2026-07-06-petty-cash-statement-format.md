@@ -89,15 +89,33 @@ then deleted — it is confidential and never entered the repo.)
 
 ## 3. Dual export (BOTH required — Owner: "must have both options, as accurate as the sample")
 
-- **Excel (`.xlsx`)** — reproduce the layout with `exceljs` (ADR-012). Real computed subtotals/totals
-  (SUBTOTAL/SUM semantics), NOT `#REF!`. Receipt thumbnail embedded per row + hyperlink to full-res
-  (reuses the ADR-021/018 embed already planned for Phase 3).
-- **PDF** — the statement page(s) **followed by one appended page per receipt image** (the snapshots),
-  exactly like their filed output. Foundation = durable receipt-image storage (ADR-018). Rendering
-  approach: decide when building — **reuse existing deps first** (`@hyzyla/pdfium` is already in the tree;
-  `exceljs`→PDF or an HTML→PDF pass) before adding any new dependency (`sharp` stays rejected, ADR-014).
-- Accuracy bar: visually faithful to the client sample; the **Excel template is the layout source of
-  truth** (merged cells, column widths, sign-off block).
+**Architecture — one model, two renderers** (mirrors how the codebase separates `lib/` logic from output):
+```
+lib/statement.js      StatementModel builder: company/branch/period, Section A (cash-in),
+                      Section B (expenses grouped by the company's category set, per-category
+                      subtotals), cash-in-hand / expenditure / balance, claims, sign-off block.
+                      Pure logic; reuses lib/pettyCash.js maths (§4) + lib/currency.js (2nd currency).
+                      Fully unit-testable with NO I/O.
+lib/statementXlsx.js  StatementModel → .xlsx via exceljs (ADR-012): fills/borders/fonts per §2b,
+                      real SUBTOTAL/SUM (never #REF!), embedded receipt thumbnail per row + hyperlink.
+lib/statementPdf.js   StatementModel → .pdf via pdfkit (ADR-024): draws the statement page(s) to match
+                      §2b, then appends each receipt's page(s). Fetches receipt bytes from storage (ADR-018).
+routes/statement.js   GET /api/statement?company=&branch=&period=&format=xlsx|pdf — scoped via scopeForUser.
+```
+
+- **Excel (`.xlsx`)** — `exceljs` (ADR-012). Real computed subtotals/totals, NOT `#REF!`. Receipt
+  thumbnail embedded per row + hyperlink to full-res (reuses the ADR-021/018 embed).
+- **PDF** — `pdfkit` (ADR-024; pure-JS, no native binary). Statement page(s) first, then the receipts:
+  - **One receipt document → its own page(s), in statement-line order** (auditor reads top-to-bottom
+    matching the expense list). Confirmed from the sample: a booking spanning 2 pages appended as 2 pages.
+  - **Image receipt → 1 page; PDF receipt → N pages**, rasterised page-by-page via `@hyzyla/pdfium`
+    (already in the tree) then embedded.
+  - **Placement:** scale to **fit inside the page, aspect preserved, top-aligned** (matches the sample —
+    tall phone screenshots sit at the top with white space below; A4 docs fill the width). No caption
+    overlaid by default (raw, like the sample); an optional per-expense caption is a later enhancement.
+  - Missing/unreadable image ⇒ skip that receipt gracefully (statement still generated).
+- **Accuracy bar:** visually faithful to the client sample (§2b is the styling contract; the Excel
+  template is the layout source of truth for column widths/merges).
 
 ## 4. The petty-cash + claim model (the real new logic)
 
