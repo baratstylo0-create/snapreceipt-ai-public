@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-premala-provisioned — OPS: M2 schema APPLIED + admin provisioned on the live Premala instance
+- **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (APPLIED status stamp), this WORKLOG. Docs-only push. **The live changes below are ops actions on the instance, not code** — no app code changed this session.
+- **What — the Premala instance (`xurnpvesgcybrnilxszf`) is now provisioned end-to-end:**
+  1. **Full M2 schema APPLIED** via the Supabase SQL Editor (Owner ran the wholesale `schema.sql` — the instance had only the P4 receipt core; the *entire* M2 layer including the M2-P1 base tables was missing, so the runbook's Blocks-B–E-only path would have failed on Block D). Verified: a "what's still missing" pre-flight returned **zero rows** (every M2 table + column present), and RLS = true on all 8 new tables (SEC-8). Existing receipt data untouched (idempotent, additive-only — every line of `schema.sql` audited: no drop/type-change/rewrite).
+  2. **First admin provisioned** — Owner ran `npm run setup-admin` (business-mode env): `premala-admin` + **Head Office** branch (`da7fdb7f-f2f2-44e6-a1ba-913c58d5d7b2`), scrypt-hashed password, one-time bot-binding token. Verified live via read-only `sbSelect` (admins=1, branch linked, hash present).
+  3. **`.env` set to the Premala capability profile** (docs/clients/premala.md §3): `ACCOUNT_TYPE=business` + `CAP_MULTI_USER/COMPANY_DIMENSION/PETTY_CASH/BRANCH_SUBMISSION=true`, `CAP_LIVE_MASTER_MERGE/EXCEL_LITE_GRID=false`. Verified `getCapabilities()` resolves to exactly that. (`.env` is gitignored → change lives only on the instance, not the repo.)
+- **Access note (why the split of who-did-what):** the Supabase **MCP token** only reaches the FrictionAI parent project, so it could NOT apply schema (Management API) — the Owner ran that in the SQL Editor. The app's **service-role key** (in `.env`) DOES reach the instance via the data API, so admin verification + capability checks were done from the session read-only; the credential-minting write itself was correctly gated to the Owner by the harness. Wrong-DB guard added to the runbook earlier (#128) earned its keep — pre-flight confirmed the right project before any write.
+- **What's next (pre-live, Owner):** log in as `premala-admin` (change the password), create Premala's companies + branches (auto-gen each clerk login), set petty-cash floats per branch; then Groq ZDR, hosting/HTTPS. `field_templates.categories` still pending Barat #123 (runbook §4/Block F). Statement export lands via the Phase-10 code already on `main`.
+- **Assumptions:** the admin password is the operator's to rotate (minted on the Owner's machine, never entered the repo); `docs/clients/premala.md` §3 is the authoritative flag set (used verbatim).
+
+---
+
 ## 2026-07-07 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-migration-runbook — ops: Supabase migration runbook (M2 P4–P9 + #123)
 - **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (**new**), this WORKLOG. Docs-only push.
 - **What:** copy-paste-ready runbook for applying the code-merged-but-not-yet-applied M2 schema to a
