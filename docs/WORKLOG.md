@@ -4,11 +4,43 @@
 
 ---
 
+## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-premala-provisioned — OPS: M2 schema APPLIED + admin provisioned on the live Premala instance
+- **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (APPLIED status stamp), this WORKLOG. Docs-only push. **The live changes below are ops actions on the instance, not code** — no app code changed this session.
+- **What — the Premala instance (`xurnpvesgcybrnilxszf`) is now provisioned end-to-end:**
+  1. **Full M2 schema APPLIED** via the Supabase SQL Editor (Owner ran the wholesale `schema.sql` — the instance had only the P4 receipt core; the *entire* M2 layer including the M2-P1 base tables was missing, so the runbook's Blocks-B–E-only path would have failed on Block D). Verified: a "what's still missing" pre-flight returned **zero rows** (every M2 table + column present), and RLS = true on all 8 new tables (SEC-8). Existing receipt data untouched (idempotent, additive-only — every line of `schema.sql` audited: no drop/type-change/rewrite).
+  2. **First admin provisioned** — Owner ran `npm run setup-admin` (business-mode env): `premala-admin` + **Head Office** branch (`da7fdb7f-f2f2-44e6-a1ba-913c58d5d7b2`), scrypt-hashed password, one-time bot-binding token. Verified live via read-only `sbSelect` (admins=1, branch linked, hash present).
+  3. **`.env` set to the Premala capability profile** (docs/clients/premala.md §3): `ACCOUNT_TYPE=business` + `CAP_MULTI_USER/COMPANY_DIMENSION/PETTY_CASH/BRANCH_SUBMISSION=true`, `CAP_LIVE_MASTER_MERGE/EXCEL_LITE_GRID=false`. Verified `getCapabilities()` resolves to exactly that. (`.env` is gitignored → change lives only on the instance, not the repo.)
+- **Access note (why the split of who-did-what):** the Supabase **MCP token** only reaches the FrictionAI parent project, so it could NOT apply schema (Management API) — the Owner ran that in the SQL Editor. The app's **service-role key** (in `.env`) DOES reach the instance via the data API, so admin verification + capability checks were done from the session read-only; the credential-minting write itself was correctly gated to the Owner by the harness. Wrong-DB guard added to the runbook earlier (#128) earned its keep — pre-flight confirmed the right project before any write.
+- **What's next (pre-live, Owner):** log in as `premala-admin` (change the password), create Premala's companies + branches (auto-gen each clerk login), set petty-cash floats per branch; then Groq ZDR, hosting/HTTPS. `field_templates.categories` still pending Barat #123 (runbook §4/Block F). Statement export lands via the Phase-10 code already on `main`.
+- **Assumptions:** the admin password is the operator's to rotate (minted on the Owner's machine, never entered the repo); `docs/clients/premala.md` §3 is the authoritative flag set (used verbatim).
+
+---
+
 ## 2026-07-07 · Claude (for Barat) · feature/barat-m2-fieldspec-categories — M2 Phase 5 (final): categories from FieldSpec + OCR-provider/ZDR knob
 - **Files:** `schema.sql` (`field_templates.categories` jsonb, nullable — additive), `lib/templates.js` (`sanitizeCategories`, `getFieldSpec` surfaces optional `FieldSpec.categories`, `saveTemplate` persists/clears it), `routes/templates.js` (JSON `{csv,name,categories}` path; CSV/.xlsx uploads never touch the set), `lib/ocr.js` (`specCategories(fieldSpec)`, category picker + `assembleExpense.categoryOptions` use it), `lib/bot.js` (catpick/catedit resolve indexes against the account's current list; dropped now-unused `CATEGORIES` import), `.env.example` (Groq ZDR + `OCR_API_BASE_URL/OCR_API_KEY` provider knob documented). Tests: `tests/templates.categories.test.js` (**new**, +19), route +3, catpicker +3.
 - **What changed:** A business account's own chart of accounts (e.g. construction co. → Petrol/Diesel, Touch-n-Go, Entertainment) now drives the Telegram category buttons and the categorizer's allow-list, instead of the built-in 18. **SHARED CONTRACT NOTE (SOP §4.6):** `FieldSpec` gains an OPTIONAL `categories: string[]` — purely additive; consumers reading only `.columns` are unaffected, and it's absent entirely for personal accounts (so the personal bot is byte-for-byte unchanged). `lib/categorize.js`'s `effectiveAllow()` already honoured `fieldSpec.categories`, so this wires the storage + picker ends to it. ZDR + OCR-provider are ops levers (no code path), documented in `.env.example`.
-- **What's next:** Jeevan's Excel export (`feature/jeevan-m2-excel-branchstaff`) reads categories from the company FieldSpec for the petty-cash statement's per-category banners — this storage change feeds that. Full suite 1334/1334.
-- **Assumptions:** `field_templates.categories` column added to the live Supabase schema before a business account relies on it (idempotent `ADD COLUMN IF NOT EXISTS`; needs the same SQL-editor apply step as prior schema changes).
+- **What's next:** Jeevan's Excel export reads categories from the company FieldSpec for the petty-cash statement's per-category banners — this storage change feeds that. Full suite 1334/1334 on the branch.
+- **Assumptions:** `field_templates.categories` column added to the live Supabase schema before a business account relies on it (idempotent `ADD COLUMN IF NOT EXISTS`; needs the same SQL-editor apply step as prior schema changes — now covered by the runbook Block F).
+
+---
+
+## 2026-07-07 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-migration-runbook — ops: Supabase migration runbook (M2 P4–P9 + #123)
+- **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (**new**), this WORKLOG. Docs-only push.
+- **What:** copy-paste-ready runbook for applying the code-merged-but-not-yet-applied M2 schema to a
+  client's live Supabase (SQL Editor). SQL extracted **verbatim from `schema.sql` @ `720c8ce`** (not
+  from memory): pre-flight state check → Block B (M2-P4 payments + touch trigger) → C (M2-P7
+  submissions) → D (M2-P8 company dimension, needs M2-P1 tables) → E (M2-P9 petty cash) → F (Barat
+  #123 `field_templates.categories`) → post-apply + RLS verification. Idempotent by construction
+  (`if not exists` / `create or replace` / `drop … if exists`) so re-running an applied block is a
+  no-op; additive-only, dormant until `CAP_*` flags flip. Also documents the **git-side conflict
+  resolution for #123** (append-only clashes on `schema.sql` + `WORKLOG.md`, keep both sides) and a
+  clearly-marked break-glass rollback.
+- **What's next:** Owner names the merge (do not self-merge — this is outside the Phases 9–10 merge
+  delegation). Whoever applies it runs the pre-flight first; Block F waits on #123 landing.
+- **Assumptions:** M2-P1 (business identity) is already applied on the live instance (login + bot were
+  live-verified in Phases 6–7); the runbook's pre-flight surfaces it if not. No live DB was touched to
+  write this — it's built from the repo schema; a read-only `list_tables` verification against the
+  instance is offered but not run without Owner direction.
 
 ---
 
