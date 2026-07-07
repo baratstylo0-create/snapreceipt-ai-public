@@ -129,7 +129,9 @@ module.exports = function mountExpenses(app) {
   app.get('/api/expenses', checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
-      const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000 });
+      // scope (issue #131): the DB layer hard-filters a clerk to their own branch; clerkVisible
+      // stays as the in-memory belt (defense-in-depth). Admin/personal (no scope) = no filter.
+      const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000, scope: req.scope });
       res.json(clerkVisible(rows, req.scope));
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
   });
@@ -180,7 +182,7 @@ module.exports = function mountExpenses(app) {
       const expected = req.body && typeof req.body.expected_updated_at === 'string'
         ? req.body.expected_updated_at : null;
       if (expected) {
-        const curRows = await sbSelect('expenses', { eq: { id: req.params.id } });
+        const curRows = await sbSelect('expenses', { eq: { id: req.params.id }, scope: req.scope });
         const cur = curRows[0];
         if (!cur) return res.status(404).json({ error: 'expense not found' });
         if (String(cur.updated_at || '') !== expected) {
@@ -191,7 +193,7 @@ module.exports = function mountExpenses(app) {
       if (!clean.ok) return res.status(400).json({ error: clean.error });
       const body = clean.body;
       if (!Object.keys(body).length) return res.status(400).json({ error: 'no fields to update' });
-      const rows = await sbUpdate('expenses', { id: req.params.id }, body);
+      const rows = await sbUpdate('expenses', { id: req.params.id, scope: req.scope }, body);
       // #6 learning: a manual category edit is ground truth — remember it for future receipts
       // (best-effort, non-blocking; never fails the request).
       if ('category' in body && rows[0]) {
@@ -206,7 +208,7 @@ module.exports = function mountExpenses(app) {
     try {
       const touch = await canTouchExpense(req, req.params.id);
       if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
-      await sbSoftDelete('expenses', { id: req.params.id });
+      await sbSoftDelete('expenses', { id: req.params.id, scope: req.scope });
       res.json({ ok: true });
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });

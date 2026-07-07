@@ -19,6 +19,7 @@ module.exports = function mountReview(app) {
     try {
       const rows = await supabase.sbSelect('expenses', {
         eq: { status: 'needs_review' }, extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 500,
+        scope: req.scope, // #131: clerk queue hard-filtered to their branch at the DB (the in-memory filter below is the belt)
       });
       const scope = req.scope;
       const visible = (scope && scope.role === 'clerk')
@@ -53,7 +54,7 @@ module.exports = function mountReview(app) {
         ? { role: req.scope.role, override: !!decidable.override } : null;
       const anomaly = buildReviewAudit(cur.anomaly, decision, note, who);
 
-      const rows = await supabase.sbUpdate('expenses', { id: req.params.id }, { status, anomaly });
+      const rows = await supabase.sbUpdate('expenses', { id: req.params.id, scope: req.scope }, { status, anomaly });
       res.json(rows[0] || { ok: true, status });
     } catch (e) {
       console.error('[api/review decision]', e.message);

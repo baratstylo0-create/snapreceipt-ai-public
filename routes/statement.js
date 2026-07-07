@@ -69,10 +69,12 @@ module.exports = function mountStatement(app) {
 
     try {
       // ---- assemble the data (branch-scoped, period-filtered, not deleted/rejected) ----
-      const floats = await supabase.sbSelect('petty_cash_floats', { eq: { branch_id: branchId, period }, limit: 1 });
+      // scope (#131): defense-in-depth — a clerk's `s` re-asserts branch_id at the DB even though
+      // branchId is already forced to their own branch above; admin scope adds no filter.
+      const floats = await supabase.sbSelect('petty_cash_floats', { eq: { branch_id: branchId, period }, limit: 1, scope: s });
       const float = floats[0] || null;
-      const cashInRows = await supabase.sbSelect('cash_in', { eq: { branch_id: branchId, period }, order: 'created_at.asc', limit: 1000 });
-      const allExp = await supabase.sbSelect('expenses', { eq: { branch_id: branchId }, extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.asc', limit: 5000 });
+      const cashInRows = await supabase.sbSelect('cash_in', { eq: { branch_id: branchId, period }, order: 'created_at.asc', limit: 1000, scope: s });
+      const allExp = await supabase.sbSelect('expenses', { eq: { branch_id: branchId }, extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.asc', limit: 5000, scope: s });
       const expenses = allExp.filter((e) => e && typeof e.expense_date === 'string' && e.expense_date.slice(0, 7) === period);
 
       const [branches, users] = await Promise.all([
