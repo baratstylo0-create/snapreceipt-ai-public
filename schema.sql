@@ -330,3 +330,36 @@ create trigger expenses_touch_updated_at
 
 create index if not exists expenses_account_payment_idx on expenses (account_id, payment_status)
   where deleted_at is null;
+
+-- ============================================================================
+-- Migration M2-P7: "Send to Admin" branch submissions (ADR-022 Phase 7)
+-- Jeevan · 2026-07-07 · docs/plans/2026-07-06-business-account-multibranch.md Phase 7
+-- ----------------------------------------------------------------------------
+-- A clerk submits their branch's period (month) to the admin IN-dashboard —
+-- replaces the WhatsApp/chat-app file hand-off (audit-trailed: who/branch/
+-- period/when). One row per (account, branch, period): a re-submit UPDATES the
+-- row (status back to 'submitted', new timestamp), never duplicates. Reversible:
+-- 'withdrawn' flips it back without deleting the audit row. The data itself
+-- never moves — rows are already in the shared DB (rows-not-workbooks, ADR-021);
+-- this is a lightweight state-change, not a file transfer.
+-- ============================================================================
+create table if not exists submissions (
+  id           uuid        primary key default gen_random_uuid(),
+  account_id   text        not null default 'default',
+  company_id   uuid,                              -- ADR-023 dimension (null until Phase 8 lands)
+  branch_id    uuid        not null,
+  period       text        not null,              -- 'YYYY-MM' (server-validated)
+  submitted_by uuid,                              -- users.id of the submitting clerk
+  status       text        not null default 'submitted'
+    check (status in ('submitted', 'withdrawn')),
+  note         text,                              -- optional clerk note, length-capped in the route
+  submitted_at timestamptz not null default now(),-- bumped on every re-submit
+  created_at   timestamptz not null default now()
+);
+
+create unique index if not exists submissions_branch_period_idx
+  on submissions (account_id, branch_id, period);
+create index if not exists submissions_account_period_idx on submissions (account_id, period);
+
+alter table submissions enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).

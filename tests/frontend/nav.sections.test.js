@@ -33,3 +33,22 @@ test('every returned section has an id and a label', () => {
     assert.ok(s.label && typeof s.label === 'string');
   }
 });
+
+// --- ADR-022 Phase 7: the excelLiteGrid profile flag ---
+
+test('excelLiteGrid:false (Premala profile) -> Ledger dropped, Payments kept, Settings still last', () => {
+  const ids = sectionsFor({ business: true, excelLiteGrid: false }).map((s) => s.id);
+  assert.ok(!ids.includes('ledger'), 'no Ledger when the grid is off');
+  assert.ok(ids.includes('payments'), 'Payments is independent of the grid flag');
+  for (const s of SECTIONS) assert.ok(ids.includes(s.id), s.id + ' kept');
+  assert.strictEqual(ids[ids.length - 1], 'settings');
+});
+
+test('excelLiteGrid omitted or true -> Ledger present (general product default)', () => {
+  assert.ok(sectionsFor({ business: true }).map((s) => s.id).includes('ledger'));
+  assert.ok(sectionsFor({ business: true, excelLiteGrid: true }).map((s) => s.id).includes('ledger'));
+});
+
+test('excelLiteGrid flag is irrelevant in personal mode (classic sections regardless)', () => {
+  assert.deepStrictEqual(sectionsFor({ business: false, excelLiteGrid: false }), SECTIONS);
+});

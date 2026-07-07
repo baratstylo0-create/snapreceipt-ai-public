@@ -47,6 +47,35 @@
     return out;
   }
 
+  // --- Send-to-Admin pure logic (ADR-022 Phase 7) ---------------------------
+
+  // submissionStatusLine(subs, branchNames) -> the admin's one-line inbox summary for the
+  // selected month. Withdrawn rows are excluded (a withdraw means "not handed off");
+  // unknown branch ids fall back to the raw id. Garbage input -> the friendly empty line.
+  function submissionStatusLine(subs, branchNames) {
+    var names = [];
+    var list = Array.isArray(subs) ? subs : [];
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i];
+      if (!s || s.status !== 'submitted') continue;
+      var id = s.branch_id == null ? '' : String(s.branch_id);
+      names.push((branchNames && branchNames[id]) || id);
+    }
+    if (!names.length) return 'No branch submissions yet.';
+    return names.length + ' submitted · ' + names.join(', ');
+  }
+
+  // clerkSendState({ month, submission }) -> { canSend, label, withdrawable, reason? }.
+  // The clerk's send button: needs a month picked; an existing 'submitted' row for that
+  // month flips the label to Re-send and allows a withdraw (the reversibility valve).
+  function clerkSendState(opts) {
+    opts = opts || {};
+    if (!opts.month) return { canSend: false, label: 'Send to Admin', withdrawable: false, reason: 'Pick a month first.' };
+    var sub = opts.submission;
+    var sent = !!(sub && sub.status === 'submitted');
+    return { canSend: true, label: sent ? 'Re-send to Admin' : 'Send to Admin', withdrawable: sent };
+  }
+
   // selectionSummary(rows, selectedIds) -> { count, total } for the sticky bar. Non-finite
   // amounts count toward `count` but contribute 0 to the money total (never a fake number).
   function selectionSummary(rows, selectedIds) {
@@ -72,7 +101,7 @@
     var Api = deps.Api, Escape = deps.Escape, Format = deps.Format || (typeof root !== 'undefined' && root.Format) || null;
     var isAdmin = !!(deps.session && deps.session.role === 'admin');
 
-    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, loaded: false };
+    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, loaded: false, mySubmission: null };
 
     var wrap = document.createElement('div');
     wrap.className = 'payments';
@@ -100,7 +129,7 @@
     monthInput.type = 'month';
     monthInput.className = 'pay-filter-month';
     monthInput.setAttribute('aria-label', 'Filter by month');
-    monthInput.addEventListener('change', function () { state.month = monthInput.value || ''; state.selected = {}; render(); });
+    monthInput.addEventListener('change', function () { state.month = monthInput.value || ''; state.selected = {}; render(); refreshSubmissions(); });
     filters.appendChild(monthInput);
     var branchSel = document.createElement('select');
     branchSel.className = 'pay-filter-branch';
@@ -113,6 +142,36 @@
     staffSel.addEventListener('change', function () { state.staff = staffSel.value; state.selected = {}; render(); });
     filters.appendChild(staffSel);
     wrap.appendChild(filters);
+
+    // -- Send to Admin (ADR-022 Phase 7, flag branch_submission) --
+    // Clerk: a month-scoped Send/Re-send button (+ Withdraw when sent) — replaces the
+    // WhatsApp hand-off. Admin: a read-only "which branches submitted this month" line.
+    // The server enforces role + own-branch regardless; this is honest UI on top.
+    var submissionOn = !!(deps.config && deps.config.branch_submission);
+    var isClerk = !!(deps.session && deps.session.role === 'clerk');
+    var subWrap = null, subMsg = null, sendBtn = null, withdrawBtn = null;
+    if (submissionOn) {
+      subWrap = document.createElement('div');
+      subWrap.className = 'pay-submission';
+      subMsg = document.createElement('span');
+      subMsg.className = 'pay-submission-msg muted';
+      subWrap.appendChild(subMsg);
+      if (isClerk) {
+        sendBtn = document.createElement('button');
+        sendBtn.type = 'button';
+        sendBtn.className = 'pay-send-btn';
+        sendBtn.addEventListener('click', doSend);
+        subWrap.appendChild(sendBtn);
+        withdrawBtn = document.createElement('button');
+        withdrawBtn.type = 'button';
+        withdrawBtn.className = 'pay-withdraw-btn';
+        withdrawBtn.textContent = 'Withdraw';
+        withdrawBtn.hidden = true;
+        withdrawBtn.addEventListener('click', doWithdraw);
+        subWrap.appendChild(withdrawBtn);
+      }
+      wrap.appendChild(subWrap);
+    }
 
     var msg = document.createElement('p');
     msg.className = 'pay-msg muted';
@@ -234,6 +293,53 @@
       actBtn.disabled = false;
     }
 
+    // -- Send-to-Admin behaviour (no-ops unless the flag built the UI above) --
+    function refreshSubmissions() {
+      if (!submissionOn || !subMsg) return;
+      var st = clerkSendState({ month: state.month, submission: state.mySubmission });
+      if (!state.month) {
+        Escape.setText(subMsg, isClerk ? (st.reason || '') : 'Pick a month to see branch submissions.');
+        if (sendBtn) { sendBtn.textContent = st.label; sendBtn.disabled = true; }
+        if (withdrawBtn) withdrawBtn.hidden = true;
+        return;
+      }
+      Api.apiFetch('/api/submissions?period=' + encodeURIComponent(state.month)).then(function (r) {
+        var subs = (r && r.submissions) || [];
+        if (isClerk) {
+          // The server already scoped this to the clerk's own branch — first row wins.
+          state.mySubmission = subs[0] || null;
+          var s2 = clerkSendState({ month: state.month, submission: state.mySubmission });
+          Escape.setText(subMsg, s2.withdrawable
+            ? 'Sent to admin' + (state.mySubmission.submitted_at ? ' · ' + String(state.mySubmission.submitted_at).slice(0, 10) : '')
+            : (state.mySubmission && state.mySubmission.status === 'withdrawn' ? 'Withdrawn — not sent.' : 'Not sent yet.'));
+          if (sendBtn) { sendBtn.textContent = s2.label; sendBtn.disabled = !s2.canSend; }
+          if (withdrawBtn) withdrawBtn.hidden = !s2.withdrawable;
+        } else {
+          Escape.setText(subMsg, submissionStatusLine(subs, state.branchNames));
+        }
+      }).catch(function () { Escape.setText(subMsg, 'Could not load submissions.'); });
+    }
+
+    function doSend() {
+      if (!state.month || !sendBtn) return;
+      sendBtn.disabled = true;
+      Escape.setText(subMsg, 'Sending…');
+      Api.apiFetch('/api/submissions', { method: 'POST', body: { period: state.month } })
+        .then(function () { return refreshSubmissions(); })
+        .catch(function (err) {
+          sendBtn.disabled = false;
+          Escape.setText(subMsg, err && err.status === 403 ? 'Only a branch clerk can send.' : 'Send failed. Please try again.');
+        });
+    }
+
+    function doWithdraw() {
+      if (!state.mySubmission || !withdrawBtn) return;
+      withdrawBtn.disabled = true;
+      Api.apiFetch('/api/submissions/' + encodeURIComponent(state.mySubmission.id), { method: 'PATCH', body: { status: 'withdrawn' } })
+        .then(function () { withdrawBtn.disabled = false; return refreshSubmissions(); })
+        .catch(function () { withdrawBtn.disabled = false; Escape.setText(subMsg, 'Withdraw failed. Please try again.'); });
+    }
+
     function doBulk() {
       var ids = Object.keys(state.selected);
       if (!ids.length) return;
@@ -266,13 +372,17 @@
           }).catch(function () { /* names stay ids */ });
         });
       }
-      return chain.then(function () { rebuildFilterOptions(); render(); })
+      return chain.then(function () { rebuildFilterOptions(); render(); refreshSubmissions(); })
         .catch(function () { Escape.setText(msg, 'Could not load expenses. Please try again shortly.'); });
     }
 
     render();
+    refreshSubmissions();
     return { load: load };
   }
 
-  return { mount: mount, filterRows: filterRows, selectionSummary: selectionSummary };
+  return {
+    mount: mount, filterRows: filterRows, selectionSummary: selectionSummary,
+    submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
+  };
 });

@@ -218,10 +218,18 @@ module.exports = function mountExpenses(app) {
   // multi_user (ADR-021 Phase 6): tells the frontend to show the username/password
   // login instead of the static token gate. Read per-request (not at mount) so a
   // flag flip takes effect on the next page load without a server rebuild.
-  app.get('/api/config', (req, res) => res.json({
-    auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
-    multi_user: !!getCapabilities().multiUser,
-  }));
+  // excel_lite_grid / branch_submission (ADR-022 Phase 7): per-client profile flags the
+  // frontend uses to include/exclude the Ledger section and the Send-to-Admin controls.
+  // Display shaping only — the server enforces each capability on its own routes.
+  app.get('/api/config', (req, res) => {
+    const caps = getCapabilities();
+    res.json({
+      auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
+      multi_user: !!caps.multiUser,
+      excel_lite_grid: !!caps.excelLiteGrid,
+      branch_submission: !!caps.branchSubmission,
+    });
+  });
 };
 
 module.exports.checkDash = checkDash;

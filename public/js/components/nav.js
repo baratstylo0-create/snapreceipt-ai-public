@@ -34,16 +34,23 @@
     { id: 'ledger', label: 'Ledger' },
   ];
 
-  // sectionsFor({ business, role }) -> the nav list for the mode. Personal (business
-  // falsy) returns SECTIONS untouched — the classic six, byte-identical. Business adds
-  // Payments + Ledger for BOTH roles (the views render role-aware internally; the
+  // sectionsFor({ business, role, excelLiteGrid }) -> the nav list for the mode. Personal
+  // (business falsy) returns SECTIONS untouched — the classic six, byte-identical. Business
+  // adds Payments + Ledger for BOTH roles (the views render role-aware internally; the
   // server enforces authorization regardless of what the nav shows). Pure, no DOM.
+  // excelLiteGrid (ADR-022 Phase 7, per-client profile): pass false (Premala) to drop the
+  // Ledger grid; omitted/true keeps it — the general product default.
   function sectionsFor(opts) {
     opts = opts || {};
     if (!opts.business) return SECTIONS;
+    var extras = [];
+    for (var b = 0; b < BUSINESS_SECTIONS.length; b++) {
+      if (BUSINESS_SECTIONS[b].id === 'ledger' && opts.excelLiteGrid === false) continue;
+      extras.push(BUSINESS_SECTIONS[b]);
+    }
     var out = [];
     for (var i = 0; i < SECTIONS.length; i++) {
-      if (SECTIONS[i].id === 'settings') { out = out.concat(BUSINESS_SECTIONS); }
+      if (SECTIONS[i].id === 'settings') { out = out.concat(extras); }
       out.push(SECTIONS[i]);
     }
     return out;
