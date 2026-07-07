@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-07 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-migration-runbook — ops: Supabase migration runbook (M2 P4–P9 + #123)
+- **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (**new**), this WORKLOG. Docs-only push.
+- **What:** copy-paste-ready runbook for applying the code-merged-but-not-yet-applied M2 schema to a
+  client's live Supabase (SQL Editor). SQL extracted **verbatim from `schema.sql` @ `720c8ce`** (not
+  from memory): pre-flight state check → Block B (M2-P4 payments + touch trigger) → C (M2-P7
+  submissions) → D (M2-P8 company dimension, needs M2-P1 tables) → E (M2-P9 petty cash) → F (Barat
+  #123 `field_templates.categories`) → post-apply + RLS verification. Idempotent by construction
+  (`if not exists` / `create or replace` / `drop … if exists`) so re-running an applied block is a
+  no-op; additive-only, dormant until `CAP_*` flags flip. Also documents the **git-side conflict
+  resolution for #123** (append-only clashes on `schema.sql` + `WORKLOG.md`, keep both sides) and a
+  clearly-marked break-glass rollback.
+- **What's next:** Owner names the merge (do not self-merge — this is outside the Phases 9–10 merge
+  delegation). Whoever applies it runs the pre-flight first; Block F waits on #123 landing.
+- **Assumptions:** M2-P1 (business identity) is already applied on the live instance (login + bot were
+  live-verified in Phases 6–7); the runbook's pre-flight surfaces it if not. No live DB was touched to
+  write this — it's built from the repo schema; a read-only `list_tables` verification against the
+  instance is offered but not run without Owner direction.
+
+---
+
 ## 2026-07-07 · Claude-J (Opus, fable-mode, for Jeevan) · feature/jeevan-m2-statement — M2 Phase 10: petty-cash monthly statement, dual xlsx/pdf export
 - **Files:** `lib/statement.js` (**new** — pure StatementModel builder), `lib/statementXlsx.js` (**new** — exceljs renderer), `lib/statementPdf.js` (**new** — pdfkit renderer + receipt pages), `routes/statement.js` (**new**), `server.js` (**shared-file touch** — mount `statement`, 2 lines; announced here per SOP §4.6), `package.json` + `package-lock.json` (**new dep `pdfkit@^0.19.1`** — ADR-024, the ONE approved dependency for this pack), tests: `tests/statement.test.js` (**new**, +13), `tests/statementXlsx.test.js` (**new**, +9), `tests/statementPdf.test.js` (**new**, +5), `tests/statement.route.test.js` (**new**, +7).
 - **What — Phase 10 of the M2 epic (#106), ADR-023/024, executed from `docs/handoff/2026-07-07-phases-8-10/03-phase10-statement-export.md` + spec `docs/specs/2026-07-06-petty-cash-statement-format.md` with TDD (RED→GREEN watched every step).** The client-facing deliverable: one **Petty Cash Monthly Statement of Account** per branch × month, in **both** `.xlsx` and `.pdf` (the PDF appends receipts, one per page, in statement-line order). **Architecture (spec §3): one model, two renderers.** (1) **`lib/statement.js`** — pure, no-I/O `buildStatementModel`: Section A (Balance B/F + cash-in top-ups), Section B (expenses grouped by the company's category set in FieldSpec order, per-category subtotals + pad rows, unknown→Others, empty categories still render), footer balance (SIGN RULE §6), claims — **reuses Phase 9's `computeBalance`/`computeClaims`** so the numbers can't drift; the canonical **+75.09 surplus / zero-claim** case is re-asserted at the model level. (2) **`lib/statementXlsx.js`** — exceljs, reproduces the §2b styling contract (red serif company name, blue italic-underlined section headings, grey header bands + thin grid, yellow per-category TOTAL, green SUBTOTAL, **negative balance in red**, sign-off block per company config); **real computed values, never `#REF!`**; receipt thumbnails/hyperlinks reuse the lib/excel.js embed idiom. (3) **`lib/statementPdf.js`** — pdfkit A4 portrait, draws the statement (fills/strokes per §2b, Section-B pagination repeats the column header), then appends receipts: image→1 page, PDF→one page per source page via **`lib/pdf.rasterizePdf`** (reused, not re-wrapped — keeps the `PDF_MAX_RENDER_PIXELS` bomb guard); missing/unreadable receipt skipped + counted (`{ buffer, pages, skippedReceipts }`), never fatal. (4) **`routes/statement.js`** — `GET /api/statement?branch=&period=&format=xlsx|pdf`; 404 unless `multiUser` AND `pettyCash`; admin any branch, clerk hard-forced to own branch (SEC-2); own limiter default 30 (exports are heavy, SEC-7); period/format validated; **filename from validated tokens only** (no header injection); correct content-types + `Content-Disposition`.
