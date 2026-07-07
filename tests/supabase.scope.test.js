@@ -63,28 +63,43 @@ test('sbSelect with an admin scope applies NO branch_id filter (sees all branche
 
 // --- company isolation (ADR-023 Phase 8, issue #107 mandatory SEC-2) --------------
 
-test('sbSelect with a multi-company clerk scope filters by BOTH company_id and branch_id', async () => {
+test('sbSelect with a multi-company clerk scope filters company null-tolerantly + branch hard', async () => {
   const stub = stubFetch(() => ([]));
   try {
     await sbSelect('expenses', { scope: CLERK_CO1 });
-    assert.match(stub.seen().url, /company_id=eq\.co-1/);
+    // company is a NULL-TOLERANT or() group (issue #133 note 1), not a hard eq that
+    // would hide legacy company_id=null rows; branch stays a hard AND filter.
+    assert.match(stub.seen().url, /or=\(company_id\.eq\.co-1,company_id\.is\.null\)/);
     assert.match(stub.seen().url, /branch_id=eq\.branch-A/);
+    // the regression form (hard company eq) must NOT be present.
+    assert.doesNotMatch(stub.seen().url, /company_id=eq\./);
+  } finally { stub.restore(); }
+});
+
+// Issue #133 acceptance: a clerk who now carries a company_id must STILL see rows
+// created before the company dimension existed (company_id = null). The is.null
+// branch of the or() group is what guarantees that visibility.
+test('sbSelect: a multi-company clerk still sees legacy company_id=null rows (no visibility regression)', async () => {
+  const stub = stubFetch(() => ([]));
+  try {
+    await sbSelect('expenses', { scope: CLERK_CO1 });
+    assert.match(stub.seen().url, /company_id\.is\.null/);
   } finally { stub.restore(); }
 });
 
 // THE cross-company guarantee: a clerk of company 1 and a clerk of company 2 each scope
 // to their OWN company only — a company-1 read can never carry company-2's filter.
-test('sbSelect: clerk of company 1 vs company 2 are hard-scoped to their own company (isolation)', async () => {
+test('sbSelect: clerk of company 1 vs company 2 are scoped to their own company only (isolation)', async () => {
   const seenUrls = [];
   const realFetch = global.fetch;
   global.fetch = async (url) => { seenUrls.push(url); return { text: async () => JSON.stringify([]) }; };
   try {
     await sbSelect('expenses', { scope: CLERK_CO1 });
     await sbSelect('expenses', { scope: CLERK_CO2 });
-    assert.match(seenUrls[0], /company_id=eq\.co-1/);
-    assert.doesNotMatch(seenUrls[0], /company_id=eq\.co-2/);
-    assert.match(seenUrls[1], /company_id=eq\.co-2/);
-    assert.doesNotMatch(seenUrls[1], /company_id=eq\.co-1/);
+    assert.match(seenUrls[0], /company_id\.eq\.co-1/);
+    assert.doesNotMatch(seenUrls[0], /company_id\.eq\.co-2/);
+    assert.match(seenUrls[1], /company_id\.eq\.co-2/);
+    assert.doesNotMatch(seenUrls[1], /company_id\.eq\.co-1/);
   } finally { global.fetch = realFetch; }
 });
 
@@ -92,7 +107,7 @@ test('sbSelect with an admin scope applies NO company_id filter (sees all compan
   const stub = stubFetch(() => ([]));
   try {
     await sbSelect('expenses', { scope: ADMIN_SCOPE });
-    assert.doesNotMatch(stub.seen().url, /company_id=/);
+    assert.doesNotMatch(stub.seen().url, /company_id/);
   } finally { stub.restore(); }
 });
 
@@ -100,7 +115,7 @@ test('sbSelect with a branch-only clerk scope (no company_id) has no company fil
   const stub = stubFetch(() => ([]));
   try {
     await sbSelect('expenses', { scope: CLERK_A });
-    assert.doesNotMatch(stub.seen().url, /company_id=/);
+    assert.doesNotMatch(stub.seen().url, /company_id/);
     assert.match(stub.seen().url, /branch_id=eq\.branch-A/);
   } finally { stub.restore(); }
 });
@@ -179,20 +194,22 @@ test('sbInsert with a multi-company clerk scope auto-stamps company_id, overridi
   } finally { stub.restore(); }
 });
 
-test('sbUpdate with a multi-company clerk scope adds company_id — a clerk cannot patch another company\'s row', async () => {
+test('sbUpdate with a multi-company clerk scope adds the null-tolerant company group — cannot patch another company\'s row', async () => {
   const stub = stubFetch(() => [{ id: 'e1' }]);
   try {
     await sbUpdate('expenses', { id: 'e1', scope: CLERK_CO1 }, { category: 'Food' });
-    assert.match(stub.seen().url, /company_id=eq\.co-1/);
+    // another company's real (non-null) row is excluded by both the branch AND the
+    // company-eq branch of the or(); only their own company or legacy-null rows match.
+    assert.match(stub.seen().url, /or=\(company_id\.eq\.co-1,company_id\.is\.null\)/);
     assert.match(stub.seen().url, /branch_id=eq\.branch-A/);
   } finally { stub.restore(); }
 });
 
-test('sbSoftDelete with a multi-company clerk scope adds the company filter', async () => {
+test('sbSoftDelete with a multi-company clerk scope adds the null-tolerant company group', async () => {
   const stub = stubFetch(() => ([]));
   try {
     await sbSoftDelete('expenses', { id: 'e1', scope: CLERK_CO1 });
-    assert.match(stub.seen().url, /company_id=eq\.co-1/);
+    assert.match(stub.seen().url, /or=\(company_id\.eq\.co-1,company_id\.is\.null\)/);
   } finally { stub.restore(); }
 });
 
