@@ -14,6 +14,15 @@
 
 ---
 
+## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-blockf-applied — OPS: Block F applied + verified on Premala — all migration blocks now complete
+- **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (status stamp), this WORKLOG. Docs-only push, no code changed.
+- **What:** Barat flagged that #123 (which adds `field_templates.categories`) merged before the wholesale `schema.sql` apply on 2026-07-07, so the runbook's "Block F pending" note was likely stale. Confirmed by re-probing the live Premala DB (`xurnpvesgcybrnilxszf`) after the Owner ran `alter table field_templates add column if not exists categories jsonb;` in the Supabase SQL Editor: the column is present and queryable. Runbook updated in two places (top status banner + Block F heading) to reflect **applied + verified**, not pending.
+- **Status: every migration block (B–F) is now applied on Premala.** No further schema work outstanding for that instance.
+- **What's next:** none on this thread. Owner names the merge (do not self-merge — docs-only, outside any standing delegation). Separately open: PR #132 (req.scope DB wiring, mine, awaiting Owner merge) and PR #134 (Barat, company_id in the scope bouncer — the piece #131/#133 need).
+- **Assumptions:** none new — this is a verified-fact correction to an existing doc, not a design decision.
+
+---
+
 ## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-premala-provisioned — OPS: M2 schema APPLIED + admin provisioned on the live Premala instance
 - **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (APPLIED status stamp), this WORKLOG. Docs-only push. **The live changes below are ops actions on the instance, not code** — no app code changed this session.
 - **What — the Premala instance (`xurnpvesgcybrnilxszf`) is now provisioned end-to-end:**
