@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { getCapabilities } = require('../lib/account');
 
-const KEYS = ['CAP_LIVE_MASTER_MERGE', 'CAP_EXCEL_LITE_GRID', 'CAP_BRANCH_SUBMISSION', 'CAP_MULTI_USER', 'CAP_COMPANY_DIMENSION', 'ACCOUNT_TYPE'];
+const KEYS = ['CAP_LIVE_MASTER_MERGE', 'CAP_EXCEL_LITE_GRID', 'CAP_BRANCH_SUBMISSION', 'CAP_MULTI_USER', 'CAP_COMPANY_DIMENSION', 'CAP_PETTY_CASH', 'ACCOUNT_TYPE'];
 
 function withEnv(vars, fn) {
   const saved = {};
@@ -71,5 +71,23 @@ test('companyDimension defaults OFF and is env-overridable (ADR-023)', () => {
 test('companyDimension stays OFF even for ACCOUNT_TYPE=business (per-client, not per-type)', () => {
   withEnv({ ACCOUNT_TYPE: 'business' }, () => {
     assert.strictEqual(getCapabilities().companyDimension, false, 'not implied by the business default');
+  });
+});
+
+// ADR-023 Phase 9: petty-cash floats + claim engine. OFF by default so the product without
+// petty-cash reimbursement is byte-for-byte unchanged; a client that runs branch floats (Premala)
+// flips it on via config. Not implied by the business default — a per-client choice.
+test('pettyCash defaults OFF and is env-overridable (ADR-023 Phase 9)', () => {
+  withEnv({}, () => {
+    assert.strictEqual(getCapabilities().pettyCash, false, 'default OFF (no petty-cash engine)');
+  });
+  withEnv({ CAP_PETTY_CASH: 'true' }, () => {
+    assert.strictEqual(getCapabilities().pettyCash, true);
+  });
+});
+
+test('pettyCash stays OFF even for ACCOUNT_TYPE=business (per-client, not per-type)', () => {
+  withEnv({ ACCOUNT_TYPE: 'business' }, () => {
+    assert.strictEqual(getCapabilities().pettyCash, false, 'not implied by the business default');
   });
 });

@@ -103,6 +103,39 @@ test('PATCH /api/expenses/:id: clerk editing an OWN-branch row proceeds', async 
   });
 });
 
+// ADR-023 Phase 9: claim_override rides the existing PATCH /api/expenses/:id (no new route). The
+// value validation lives in sanitizeExpensePatch; the role guard is the SAME canTouchExpense the
+// other fields use — admin anywhere, clerk own-branch only.
+test('PATCH /api/expenses/:id: admin can set claim_override, and it reaches the write', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    const s = stubDb({ session: ADMIN });
+    try {
+      const { status } = await call('PATCH', '/api/expenses/e9', { token: 't', body: { claim_override: 'claim' } });
+      assert.strictEqual(status, 200);
+      assert.strictEqual(s.writes.length, 1);
+      assert.strictEqual(s.writes[0].body.claim_override, 'claim', 'the pin is written, not dropped');
+    } finally { s.restore(); }
+  });
+});
+
+test('PATCH /api/expenses/:id: clerk sets claim_override on OWN-branch row; invalid value -> 400', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    let s = stubDb({ session: CLERK_A, rows: [{ id: 'e1', branch_id: 'bA' }] });
+    try {
+      const { status } = await call('PATCH', '/api/expenses/e1', { token: 't', body: { claim_override: 'petty_cash' } });
+      assert.strictEqual(status, 200);
+      assert.strictEqual(s.writes[0].body.claim_override, 'petty_cash');
+    } finally { s.restore(); }
+
+    s = stubDb({ session: CLERK_A, rows: [{ id: 'e1', branch_id: 'bA' }] });
+    try {
+      const { status } = await call('PATCH', '/api/expenses/e1', { token: 't', body: { claim_override: 'reimburse-me' } });
+      assert.strictEqual(status, 400, 'an out-of-enum value is rejected server-side');
+      assert.strictEqual(s.writes.length, 0);
+    } finally { s.restore(); }
+  });
+});
+
 test('DELETE /api/expenses/:id: clerk deleting another branch\'s row -> 403, nothing written', async () => {
   await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
     const s = stubDb({ session: CLERK_A, rows: [{ id: 'e2', branch_id: 'bB' }] });

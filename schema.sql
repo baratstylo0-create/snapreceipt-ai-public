@@ -397,3 +397,55 @@ create index if not exists expenses_account_company_idx on expenses (account_id,
 
 alter table companies enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- ============================================================================
+-- Migration M2-P9: petty-cash floats + claim engine (ADR-023)
+-- Jeevan · 2026-07-07 · docs/handoff/2026-07-07-phases-8-10/02-phase9-pettycash-claims.md
+-- ----------------------------------------------------------------------------
+-- Flag-gated by capabilities.pettyCash (ADR-010). With the flag OFF both tables go
+-- unused and no expense carries a claim_override — the product without petty-cash is
+-- byte-for-byte unchanged. A client that runs branch floats (e.g. Premala) turns it on:
+--   petty_cash_floats — the monthly opening float (balance_bf) per (branch, period), the
+--     admin's carried-in cash. One row per (account, branch, period).
+--   cash_in           — the Section-A top-ups the admin adds during the period.
+-- Balance = (balance_bf + Σ cash_in) − Σ that branch/period's expenses (spec §6). CLAIM status
+-- is COMPUTED ON READ (lib/pettyCash.js), never stored, so it can't drift from the numbers;
+-- the only stored per-expense signal is claim_override — a manual 'claim'/'petty_cash' pin the
+-- admin/clerk sets to beat the computed result for one row. Additive everywhere ⇒ existing rows
+-- unaffected (company_id stays null unless companyDimension is also on).
+-- ============================================================================
+create table if not exists petty_cash_floats (
+  id         uuid        primary key default gen_random_uuid(),
+  account_id text        not null default 'default',
+  company_id uuid,
+  branch_id  uuid        not null,
+  period     text        not null,               -- 'YYYY-MM' (server-validated)
+  balance_bf numeric     not null default 0,      -- carried in from the prior month (admin-set)
+  currency   text,                                -- statement currency (falls back to account default)
+  updated_by uuid,                                -- users.id of the admin who set it
+  updated_at timestamptz not null default now(),
+  unique (account_id, branch_id, period)
+);
+
+create table if not exists cash_in (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  company_id  uuid,
+  branch_id   uuid        not null,
+  period      text        not null,               -- 'YYYY-MM'
+  date        text,                                -- display date for Section A (TEXT like expense_date)
+  description text,
+  amount      numeric     not null default 0,
+  created_by  uuid,
+  created_at  timestamptz not null default now()
+);
+create index if not exists cash_in_branch_period_idx on cash_in (account_id, branch_id, period);
+
+-- claim_override: the manual pin that beats the computed claim/petty-cash result for one expense.
+-- null = computed (the default for every existing row).
+alter table expenses add column if not exists claim_override text
+  check (claim_override in ('claim', 'petty_cash') or claim_override is null);
+
+alter table petty_cash_floats enable row level security;
+alter table cash_in           enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
