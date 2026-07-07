@@ -15,6 +15,7 @@ const mountBranches = require('./routes/branches'); // ADR-021 Phase 2 provision
 const mountCompanies = require('./routes/companies'); // ADR-023 Phase 8 company dimension (companyDimension only)
 const mountSubmissions = require('./routes/submissions'); // ADR-022 Phase 7 Send-to-Admin (branchSubmission only)
 const mountPettyCash = require('./routes/pettyCash'); // ADR-023 Phase 9 petty-cash floats + claims (pettyCash only)
+const mountStatement = require('./routes/statement'); // ADR-023/024 Phase 10 petty-cash statement export (pettyCash only)
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountReports = require('./routes/reports');
@@ -44,6 +45,7 @@ mountBranches(app);
 mountCompanies(app);
 mountSubmissions(app);
 mountPettyCash(app);
+mountStatement(app);
 mountExpenses(app);
 mountReceipt(app);
 mountReports(app);
