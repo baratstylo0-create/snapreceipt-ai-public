@@ -35,6 +35,7 @@ module.exports = function mountExcel(app) {
         // status=neq.rejected: a rejected expense (#5 admin review queue) must
         // never appear in an exported ledger, matching the rule applied to #8.
         extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.desc', limit: EXCEL_ROW_LIMIT,
+        scope: req.scope, // #131: a clerk's export is branch-filtered at the DB layer
       });
       // Truncation reflects the raw DB row cap, NOT the post-date-filter count —
       // a full-history export that hit the cap is truncated even if the date
