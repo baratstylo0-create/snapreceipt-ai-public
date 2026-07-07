@@ -11,6 +11,31 @@ even with the `CAP_*` flags on.
 
 ---
 
+## ⚠️ Target project — READ THIS FIRST (verify before a single statement)
+
+Apply ONLY to the receipt-analyser's own database. Confirm the project ref in the SQL Editor URL
+matches the app's `.env` `SB_URL` before running anything.
+
+| | Project ref | Apply here? |
+|---|---|---|
+| **Receipt-analyser (the app — Premala instance)** | `xurnpvesgcybrnilxszf` | ✅ **YES** — the ref in the app's `.env` `SB_URL` |
+| **FrictionAI (the parent project this repo was extracted from)** | `fziaxuhonvrhqjulhcyu` | ❌ **NO** — different app, has its own `companies`/`expenses` tables (name collisions) |
+
+**Why this warning exists:** the Supabase MCP token wired into the Claude sessions reaches **only**
+`fziaxuhonvrhqjulhcyu` (FrictionAI) — `list_projects` returns just that one, and `get_project` on
+`xurnpvesgcybrnilxszf` returns *"You do not have permission"*. So this schema **cannot be applied
+programmatically through that MCP**; a "just apply it" would have silently no-op'd against FrictionAI's
+`companies` table and then errored on the missing `branches`. Two safe paths:
+
+1. **Recommended — Supabase Dashboard → SQL Editor on `xurnpvesgcybrnilxszf`** and run the blocks below.
+2. **Programmatic —** reconnect the Supabase MCP with a token scoped to `xurnpvesgcybrnilxszf`, then
+   an agent can run pre-flight → apply → post-verify end-to-end.
+
+The pre-flight in §1 is the second safety net: if it returns FrictionAI-shaped results (e.g. a
+`companies` table but no `field_templates`/`account_settings`), you are on the wrong project — stop.
+
+---
+
 ## 0. Safety properties (why this is low-risk)
 
 - **Additive only** — no `drop`, no type changes, no data rewrites. Safe to run against live data.
@@ -30,6 +55,13 @@ even with the `CAP_*` flags on.
 ## 1. Pre-flight — see what's already applied (read-only; run first)
 
 ```sql
+-- Identity check FIRST: these tables are receipt-analyser core and do NOT exist on FrictionAI.
+-- Expect ALL THREE rows back. If this returns 0 rows, you are on the WRONG project — STOP.
+select table_name from information_schema.tables
+where table_schema = 'public'
+  and table_name in ('field_templates','account_settings','voucher_counters')
+order by table_name;
+
 -- Which M2 tables exist?
 select table_name from information_schema.tables
 where table_schema = 'public'
