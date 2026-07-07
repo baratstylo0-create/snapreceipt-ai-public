@@ -19,6 +19,35 @@ function stubFetch(respond) {
   return { restore: () => { global.fetch = realFetch; }, seen: () => seen };
 }
 
+// Faithfully simulate PostgREST applying this URL's filters to a candidate row set:
+// top-level `col=eq.val` params are AND-ed; an `or=(a.eq.X,b.is.null)` group is AND-ed
+// as a whole and matches a row if ANY disjunct matches. Just enough to PROVE the
+// null-tolerant company filter actually returns legacy company_id=null rows (a bare
+// company_id=eq.<x> would drop them) — the real bug Jeevan traced through the clerk
+// petty-cash statement, which no URL-string assertion would catch on its own.
+function applyFilters(url, rows) {
+  const eqs = [];        // AND-ed equalities
+  let orGroup = null;    // one or() disjunction
+  for (const p of (url.split('?')[1] || '').split('&')) {
+    const orM = p.match(/^or=\((.+)\)$/);
+    if (orM) {
+      orGroup = orM[1].split(',').map((d) => {
+        const [col, op, ...rest] = d.split('.');
+        return { col, op, val: decodeURIComponent(rest.join('.')) };
+      });
+      continue;
+    }
+    const m = p.match(/^([a-z_]+)=eq\.(.+)$/);
+    if (m) eqs.push({ col: m[1], val: decodeURIComponent(m[2]) });
+  }
+  return rows.filter((r) => {
+    for (const { col, val } of eqs) if (String(r[col]) !== val) return false;
+    if (orGroup && !orGroup.some(({ col, op, val }) =>
+      op === 'is' && val === 'null' ? r[col] == null : String(r[col]) === val)) return false;
+    return true;
+  });
+}
+
 const ADMIN_SCOPE = { account_id: 'default', role: 'admin' };
 const CLERK_A = { account_id: 'default', branch_id: 'branch-A', role: 'clerk' };
 const CLERK_B = { account_id: 'default', branch_id: 'branch-B', role: 'clerk' };
@@ -103,6 +132,40 @@ test('sbSelect: clerk of company 1 vs company 2 are scoped to their own company 
   } finally { global.fetch = realFetch; }
 });
 
+// Jeevan's #133 blocker, reproduced end-to-end: petty_cash_floats / cash_in rows are
+// inserted with NO company_id (null-by-design in v1, lib/pettyCash.js), and
+// routes/statement.js passes a company-clerk's full scope to those reads. Under a bare
+// company_id=eq.<x> the always-null float row returns zero → the clerk's statement
+// silently shows no opening float. Null-tolerance must return it. Fails under bare eq.
+test('sbSelect: a company-clerk STILL gets a null-company float row (the statement-breaking case, #133)', async () => {
+  const floats = [
+    { id: 'f1', account_id: 'default', branch_id: 'branch-A', company_id: null },    // legacy, null-by-design
+    { id: 'f2', account_id: 'default', branch_id: 'branch-A', company_id: 'co-2' },   // some other company's row
+  ];
+  const stub = stubFetch((seen) => applyFilters(seen.url, floats));
+  try {
+    const rows = await sbSelect('petty_cash_floats', { eq: { branch_id: 'branch-A' }, scope: CLERK_CO1 });
+    const ids = rows.map((r) => r.id);
+    assert.ok(ids.includes('f1'), 'legacy company_id=null float must stay visible (else the statement shows no opening float)');
+    assert.ok(!ids.includes('f2'), "another company's float must never leak");
+  } finally { stub.restore(); }
+});
+
+// #133 note 1, at the row level: a company-clerk still sees an own-branch expense whose
+// company_id IS NULL, but never another company's real (non-null) row.
+test('sbSelect: a company-clerk sees own-branch company_id=null expenses, not another company\'s rows', async () => {
+  const expenses = [
+    { id: 'e1', account_id: 'default', branch_id: 'branch-A', company_id: null },     // legacy
+    { id: 'e2', account_id: 'default', branch_id: 'branch-A', company_id: 'co-1' },    // theirs
+    { id: 'e3', account_id: 'default', branch_id: 'branch-A', company_id: 'co-2' },    // another company's
+  ];
+  const stub = stubFetch((seen) => applyFilters(seen.url, expenses));
+  try {
+    const rows = await sbSelect('expenses', { eq: { branch_id: 'branch-A' }, scope: CLERK_CO1 });
+    assert.deepStrictEqual(rows.map((r) => r.id).sort(), ['e1', 'e2']);
+  } finally { stub.restore(); }
+});
+
 test('sbSelect with an admin scope applies NO company_id filter (sees all companies)', async () => {
   const stub = stubFetch(() => ([]));
   try {
@@ -172,6 +235,14 @@ test('sbInsert with a clerk scope auto-stamps branch_id + account_id, overriding
     assert.strictEqual(stub.seen().body.branch_id, 'branch-A');
     assert.strictEqual(stub.seen().body.account_id, 'default');
     assert.strictEqual(stub.seen().body.merchant, 'Shell');
+  } finally { stub.restore(); }
+});
+
+test('sbInsert with a clerk scope: a spoofed account_id in the row cannot override the scope account_id', async () => {
+  const stub = stubFetch(() => ({}));
+  try {
+    await sbInsert('expenses', { merchant: 'X', account_id: 'evil-account' }, CLERK_A);
+    assert.strictEqual(stub.seen().body.account_id, 'default');
   } finally { stub.restore(); }
 });
 
