@@ -68,7 +68,11 @@ module.exports = function mountTemplates(app) {
         if (typeof csv !== 'string' || csv.trim() === '') {
           return res.status(400).json({ error: 'provide CSV text (text/csv body, or JSON {"csv": "..."}), or an Excel (.xlsx) file' });
         }
-        const spec = await saveTemplate(csv, { name });
+        // Optional business category set (ADR-021): only the JSON body can carry it
+        // ({ csv, name?, categories? }); text/csv and .xlsx uploads never touch the
+        // stored set (saveTemplate leaves it as-is when categories is undefined).
+        const categories = (req.body && typeof req.body === 'object') ? req.body.categories : undefined;
+        const spec = await saveTemplate(csv, { name, categories });
         res.json(spec);
       } catch (e) {
         // parseTemplate/saveTemplate throw on invalid input -> client error (400);

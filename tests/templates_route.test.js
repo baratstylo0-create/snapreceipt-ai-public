@@ -269,3 +269,57 @@ test('QA: invalid (non-UTF-8) byte sequences in the body are lossily decoded and
     assert.ok(j.columns[0].label.includes('�'), 'expected lossy-decoded replacement character in the stored label');
   });
 });
+
+// --- business category set via the JSON body (ADR-021 Phase 5) --------------------------
+
+test('POST /api/templates JSON { csv, categories } stores + echoes the sanitized category set', async () => {
+  // Capture what got written to Supabase so we can assert the category set persisted.
+  let written = null;
+  const db = (_u, opt) => {
+    const method = (opt && opt.method) || 'GET';
+    if (method === 'GET') return { text: async () => '[]' };
+    written = opt.body ? JSON.parse(opt.body) : null;
+    return { text: async () => '' };
+  };
+  await withServer(db, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv: 'Store,Date,Amount', categories: ['Petrol/Diesel', 'petrol/diesel', 'Touch-n-Go'] }),
+    });
+    assert.strictEqual(r.status, 200);
+    const spec = await r.json();
+    assert.deepStrictEqual(spec.categories, ['Petrol/Diesel', 'Touch-n-Go', 'Others']);
+    assert.deepStrictEqual(written.categories, ['Petrol/Diesel', 'Touch-n-Go', 'Others']);
+  });
+});
+
+test('POST /api/templates text/csv body never sets categories (personal path unchanged)', async () => {
+  let written = null;
+  const db = (_u, opt) => {
+    const method = (opt && opt.method) || 'GET';
+    if (method === 'GET') return { text: async () => '[]' };
+    written = opt.body ? JSON.parse(opt.body) : null;
+    return { text: async () => '' };
+  };
+  await withServer(db, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: 'Store,Date,Amount',
+    });
+    assert.strictEqual(r.status, 200);
+    assert.ok(!('categories' in written), 'a CSV upload must not write a categories field');
+  });
+});
+
+test('POST /api/templates JSON with a non-array categories is a 400 (reject-and-explain)', async () => {
+  await withServer(emptyDb, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv: 'Store,Date,Amount', categories: 'Fuel,Meals' }),
+    });
+    assert.strictEqual(r.status, 400);
+    const j = await r.json();
+    assert.match(j.error, /categories must be an array/);
+  });
+});

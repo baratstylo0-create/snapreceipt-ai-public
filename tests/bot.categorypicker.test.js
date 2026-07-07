@@ -18,10 +18,14 @@ function baseDeps(over = {}) {
   const updateCalls = [];
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
-    tgEditMessage: async (chatId, messageId, text) => { edited.push({ chatId, messageId, text }); },
+    tgEditMessage: async (chatId, messageId, text, replyMarkup) => { edited.push({ chatId, messageId, text, replyMarkup }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
     sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
+    // Hermetic: the catpick/catedit handlers read the account's category list via
+    // getFieldSpec (ADR-021). Inject a no-categories spec so the picker uses the
+    // built-in default (CATEGORIES) and no real Supabase call is attempted.
+    getFieldSpec: async () => ({ columns: [] }),
     pendingRemarkMessages: new Map(), // fresh per test — the real module-level Map is shared/global
     ...over,
   };
@@ -198,4 +202,43 @@ test('a fresh (never-before-categorized) receipt does NOT get "(updated)" wordin
   const { deps, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] }); // category is PENDING_CATEGORY, not a real one
   await handleCallbackQuery({ id: 'cbEdit5', data: 'catpick:exp-9:' + idx, message: withMessageId(100, 900) }, deps);
   assert.ok(!/\(updated\)/.test(edited[0].text));
+});
+
+// --- business category set drives the picker (ADR-021 Phase 5) --------------------------
+
+// A company's own chart of accounts, e.g. a construction firm.
+const BIZ_SPEC = { columns: [], categories: ['Petrol/Diesel', 'Touch-n-Go', 'Entertainment', 'Others'] };
+
+test('catpick: the tapped index resolves against the BUSINESS category list, not the built-in default', async () => {
+  // idx 1 in the business list is 'Touch-n-Go' — a category that does NOT exist in the
+  // built-in CATEGORIES, proving the resolver read FieldSpec.categories.
+  const { deps, updateCalls } = baseDeps({
+    sbSelect: async () => [PENDING_ROW],
+    getFieldSpec: async () => BIZ_SPEC,
+  });
+  await handleCallbackQuery({ id: 'cbBiz1', data: 'catpick:exp-9:1', message: withMessageId(100, 700) }, deps);
+  assert.strictEqual(updateCalls.length, 1);
+  assert.strictEqual(updateCalls[0].patch.category, 'Touch-n-Go');
+});
+
+test('catedit: the rebuilt picker offers the BUSINESS categories, not the default 18', async () => {
+  const rowAfterEdit = { ...PENDING_ROW, category: 'Petrol/Diesel', status: 'saved' };
+  const { deps, edited } = baseDeps({
+    sbSelect: async () => [rowAfterEdit],
+    getFieldSpec: async () => BIZ_SPEC,
+  });
+  await handleCallbackQuery({ id: 'cbBiz2', data: 'catedit:exp-9', message: withMessageId(100, 701) }, deps);
+  const buttons = edited[0].replyMarkup.inline_keyboard.flat().map(b => b.text);
+  assert.ok(buttons.includes('Touch-n-Go'), 'business category present: ' + buttons.join(','));
+  assert.ok(!buttons.includes('Software & Subscriptions'), 'a default-only category must be absent');
+});
+
+test('catpick: a getFieldSpec failure degrades to the built-in default list (never a crash)', async () => {
+  const idx = CATEGORIES.indexOf('Groceries');
+  const { deps, updateCalls } = baseDeps({
+    sbSelect: async () => [PENDING_ROW],
+    getFieldSpec: async () => { throw new Error('db down'); },
+  });
+  await assert.doesNotReject(() => handleCallbackQuery({ id: 'cbBiz3', data: 'catpick:exp-9:' + idx, message: withMessageId(100, 702) }, deps));
+  assert.strictEqual(updateCalls[0].patch.category, 'Groceries');
 });
