@@ -8,8 +8,10 @@
 > **✅ APPLIED to the Premala instance (`xurnpvesgcybrnilxszf`) on 2026-07-08** — the instance had only
 > the P4 receipt core, so the **whole `schema.sql` was run wholesale** (not just Blocks B–E: the M2-P1
 > base tables were also missing). Post-verify: zero missing objects, RLS=true on all 8 new tables,
-> admin (`premala-admin` + Head Office) provisioned via `setup-admin`. Remaining: Block F
-> (`field_templates.categories`) still pending Barat #123. See WORKLOG 2026-07-08.
+> admin (`premala-admin` + Head Office) provisioned via `setup-admin`. **Block F
+> (`field_templates.categories`) applied + verified 2026-07-08** (the wholesale apply predated #123's
+> merge, so it needed the one extra ALTER; column now present + queryable on the live DB). **All
+> migration blocks are now applied on Premala.** See WORKLOG 2026-07-08.
 
 This runbook applies the M2 schema changes that are **code-merged but not yet applied** to the live
 database. Until they're applied, the business/petty-cash/statement features 404 or error at runtime
@@ -204,7 +206,7 @@ alter table petty_cash_floats enable row level security;
 alter table cash_in           enable row level security;
 ```
 
-### Block F — Barat #123: per-company category set — *apply only once PR #123 is merged*
+### Block F — Barat #123: per-company category set — ✅ **APPLIED + verified on Premala 2026-07-08** (#123 merged)
 
 ```sql
 alter table field_templates
