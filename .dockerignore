@@ -1,0 +1,15 @@
+# Keep the image small and SECRET-FREE. .env must NEVER enter the image —
+# all config is injected as env vars by the host (see docs/ops deploy runbook).
+node_modules
+.env
+.env.*
+.git
+.github
+.gitignore
+.githooks
+.claude
+tests
+docs
+coverage
+*.log
+npm-debug.log*
