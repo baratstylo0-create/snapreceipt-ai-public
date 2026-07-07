@@ -12,6 +12,12 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "set PORT=3006 && node server.js"],
       "port": 3006
+    },
+    {
+      "name": "receipt-analyser-saas-preview2",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "autoPort": true
     }
   ]
 }
