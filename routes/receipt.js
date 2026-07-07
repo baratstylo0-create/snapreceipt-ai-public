@@ -47,7 +47,7 @@ module.exports = function mountReceipt(app, deps = {}) {
     try {
       const id = String(req.params.id || '').slice(0, 100);
       if (!id) return res.status(400).send('missing id');
-      const rows = await sbSelect('expenses', { eq: { id } });
+      const rows = await sbSelect('expenses', { eq: { id }, scope: req.scope }); // #131: a clerk can't fetch another branch's receipt
       const row = rows && rows[0];
       if (!row) return res.status(404).send('not found');
       if (row.receipt_url) {

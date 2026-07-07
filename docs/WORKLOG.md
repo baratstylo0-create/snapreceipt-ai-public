@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · feature/jeevan-m2-scope-wiring — issue #131: thread req.scope into the DB helpers (defense-in-depth isolation)
+- **Files:** `routes/expenses.js` (GET list, PATCH write, DELETE soft-delete, optimistic-concurrency pre-read), `routes/reports.js`, `routes/excel.js`, `routes/review.js` (queue read + decision write), `routes/receipt.js` (receipt-by-id lookup), `routes/statement.js` (petty_cash_floats + cash_in + expenses reads), `routes/submissions.js` (reads + writes), `tests/routes.scope-wiring.test.js` (**new**, +10). No `lib/*` touched (Barat's `lib/supabase.js` hook from #119 is the mechanism; this only passes `scope` to it).
+- **What — the #119 follow-up (issue #131), TDD (RED→GREEN).** PR #119 added the `scope` param to `lib/supabase.js` but nothing passed it; this wires `scope: req.scope` into the branch-partitioned `sb*` calls so a **clerk's reads/writes are hard-filtered/stamped by `branch_id` at the DB layer** — defense-in-depth *behind* the existing in-memory `clerkVisible`/`canTouchExpense` guards (kept as the belt). Admin scope carries no `branch_id` → sees all branches; **personal mode (no `req.scope`) is a no-op → byte-for-byte unchanged.** Real fix, not just belt-and-suspenders, on `GET /api/excel` (a clerk's export had **no** branch filter before) and `GET /api/expenses`/`/api/reports`/`/api/review` (in-memory filtering was the only guard).
+- **Scoping decision (documented, evidence-based):** `lib/pettyCash.js` left unchanged — `routes/pettyCash.js` writes are **admin-only** (scope is a no-op for admin, who legitimately sets any branch's float) and its reads are already **route-forced to the clerk's own `branchId`** (isolated-by-param, SEC-2). Threading scope through the lib layer there buys ~zero isolation for real signature churn. `canTouchExpense`/decision pre-reads left unscoped so their explicit 403 "not your branch" semantics don't silently become 404.
+- **Tests: 1490/1490** (`.env` aside; +10; zero regressions). New test asserts at the DB-URL level: clerk request → `branch_id=eq.<their branch>`; admin → no filter; personal → no filter. All 7 edited routes syntax-checked clean.
+- **What's next:** Owner merges (Barat may want to eyeball it since it consumes his #119 hook — no `lib/` change though). Closes #131. Optional tiny follow-up noted in the PR: thread scope through `lib/pettyCash` if you want the petty-cash reads DB-filtered too (currently param-isolated).
+- **Assumptions:** `req.scope` is set only in business mode (`checkDash` → `scopeForUser`); every touched call is a no-op when it's absent, which the full personal-mode suite staying green confirms.
+
+---
+
 ## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-premala-provisioned — OPS: M2 schema APPLIED + admin provisioned on the live Premala instance
 - **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (APPLIED status stamp), this WORKLOG. Docs-only push. **The live changes below are ops actions on the instance, not code** — no app code changed this session.
 - **What — the Premala instance (`xurnpvesgcybrnilxszf`) is now provisioned end-to-end:**
