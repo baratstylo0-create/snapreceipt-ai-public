@@ -1,10 +1,11 @@
 'use strict';
 // components/payments.js Phase 6 (ADR-021): the payment Pending/Paid tabs' pure logic —
 // tab/month/branch/staff filtering and the sticky selection summary (count + money total).
-// Node-testable, no DOM; the view wires these to the table + the Phase-4 bulk-pay endpoint.
+// Phase 7 (ADR-022) adds the Send-to-Admin pure logic: the admin's submissions status line
+// and the clerk's send-button state. Node-testable, no DOM.
 const test = require('node:test');
 const assert = require('node:assert');
-const { filterRows, selectionSummary } = require('../../public/js/components/payments');
+const { filterRows, selectionSummary, submissionStatusLine, clerkSendState } = require('../../public/js/components/payments');
 
 const ROWS = [
   { id: 'a', amount: 10, payment_status: 'pending', expense_date: '2026-07-01', branch_id: 'bA', staff_user_id: 's1' },
@@ -51,4 +52,45 @@ test('selectionSummary: skips non-finite amounts (never a fake total)', () => {
 test('selectionSummary: empty selection -> zeros', () => {
   assert.deepStrictEqual(selectionSummary(ROWS, []), { count: 0, total: 0 });
   assert.deepStrictEqual(selectionSummary(ROWS, null), { count: 0, total: 0 });
+});
+
+// --- ADR-022 Phase 7: Send-to-Admin pure logic ---
+
+test('submissionStatusLine: none -> friendly empty line; submitted branches listed by name', () => {
+  assert.strictEqual(submissionStatusLine([], {}), 'No branch submissions yet.');
+  assert.strictEqual(submissionStatusLine(null, {}), 'No branch submissions yet.');
+  const line = submissionStatusLine(
+    [{ branch_id: 'bA', status: 'submitted' }, { branch_id: 'bB', status: 'submitted' }],
+    { bA: 'KL Branch', bB: 'Penang' }
+  );
+  assert.strictEqual(line, '2 submitted · KL Branch, Penang');
+});
+
+test('submissionStatusLine: withdrawn rows are excluded; unknown branch falls back to the id', () => {
+  const line = submissionStatusLine(
+    [{ branch_id: 'bA', status: 'submitted' }, { branch_id: 'bB', status: 'withdrawn' }],
+    {}
+  );
+  assert.strictEqual(line, '1 submitted · bA');
+});
+
+test('clerkSendState: no month picked -> disabled with a reason', () => {
+  const s = clerkSendState({ month: '', submission: null });
+  assert.strictEqual(s.canSend, false);
+  assert.ok(s.reason && /month/i.test(s.reason));
+});
+
+test('clerkSendState: month picked, never sent -> Send; already submitted -> Re-send + withdrawable', () => {
+  const fresh = clerkSendState({ month: '2026-07', submission: null });
+  assert.deepStrictEqual({ canSend: fresh.canSend, label: fresh.label, withdrawable: fresh.withdrawable },
+    { canSend: true, label: 'Send to Admin', withdrawable: false });
+
+  const sent = clerkSendState({ month: '2026-07', submission: { id: 's1', status: 'submitted', submitted_at: '2026-07-07T00:00:00Z' } });
+  assert.strictEqual(sent.canSend, true);
+  assert.strictEqual(sent.label, 'Re-send to Admin');
+  assert.strictEqual(sent.withdrawable, true);
+
+  const withdrawn = clerkSendState({ month: '2026-07', submission: { id: 's1', status: 'withdrawn' } });
+  assert.strictEqual(withdrawn.label, 'Send to Admin');
+  assert.strictEqual(withdrawn.withdrawable, false);
 });

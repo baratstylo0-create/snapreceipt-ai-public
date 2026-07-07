@@ -1,0 +1,57 @@
+'use strict';
+// lib/account.js getCapabilities — the ADR-022 per-client profile flags (Phase 7).
+// Defaults must equal the GENERAL product (merge ON, grid ON, submission OFF) so no
+// existing deployment's behaviour shifts; each is individually env-overridable, which
+// is exactly how a client profile (e.g. Premala) is expressed — config, never a fork.
+const test = require('node:test');
+const assert = require('node:assert');
+const { getCapabilities } = require('../lib/account');
+
+const KEYS = ['CAP_LIVE_MASTER_MERGE', 'CAP_EXCEL_LITE_GRID', 'CAP_BRANCH_SUBMISSION', 'CAP_MULTI_USER', 'ACCOUNT_TYPE'];
+
+function withEnv(vars, fn) {
+  const saved = {};
+  for (const k of KEYS) saved[k] = process.env[k];
+  for (const k of KEYS) delete process.env[k];
+  Object.assign(process.env, vars);
+  try { return fn(); } finally {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+test('defaults (no env): liveMasterMerge ON, excelLiteGrid ON, branchSubmission OFF', () => {
+  withEnv({}, () => {
+    const caps = getCapabilities();
+    assert.strictEqual(caps.liveMasterMerge, true);
+    assert.strictEqual(caps.excelLiteGrid, true);
+    assert.strictEqual(caps.branchSubmission, false);
+  });
+});
+
+test('defaults hold even for ACCOUNT_TYPE=business (profile flags are per-client, not per-type)', () => {
+  withEnv({ ACCOUNT_TYPE: 'business' }, () => {
+    const caps = getCapabilities();
+    assert.strictEqual(caps.multiUser, true, 'business default flips multiUser');
+    assert.strictEqual(caps.liveMasterMerge, true, 'merge stays ON unless the profile turns it off');
+    assert.strictEqual(caps.excelLiteGrid, true);
+    assert.strictEqual(caps.branchSubmission, false);
+  });
+});
+
+test('the Premala profile combo resolves as specified (ADR-022)', () => {
+  withEnv({
+    CAP_MULTI_USER: 'true',
+    CAP_LIVE_MASTER_MERGE: 'false',
+    CAP_EXCEL_LITE_GRID: 'false',
+    CAP_BRANCH_SUBMISSION: 'true',
+  }, () => {
+    const caps = getCapabilities();
+    assert.strictEqual(caps.multiUser, true);
+    assert.strictEqual(caps.liveMasterMerge, false);
+    assert.strictEqual(caps.excelLiteGrid, false);
+    assert.strictEqual(caps.branchSubmission, true);
+  });
+});

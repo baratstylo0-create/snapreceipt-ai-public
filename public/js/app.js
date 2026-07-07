@@ -350,7 +350,12 @@
     // inserts Payments/Ledger before Settings; personal mode is the classic SECTIONS,
     // byte-identical. Computed once so the two can never drift apart.
     var sections = Nav && Nav.sectionsFor
-      ? Nav.sectionsFor({ business: !!deps.session })
+      ? Nav.sectionsFor({
+          business: !!deps.session,
+          // ADR-022 Phase 7 profile flag: /api/config exposes excel_lite_grid; false
+          // (the Premala profile) drops the Ledger. Missing/old config -> default ON.
+          excelLiteGrid: !(deps.config && deps.config.excel_lite_grid === false),
+        })
       : (Nav && Nav.SECTIONS) || [];
 
     // Owner request 2026-07-06: two-tier header (big brand block above the

@@ -58,3 +58,26 @@ test('GET /api/config exposes multi_user (ADR-021 Phase 6: the frontend picks lo
     }
   }
 });
+
+test('GET /api/config exposes the ADR-022 profile flags — defaults: grid ON, submission OFF', async () => {
+  const saved = { CAP_EXCEL_LITE_GRID: process.env.CAP_EXCEL_LITE_GRID, CAP_BRANCH_SUBMISSION: process.env.CAP_BRANCH_SUBMISSION };
+  try {
+    delete process.env.CAP_EXCEL_LITE_GRID;
+    delete process.env.CAP_BRANCH_SUBMISSION;
+    let { json } = await get((() => { const a = express(); mountExpenses(a); return a; })(), '/api/config');
+    assert.strictEqual(json.excel_lite_grid, true, 'grid defaults ON (general product)');
+    assert.strictEqual(json.branch_submission, false, 'submission defaults OFF');
+
+    // The Premala profile combo (docs/clients/premala.md): grid OFF, submission ON.
+    process.env.CAP_EXCEL_LITE_GRID = 'false';
+    process.env.CAP_BRANCH_SUBMISSION = 'true';
+    ({ json } = await get((() => { const a = express(); mountExpenses(a); return a; })(), '/api/config'));
+    assert.strictEqual(json.excel_lite_grid, false);
+    assert.strictEqual(json.branch_submission, true);
+  } finally {
+    for (const k of Object.keys(saved)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+});
