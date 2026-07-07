@@ -12,6 +12,9 @@ const corsPreflight = require('./lib/cors-preflight');
 const mountWebhook = require('./routes/webhook');
 const mountAuth = require('./routes/auth');       // ADR-021 business login (multiUser only)
 const mountBranches = require('./routes/branches'); // ADR-021 Phase 2 provisioning (multiUser only)
+const mountCompanies = require('./routes/companies'); // ADR-023 Phase 8 company dimension (companyDimension only)
+const mountSubmissions = require('./routes/submissions'); // ADR-022 Phase 7 Send-to-Admin (branchSubmission only)
+const mountPettyCash = require('./routes/pettyCash'); // ADR-023 Phase 9 petty-cash floats + claims (pettyCash only)
 const mountExpenses = require('./routes/expenses');
 const mountReceipt = require('./routes/receipt');
 const mountReports = require('./routes/reports');
@@ -38,6 +41,9 @@ app.use(corsPreflight);
 mountWebhook(app);
 mountAuth(app);
 mountBranches(app);
+mountCompanies(app);
+mountSubmissions(app);
+mountPettyCash(app);
 mountExpenses(app);
 mountReceipt(app);
 mountReports(app);

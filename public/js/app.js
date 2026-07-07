@@ -44,6 +44,8 @@
         if (name === 'Falc') return require('./components/falc');
         if (name === 'RateMeter') return require('./components/ratemeter');
         if (name === 'Login') return require('./components/login');
+        if (name === 'Payments') return require('./components/payments');
+        if (name === 'Grid') return require('./components/grid');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -183,6 +185,9 @@
     manage: "Teaches the app what information to pull off every receipt — like Merchant, Date, and Amount. Upload your own spreadsheet (CSV or Excel) once, and it copies your exact column names, so you never have to type them in by hand.",
     reports: 'Deeper breakdowns of your spending by day, week, month, or year.',
     settings: 'Adjust preferences like theme, categories, and account options.',
+    // Business-only (ADR-021 Phase 6): only ever shown when Nav.sectionsFor(business) is used.
+    payments: 'Track which expenses are pending vs paid. Admins can select several and mark them paid at once.',
+    ledger: 'A spreadsheet-style view of your expenses — click any cell to edit it in place.',
   };
 
   // The "i" button + popup logic itself now lives in Render.buildInfoIcon
@@ -203,8 +208,11 @@
   // view component (see viewComponents) gets that component mounted; the rest get
   // a static "Coming soon." placeholder. Returns a map of id -> view instance
   // (those exposing load()) so the switcher can lazy-load data on first show.
-  function buildViews(Nav, mount, deps) {
-    var sections = (Nav && Nav.SECTIONS) || [];
+  // `sections` is the SAME list enterApp already computed for Nav.buildNav (single
+  // source of truth — see enterApp) so the nav buttons and the mounted panels can
+  // never disagree about what's in business vs personal mode.
+  function buildViews(sections, mount, deps) {
+    sections = sections || [];
     var components = viewComponents(deps);
     var instances = {};
     sections.forEach(function (s) {
@@ -252,6 +260,10 @@
       manage: (deps && deps.Templates) || dep('Templates'),
       reports: (deps && deps.Reports) || dep('Reports'),
       settings: (deps && deps.Settings) || dep('Settings'),
+      // Business-only sections (ADR-021 Phase 6). Registered unconditionally — they simply
+      // never appear in `sections` (buildViews) unless Nav.sectionsFor({business:true}) ran.
+      payments: (deps && deps.Payments) || dep('Payments'),
+      ledger: (deps && deps.Grid) || dep('Grid'),
     };
   }
 
@@ -333,6 +345,19 @@
     // admin-vs-clerk affordances. Personal mode: null, everything renders as before.
     deps.session = getStoredSession();
 
+    // The ONE section list for this boot — drives BOTH the nav buttons (buildNav below)
+    // and the mounted view panels (buildViews below). Business mode (deps.session set)
+    // inserts Payments/Ledger before Settings; personal mode is the classic SECTIONS,
+    // byte-identical. Computed once so the two can never drift apart.
+    var sections = Nav && Nav.sectionsFor
+      ? Nav.sectionsFor({
+          business: !!deps.session,
+          // ADR-022 Phase 7 profile flag: /api/config exposes excel_lite_grid; false
+          // (the Premala profile) drops the Ledger. Missing/old config -> default ON.
+          excelLiteGrid: !(deps.config && deps.config.excel_lite_grid === false),
+        })
+      : (Nav && Nav.SECTIONS) || [];
+
     // Owner request 2026-07-06: two-tier header (big brand block above the
     // pill nav), matching Mugi's reference mockup. Refresh re-loads the page
     // (simplest, safest "get me current data" action — mirrors a normal
@@ -352,7 +377,7 @@
     });
     if (header && brandHeader) header.appendChild(brandHeader.el);
 
-    var nav = Nav.buildNav({ onSelect: select });
+    var nav = Nav.buildNav({ onSelect: select, sections: sections });
     if (header && nav) header.appendChild(nav.el);
 
     // QA report #1: after a dashboard upload, the user had no way to jump to what was
@@ -405,7 +430,7 @@
     deps.autoMode = storedAutoMode();
     deps.setAutoMode = setAutoMode;
 
-    var instances = mount ? buildViews(Nav, mount, deps) : {};
+    var instances = mount ? buildViews(sections, mount, deps) : {};
 
     // Falc — the floating expense assistant (Phase 2). Mounted once, globally,
     // so it floats over every view. It reuses the Agent chat module internally.
@@ -430,7 +455,7 @@
       if (inst && typeof inst.load === 'function') inst.load();
     }
 
-    var first = (Nav.SECTIONS && Nav.SECTIONS[0] && Nav.SECTIONS[0].id) || 'overview';
+    var first = (sections[0] && sections[0].id) || 'overview';
     select(first);
   }
 
@@ -443,6 +468,7 @@
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
       Settings: dep('Settings'), Falc: dep('Falc'),
       RateMeter: dep('RateMeter'), Render: dep('Render'), Login: dep('Login'),
+      Payments: dep('Payments'), Grid: dep('Grid'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 

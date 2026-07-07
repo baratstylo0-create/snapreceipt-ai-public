@@ -104,12 +104,33 @@ async function checkDashSession(req, res, next) {
 // since every other route file already imports checkDash from this module.
 function dashOrigin() { return cfg.DASHBOARD_ORIGIN || '*'; }
 
+// Clerk isolation on the expense surface itself (Phase 6, SEC-2). A clerk only ever sees or
+// touches their own branch's rows; admin + personal mode (no scope) are unchanged. In-memory
+// until Barat's lib/supabase scope hook (#107 B1) also filters at fetch — defense-in-depth.
+function clerkVisible(rows, scope) {
+  if (!scope || scope.role !== 'clerk') return rows;
+  return rows.filter((e) => e && String(e.branch_id == null ? '' : e.branch_id) === String(scope.branch_id));
+}
+// canTouchExpense(req, id) -> { ok:true } | { ok:false, code, error }. For a clerk, look the
+// row up and require it to be on their branch BEFORE any write (PATCH/DELETE) happens.
+async function canTouchExpense(req, id) {
+  const scope = req.scope;
+  if (!scope || scope.role !== 'clerk') return { ok: true };
+  const rows = await sbSelect('expenses', { eq: { id } });
+  const row = rows[0];
+  if (!row) return { ok: false, code: 404, error: 'expense not found' };
+  if (String(row.branch_id == null ? '' : row.branch_id) !== String(scope.branch_id)) {
+    return { ok: false, code: 403, error: 'not your branch' };
+  }
+  return { ok: true };
+}
+
 module.exports = function mountExpenses(app) {
   app.get('/api/expenses', checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000 });
-      res.json(rows);
+      res.json(clerkVisible(rows, req.scope));
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
   });
 
@@ -151,6 +172,8 @@ module.exports = function mountExpenses(app) {
   app.patch('/api/expenses/:id', checkDash, express.json({ limit: '1mb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
+      const touch = await canTouchExpense(req, req.params.id);
+      if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
       // Optimistic concurrency (Phase 4, opt-in): a client that echoes the updated_at it loaded
       // gets a 409 (with the fresh value) instead of silently clobbering a newer edit — the
       // excel-lite grid's autosave depends on this. Clients that don't send it are unchanged.
@@ -181,6 +204,8 @@ module.exports = function mountExpenses(app) {
   app.delete('/api/expenses/:id', checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
+      const touch = await canTouchExpense(req, req.params.id);
+      if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
       await sbSoftDelete('expenses', { id: req.params.id });
       res.json({ ok: true });
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
@@ -193,10 +218,18 @@ module.exports = function mountExpenses(app) {
   // multi_user (ADR-021 Phase 6): tells the frontend to show the username/password
   // login instead of the static token gate. Read per-request (not at mount) so a
   // flag flip takes effect on the next page load without a server rebuild.
-  app.get('/api/config', (req, res) => res.json({
-    auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
-    multi_user: !!getCapabilities().multiUser,
-  }));
+  // excel_lite_grid / branch_submission (ADR-022 Phase 7): per-client profile flags the
+  // frontend uses to include/exclude the Ledger section and the Send-to-Admin controls.
+  // Display shaping only — the server enforces each capability on its own routes.
+  app.get('/api/config', (req, res) => {
+    const caps = getCapabilities();
+    res.json({
+      auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
+      multi_user: !!caps.multiUser,
+      excel_lite_grid: !!caps.excelLiteGrid,
+      branch_submission: !!caps.branchSubmission,
+    });
+  });
 };
 
 module.exports.checkDash = checkDash;

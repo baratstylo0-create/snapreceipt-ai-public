@@ -24,6 +24,32 @@ test('buildReport: groupBy branch -> per-branch totals that sum to the report to
   assert.strictEqual(r.groups.reduce((s, g) => s + g.total, 0), r.total);
 });
 
+test('buildReport: groupBy company -> per-company totals that sum to the report total (ADR-023)', () => {
+  const rows = [
+    { expense_date: '2026-07-01', amount: 100, company_id: 'cA' },
+    { expense_date: '2026-07-02', amount: 50, company_id: 'cA' },
+    { expense_date: '2026-07-03', amount: 30, company_id: 'cB' },
+    { expense_date: '2026-07-04', amount: 20, company_id: null }, // unassigned (pre-Phase-8 / untagged)
+  ];
+  const r = buildReport(rows, 'month', { groupBy: 'company' });
+  assert.strictEqual(r.total, 200);
+  const byKey = Object.fromEntries(r.groups.map((g) => [g.key, g.total]));
+  assert.strictEqual(byKey.cA, 150);
+  assert.strictEqual(byKey.cB, 30);
+  assert.strictEqual(byKey.unassigned, 20);
+  assert.strictEqual(r.groups.reduce((s, g) => s + g.total, 0), r.total, 'master == sum of the company rows');
+});
+
+test('buildReport: company filter restricts totals to that company (admin drill-down)', () => {
+  const rows = [
+    { expense_date: '2026-07-01', amount: 100, company_id: 'cA', branch_id: 'bA' },
+    { expense_date: '2026-07-02', amount: 30, company_id: 'cB', branch_id: 'bB' },
+  ];
+  const r = buildReport(rows, 'month', { company: 'cA' });
+  assert.strictEqual(r.total, 100);
+  assert.strictEqual(r.count, 1);
+});
+
 test('buildReport: groupBy staff -> per-staff totals + counts', () => {
   const rows = [
     { expense_date: '2026-07-01', amount: 10, staff_user_id: 's1' },

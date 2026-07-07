@@ -27,6 +27,35 @@
     { id: 'settings', label: 'Settings' },
   ];
 
+  // Business-only sections (ADR-021 Phase 6): the payment Pending/Paid tabs and the
+  // excel-lite "Ledger" grid. Inserted before Settings so Settings stays last.
+  var BUSINESS_SECTIONS = [
+    { id: 'payments', label: 'Payments' },
+    { id: 'ledger', label: 'Ledger' },
+  ];
+
+  // sectionsFor({ business, role, excelLiteGrid }) -> the nav list for the mode. Personal
+  // (business falsy) returns SECTIONS untouched — the classic six, byte-identical. Business
+  // adds Payments + Ledger for BOTH roles (the views render role-aware internally; the
+  // server enforces authorization regardless of what the nav shows). Pure, no DOM.
+  // excelLiteGrid (ADR-022 Phase 7, per-client profile): pass false (Premala) to drop the
+  // Ledger grid; omitted/true keeps it — the general product default.
+  function sectionsFor(opts) {
+    opts = opts || {};
+    if (!opts.business) return SECTIONS;
+    var extras = [];
+    for (var b = 0; b < BUSINESS_SECTIONS.length; b++) {
+      if (BUSINESS_SECTIONS[b].id === 'ledger' && opts.excelLiteGrid === false) continue;
+      extras.push(BUSINESS_SECTIONS[b]);
+    }
+    var out = [];
+    for (var i = 0; i < SECTIONS.length; i++) {
+      if (SECTIONS[i].id === 'settings') { out = out.concat(extras); }
+      out.push(SECTIONS[i]);
+    }
+    return out;
+  }
+
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
   // Build Mugi's "Treehouse" brand emblem (a leaf mark) as inline SVG via
@@ -138,6 +167,9 @@
     if (typeof document === 'undefined') return null;
     opts = opts || {};
     var onSelect = typeof opts.onSelect === 'function' ? opts.onSelect : function () {};
+    // Optional section list (Phase 6: app.js passes sectionsFor(...) in business mode);
+    // defaults to the classic SECTIONS so existing callers are unchanged.
+    var sections = Array.isArray(opts.sections) && opts.sections.length ? opts.sections : SECTIONS;
 
     var nav = document.createElement('nav');
     nav.className = 'nav';
@@ -145,7 +177,7 @@
     var links = document.createElement('div');
     links.className = 'nav-links';
     var buttons = {};
-    SECTIONS.forEach(function (s) {
+    sections.forEach(function (s) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'nav-link';
@@ -160,7 +192,7 @@
 
     // Mark the active button so app.js can reflect the current view.
     function setActive(id) {
-      SECTIONS.forEach(function (s) {
+      sections.forEach(function (s) {
         if (buttons[s.id]) buttons[s.id].classList.toggle('is-active', s.id === id);
       });
     }
@@ -168,5 +200,5 @@
     return { el: nav, setActive: setActive };
   }
 
-  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS };
+  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS, sectionsFor: sectionsFor };
 });

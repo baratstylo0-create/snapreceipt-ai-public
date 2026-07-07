@@ -336,3 +336,122 @@ create trigger expenses_touch_updated_at
 
 create index if not exists expenses_account_payment_idx on expenses (account_id, payment_status)
   where deleted_at is null;
+
+-- ============================================================================
+-- Migration M2-P7: "Send to Admin" branch submissions (ADR-022 Phase 7)
+-- Jeevan · 2026-07-07 · docs/plans/2026-07-06-business-account-multibranch.md Phase 7
+-- ----------------------------------------------------------------------------
+-- A clerk submits their branch's period (month) to the admin IN-dashboard —
+-- replaces the WhatsApp/chat-app file hand-off (audit-trailed: who/branch/
+-- period/when). One row per (account, branch, period): a re-submit UPDATES the
+-- row (status back to 'submitted', new timestamp), never duplicates. Reversible:
+-- 'withdrawn' flips it back without deleting the audit row. The data itself
+-- never moves — rows are already in the shared DB (rows-not-workbooks, ADR-021);
+-- this is a lightweight state-change, not a file transfer.
+-- ============================================================================
+create table if not exists submissions (
+  id           uuid        primary key default gen_random_uuid(),
+  account_id   text        not null default 'default',
+  company_id   uuid,                              -- ADR-023 dimension (null until Phase 8 lands)
+  branch_id    uuid        not null,
+  period       text        not null,              -- 'YYYY-MM' (server-validated)
+  submitted_by uuid,                              -- users.id of the submitting clerk
+  status       text        not null default 'submitted'
+    check (status in ('submitted', 'withdrawn')),
+  note         text,                              -- optional clerk note, length-capped in the route
+  submitted_at timestamptz not null default now(),-- bumped on every re-submit
+  created_at   timestamptz not null default now()
+);
+
+create unique index if not exists submissions_branch_period_idx
+  on submissions (account_id, branch_id, period);
+create index if not exists submissions_account_period_idx on submissions (account_id, period);
+
+alter table submissions enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- ============================================================================
+-- Migration M2-P8: company dimension — Group → Company → Branch → Staff (ADR-023)
+-- Jeevan · 2026-07-07 · docs/handoff/2026-07-07-phases-8-10/01-phase8-company-dimension.md
+-- ----------------------------------------------------------------------------
+-- Flag-gated by capabilities.companyDimension (ADR-010). With the flag OFF the table
+-- goes unused and every company_id stays null — the single-company product is
+-- byte-for-byte unchanged. A client with multiple legal entities (e.g. Premala) turns
+-- it on: `companies` is the new top level; branches/users/expenses/sessions/bot_bindings
+-- gain a nullable company_id (denormalised so the scope resolves in one lookup, exactly
+-- like branch_id). Additive + nullable everywhere ⇒ existing rows unaffected.
+-- ============================================================================
+create table if not exists companies (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  name        text        not null,
+  currency    text,                              -- statement currency (falls back to account default)
+  template_id uuid,                              -- the company's FieldSpec (category set), field_templates.id
+  active      boolean     not null default true, -- soft-delete only (active=false), never hard-deleted
+  created_at  timestamptz not null default now()
+);
+create index if not exists companies_account_active_idx on companies (account_id) where active;
+
+-- Additive company_id columns — null on every existing row (single-company / personal unaffected).
+alter table branches     add column if not exists company_id uuid;
+alter table users        add column if not exists company_id uuid;   -- denormalised for one-lookup scope
+alter table sessions     add column if not exists company_id uuid;   -- denormalised onto the bearer session
+alter table bot_bindings add column if not exists company_id uuid;   -- carried onto the clerk's bot binding
+alter table expenses     add column if not exists company_id uuid;   -- stamped from the capturer's session/branch
+create index if not exists expenses_account_company_idx on expenses (account_id, company_id)
+  where company_id is not null;
+
+alter table companies enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- ============================================================================
+-- Migration M2-P9: petty-cash floats + claim engine (ADR-023)
+-- Jeevan · 2026-07-07 · docs/handoff/2026-07-07-phases-8-10/02-phase9-pettycash-claims.md
+-- ----------------------------------------------------------------------------
+-- Flag-gated by capabilities.pettyCash (ADR-010). With the flag OFF both tables go
+-- unused and no expense carries a claim_override — the product without petty-cash is
+-- byte-for-byte unchanged. A client that runs branch floats (e.g. Premala) turns it on:
+--   petty_cash_floats — the monthly opening float (balance_bf) per (branch, period), the
+--     admin's carried-in cash. One row per (account, branch, period).
+--   cash_in           — the Section-A top-ups the admin adds during the period.
+-- Balance = (balance_bf + Σ cash_in) − Σ that branch/period's expenses (spec §6). CLAIM status
+-- is COMPUTED ON READ (lib/pettyCash.js), never stored, so it can't drift from the numbers;
+-- the only stored per-expense signal is claim_override — a manual 'claim'/'petty_cash' pin the
+-- admin/clerk sets to beat the computed result for one row. Additive everywhere ⇒ existing rows
+-- unaffected (company_id stays null unless companyDimension is also on).
+-- ============================================================================
+create table if not exists petty_cash_floats (
+  id         uuid        primary key default gen_random_uuid(),
+  account_id text        not null default 'default',
+  company_id uuid,
+  branch_id  uuid        not null,
+  period     text        not null,               -- 'YYYY-MM' (server-validated)
+  balance_bf numeric     not null default 0,      -- carried in from the prior month (admin-set)
+  currency   text,                                -- statement currency (falls back to account default)
+  updated_by uuid,                                -- users.id of the admin who set it
+  updated_at timestamptz not null default now(),
+  unique (account_id, branch_id, period)
+);
+
+create table if not exists cash_in (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  company_id  uuid,
+  branch_id   uuid        not null,
+  period      text        not null,               -- 'YYYY-MM'
+  date        text,                                -- display date for Section A (TEXT like expense_date)
+  description text,
+  amount      numeric     not null default 0,
+  created_by  uuid,
+  created_at  timestamptz not null default now()
+);
+create index if not exists cash_in_branch_period_idx on cash_in (account_id, branch_id, period);
+
+-- claim_override: the manual pin that beats the computed claim/petty-cash result for one expense.
+-- null = computed (the default for every existing row).
+alter table expenses add column if not exists claim_override text
+  check (claim_override in ('claim', 'petty_cash') or claim_override is null);
+
+alter table petty_cash_floats enable row level security;
+alter table cash_in           enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).

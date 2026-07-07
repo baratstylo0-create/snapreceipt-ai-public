@@ -73,6 +73,46 @@ test('upload: clerk session stamps meta.branch_id onto the per-image metas', asy
   });
 });
 
+test('upload: clerk session with a company stamps meta.company_id too (ADR-023 Phase 8)', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    const s = stubSession({ user_id: 'uc', account_id: 'default', role: 'clerk', branch_id: 'bA', company_id: 'cA', expires_at: future() });
+    let metas;
+    try {
+      const app = appWith({
+        runBatch: async (imgs, _spec, d) => { metas = d.metas; return ok; },
+        extractReceipts: () => ({}),
+        assembleExpense: async () => ({ expense: {}, flagged: false }),
+        getFieldSpec: async () => ({ columns: [] }),
+        uploadReceiptImage: async () => 'default/obj-1.jpg',
+      });
+      const { status } = await postUpload(app, 'tok');
+      assert.strictEqual(status, 200);
+      assert.strictEqual(metas[0].branch_id, 'bA');
+      assert.strictEqual(metas[0].company_id, 'cA', 'company stamped beside branch for the ingestion to persist');
+    } finally { s.restore(); }
+  });
+});
+
+test('upload: clerk without a company leaves company_id absent (additive)', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    const s = stubSession({ user_id: 'uc', account_id: 'default', role: 'clerk', branch_id: 'bA', expires_at: future() });
+    let metas;
+    try {
+      const app = appWith({
+        runBatch: async (imgs, _spec, d) => { metas = d.metas; return ok; },
+        extractReceipts: () => ({}),
+        assembleExpense: async () => ({ expense: {}, flagged: false }),
+        getFieldSpec: async () => ({ columns: [] }),
+        uploadReceiptImage: async () => 'default/obj-1.jpg',
+      });
+      const { status } = await postUpload(app, 'tok');
+      assert.strictEqual(status, 200);
+      assert.strictEqual(metas[0].branch_id, 'bA');
+      assert.ok(!('company_id' in metas[0]), 'no company tagging when the session has none');
+    } finally { s.restore(); }
+  });
+});
+
 test('upload: personal mode leaves branch_id absent (unchanged)', async () => {
   let metas;
   const app = appWith({
