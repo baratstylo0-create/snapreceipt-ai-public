@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { cfg } = require('../lib/config');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
+const { hreq } = require('../lib/http'); // Phase 4 bulk-pay: chunked id=in.(…) PATCH (multi-row, unlike sbUpdate)
 const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sanitizeExpensePatch } = require('../lib/expenseValidation');
@@ -15,6 +16,13 @@ const { lookupSession, scopeForUser } = require('../lib/auth'); // ADR-021 busin
 // regardless of which endpoint it targets. DASH_AUTH_RATE_MAX follows Barat's WEBHOOK_RATE_MAX
 // naming convention; reuses the shared lib/ratelimit.js limiter.
 const dashAuthLimiter = createRateLimiter({ max: Number(process.env.DASH_AUTH_RATE_MAX) || 60 });
+
+// Phase 4 (ADR-021) payments knobs. BULK_PAY_CHUNK bounds each PostgREST id=in.(…) PATCH (URL
+// length + row-lock scope); BULK_PAY_MAX_IDS bounds one request's total work (DoS-adjacent).
+// The M2 route carries its own generous rate limiter (SEC-7).
+const BULK_PAY_CHUNK = Number(process.env.BULK_PAY_CHUNK) || 100;
+const BULK_PAY_MAX_IDS = Number(process.env.BULK_PAY_MAX_IDS) || 1000;
+const paymentsLimiter = createRateLimiter({ max: Number(process.env.PAYMENTS_RATE_MAX) || 60 });
 
 // Constant-time token comparison (Task J security-QA F1): a plain `===` short-circuits on
 // the first mismatched byte, which is theoretically timing-observable. timingSafeEqual needs
@@ -105,9 +113,57 @@ module.exports = function mountExpenses(app) {
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
   });
 
+  // PATCH /api/expenses/payments { ids, paid, note? } — Phase 4 (ADR-021) bulk mark-paid.
+  // Business ADMIN only (clerk 403 — clerks read payment_status like any field, never write it);
+  // 404 with the flag OFF. Registered BEFORE the :id route so Express doesn't swallow the path
+  // as :id='payments'. Reversible: paid:false resets to pending and clears paid_at/paid_note.
+  // Chunked id=in.(…) PATCHes so one request can't take a giant row lock or blow the URL length.
+  app.patch('/api/expenses/payments',
+    (req, res, next) => (getCapabilities().multiUser ? next() : res.status(404).json({ error: 'not found' })),
+    paymentsLimiter, checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+      res.set('Access-Control-Allow-Origin', dashOrigin());
+      if (!req.scope || req.scope.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+      const { ids, paid, note } = req.body || {};
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => typeof v !== 'string' || !v)) {
+        return res.status(400).json({ error: 'ids must be a non-empty array of expense ids' });
+      }
+      if (ids.length > BULK_PAY_MAX_IDS) return res.status(413).json({ error: 'too many ids (max ' + BULK_PAY_MAX_IDS + ')' });
+      if (typeof paid !== 'boolean') return res.status(400).json({ error: 'paid must be true or false' });
+      const patch = paid
+        ? { payment_status: 'paid', paid_at: new Date().toISOString(), paid_note: note ? String(note).slice(0, 500) : null }
+        : { payment_status: 'pending', paid_at: null, paid_note: null };
+      try {
+        let updated = 0;
+        for (let i = 0; i < ids.length; i += BULK_PAY_CHUNK) {
+          const chunk = ids.slice(i, i + BULK_PAY_CHUNK);
+          const url = cfg.SB_REST + '/expenses?id=in.(' + chunk.map(encodeURIComponent).join(',') + ')'
+            + '&account_id=eq.' + encodeURIComponent(cfg.ACCOUNT_ID) + '&deleted_at=is.null';
+          const rows = await hreq({ method: 'PATCH', url, headers: { ...cfg.sbH, Prefer: 'return=representation' }, body: patch, json: true });
+          updated += Array.isArray(rows) ? rows.length : 0;
+        }
+        res.json({ ok: true, requested: ids.length, updated, payment_status: patch.payment_status });
+      } catch (e) {
+        console.error('[bulk pay]', e.message);
+        res.status(502).json({ error: 'payment update failed' });
+      }
+    });
+
   app.patch('/api/expenses/:id', checkDash, express.json({ limit: '1mb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
+      // Optimistic concurrency (Phase 4, opt-in): a client that echoes the updated_at it loaded
+      // gets a 409 (with the fresh value) instead of silently clobbering a newer edit — the
+      // excel-lite grid's autosave depends on this. Clients that don't send it are unchanged.
+      const expected = req.body && typeof req.body.expected_updated_at === 'string'
+        ? req.body.expected_updated_at : null;
+      if (expected) {
+        const curRows = await sbSelect('expenses', { eq: { id: req.params.id } });
+        const cur = curRows[0];
+        if (!cur) return res.status(404).json({ error: 'expense not found' });
+        if (String(cur.updated_at || '') !== expected) {
+          return res.status(409).json({ error: 'stale edit — the expense changed since you loaded it', updated_at: cur.updated_at || null });
+        }
+      }
       const clean = sanitizeExpensePatch(req.body);
       if (!clean.ok) return res.status(400).json({ error: clean.error });
       const body = clean.body;

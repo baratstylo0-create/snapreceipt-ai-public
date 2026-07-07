@@ -297,3 +297,36 @@ alter table branches     enable row level security;
 alter table users        enable row level security;
 alter table sessions     enable row level security;
 alter table bot_bindings enable row level security;
+
+-- ============================================================================
+-- Migration M2-P4: payments + optimistic concurrency (ADR-021 Phase 4)
+-- Jeevan · 2026-07-07 · docs/plans/2026-07-06-business-account-multibranch.md Phase 4
+-- ----------------------------------------------------------------------------
+-- payment_status: per-receipt reimbursement state (admin edits / clerk views).
+-- 'pending' default keeps personal rows harmless (the personal UI never shows it).
+-- updated_at + a touch trigger back the excel-lite grid's optimistic concurrency
+-- (a stale edit is detected by comparing the client's copy of updated_at → 409).
+-- The trigger, not app code, bumps it — every write path (dashboard, bot, agent,
+-- review, bulk-pay) is covered without each one remembering to.
+-- ============================================================================
+alter table expenses
+  add column if not exists payment_status text        not null default 'pending'
+    check (payment_status in ('pending', 'paid')),
+  add column if not exists paid_at        timestamptz,           -- when marked paid (null = pending)
+  add column if not exists paid_note      text,                  -- optional admin note ("July claim run")
+  add column if not exists updated_at     timestamptz not null default now();
+
+create or replace function touch_updated_at() returns trigger
+language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+drop trigger if exists expenses_touch_updated_at on expenses;
+create trigger expenses_touch_updated_at
+  before update on expenses
+  for each row execute function touch_updated_at();
+
+create index if not exists expenses_account_payment_idx on expenses (account_id, payment_status)
+  where deleted_at is null;
