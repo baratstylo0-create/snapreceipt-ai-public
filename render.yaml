@@ -1,0 +1,42 @@
+# Render blueprint — the DEFAULT per-client host (native Node runtime, no Docker, auto-HTTPS).
+# One always-on web service per client. Secrets are NOT committed: every `sync: false` var is
+# set in the Render dashboard (or `render.com/env-groups`). See docs/ops/2026-07-08-deploy-runbook.md §A.
+services:
+  - type: web
+    name: receipt-analyser        # <-- rename per client, e.g. receipt-analyser-premala
+    runtime: node
+    plan: starter                 # NOT `free` — the free plan SLEEPS and would drop webhook deliveries.
+    region: singapore             # closest to Malaysia (Premala); change per client.
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false             # deploy on demand, not on every push (per-client instance).
+    envVars:
+      # --- non-secret runtime config (safe to commit) ---
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_REQUIRED
+        value: "true"
+      # Render injects its own PORT and the app reads process.env.PORT — do NOT pin PORT here.
+
+      # --- secrets + per-client config: set in the dashboard, never in git (sync: false) ---
+      - key: BOT_TOKEN            # Telegram bot token
+        sync: false
+      - key: GROQ_KEY             # (or GROQ_KEYS for the ADR-016 key pool)
+        sync: false
+      - key: SB_URL              # Supabase project URL
+        sync: false
+      - key: SB_KEY              # Supabase SERVICE-ROLE key (server-side only)
+        sync: false
+      - key: WEBHOOK_SECRET      # mandatory in prod — validates inbound Telegram calls
+        sync: false
+      - key: DASHBOARD_TOKEN     # dashboard bearer token
+        sync: false
+      - key: PUBLIC_URL          # set to this service's HTTPS URL AFTER the first deploy (see runbook §A step 4)
+        sync: false
+      - key: ACCOUNT_ID          # per-client account id
+        sync: false
+      - key: ACCOUNT_TYPE        # e.g. business (Premala); omit for a personal instance
+        sync: false

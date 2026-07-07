@@ -1,0 +1,38 @@
+# Fly.io deploy config — the PORTABLE per-client path (Docker). Render (native Node) is the
+# lower-friction default; use this when a client wants their own infra/region or containers.
+#
+# TEMPLATE: copy per client and set `app` + `primary_region`. Secrets are NEVER here —
+# set them with `fly secrets set …` (see docs/ops/2026-07-08-deploy-runbook.md §B).
+
+app = "receipt-analyser-CLIENT"   # <-- unique per client, e.g. receipt-analyser-premala
+primary_region = "sin"            # Singapore — closest to Malaysia (Premala). Change per client.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Non-secret runtime config only. PORT must match http_service.internal_port below.
+  PORT = "8080"
+  NODE_ENV = "production"
+  AUTH_REQUIRED = "true"
+
+[http_service]
+  internal_port = 8080
+  force_https = true              # Telegram webhooks require HTTPS.
+  # ALWAYS-ON: a webhook bot must never scale to zero, or it silently drops deliveries
+  # while asleep. Keep one machine running.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  # Smallest always-on VM is plenty — single Node process, external data plane.
+  size = "shared-cpu-1x"
+  memory = "512mb"
