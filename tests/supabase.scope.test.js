@@ -22,6 +22,10 @@ function stubFetch(respond) {
 const ADMIN_SCOPE = { account_id: 'default', role: 'admin' };
 const CLERK_A = { account_id: 'default', branch_id: 'branch-A', role: 'clerk' };
 const CLERK_B = { account_id: 'default', branch_id: 'branch-B', role: 'clerk' };
+// Multi-company clients (ADR-023 Phase 8): a clerk scope carries BOTH company_id and
+// branch_id. Two clerks in different companies must each filter/stamp to their own company.
+const CLERK_CO1 = { account_id: 'default', company_id: 'co-1', branch_id: 'branch-A', role: 'clerk' };
+const CLERK_CO2 = { account_id: 'default', company_id: 'co-2', branch_id: 'branch-Z', role: 'clerk' };
 
 // --- sbSelect ------------------------------------------------------------------
 
@@ -54,6 +58,50 @@ test('sbSelect with an admin scope applies NO branch_id filter (sees all branche
   try {
     await sbSelect('expenses', { scope: ADMIN_SCOPE });
     assert.doesNotMatch(stub.seen().url, /branch_id=/);
+  } finally { stub.restore(); }
+});
+
+// --- company isolation (ADR-023 Phase 8, issue #107 mandatory SEC-2) --------------
+
+test('sbSelect with a multi-company clerk scope filters by BOTH company_id and branch_id', async () => {
+  const stub = stubFetch(() => ([]));
+  try {
+    await sbSelect('expenses', { scope: CLERK_CO1 });
+    assert.match(stub.seen().url, /company_id=eq\.co-1/);
+    assert.match(stub.seen().url, /branch_id=eq\.branch-A/);
+  } finally { stub.restore(); }
+});
+
+// THE cross-company guarantee: a clerk of company 1 and a clerk of company 2 each scope
+// to their OWN company only — a company-1 read can never carry company-2's filter.
+test('sbSelect: clerk of company 1 vs company 2 are hard-scoped to their own company (isolation)', async () => {
+  const seenUrls = [];
+  const realFetch = global.fetch;
+  global.fetch = async (url) => { seenUrls.push(url); return { text: async () => JSON.stringify([]) }; };
+  try {
+    await sbSelect('expenses', { scope: CLERK_CO1 });
+    await sbSelect('expenses', { scope: CLERK_CO2 });
+    assert.match(seenUrls[0], /company_id=eq\.co-1/);
+    assert.doesNotMatch(seenUrls[0], /company_id=eq\.co-2/);
+    assert.match(seenUrls[1], /company_id=eq\.co-2/);
+    assert.doesNotMatch(seenUrls[1], /company_id=eq\.co-1/);
+  } finally { global.fetch = realFetch; }
+});
+
+test('sbSelect with an admin scope applies NO company_id filter (sees all companies)', async () => {
+  const stub = stubFetch(() => ([]));
+  try {
+    await sbSelect('expenses', { scope: ADMIN_SCOPE });
+    assert.doesNotMatch(stub.seen().url, /company_id=/);
+  } finally { stub.restore(); }
+});
+
+test('sbSelect with a branch-only clerk scope (no company_id) has no company filter — back-compat', async () => {
+  const stub = stubFetch(() => ([]));
+  try {
+    await sbSelect('expenses', { scope: CLERK_A });
+    assert.doesNotMatch(stub.seen().url, /company_id=/);
+    assert.match(stub.seen().url, /branch_id=eq\.branch-A/);
   } finally { stub.restore(); }
 });
 
@@ -118,6 +166,41 @@ test('sbInsertReturning with an admin scope does NOT force a branch_id (admin ro
     await sbInsertReturning('expenses', { merchant: 'X' }, ADMIN_SCOPE);
     assert.ok(!('branch_id' in stub.seen().body));
     assert.strictEqual(stub.seen().body.account_id, 'default');
+  } finally { stub.restore(); }
+});
+
+test('sbInsert with a multi-company clerk scope auto-stamps company_id, overriding any caller-supplied one', async () => {
+  const stub = stubFetch(() => ({}));
+  try {
+    await sbInsert('expenses', { merchant: 'Shell', company_id: 'spoofed-co', branch_id: 'spoofed-b' }, CLERK_CO1);
+    assert.strictEqual(stub.seen().body.company_id, 'co-1');
+    assert.strictEqual(stub.seen().body.branch_id, 'branch-A');
+    assert.strictEqual(stub.seen().body.merchant, 'Shell');
+  } finally { stub.restore(); }
+});
+
+test('sbUpdate with a multi-company clerk scope adds company_id — a clerk cannot patch another company\'s row', async () => {
+  const stub = stubFetch(() => [{ id: 'e1' }]);
+  try {
+    await sbUpdate('expenses', { id: 'e1', scope: CLERK_CO1 }, { category: 'Food' });
+    assert.match(stub.seen().url, /company_id=eq\.co-1/);
+    assert.match(stub.seen().url, /branch_id=eq\.branch-A/);
+  } finally { stub.restore(); }
+});
+
+test('sbSoftDelete with a multi-company clerk scope adds the company filter', async () => {
+  const stub = stubFetch(() => ([]));
+  try {
+    await sbSoftDelete('expenses', { id: 'e1', scope: CLERK_CO1 });
+    assert.match(stub.seen().url, /company_id=eq\.co-1/);
+  } finally { stub.restore(); }
+});
+
+test('sbInsertReturning with an admin scope does NOT force a company_id (admin rows may be company-less)', async () => {
+  const stub = stubFetch(() => [{ id: 'e9' }]);
+  try {
+    await sbInsertReturning('expenses', { merchant: 'X' }, ADMIN_SCOPE);
+    assert.ok(!('company_id' in stub.seen().body));
   } finally { stub.restore(); }
 });
 
