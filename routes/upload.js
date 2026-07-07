@@ -116,6 +116,9 @@ module.exports = function mountUpload(app, deps = {}) {
       // "which staff?" step; the dashboard leaves it null in v1. (Persistence of these onto the
       // row is assembleExpense's job — lib/ocr.js, Barat — this only supplies the context.)
       if (req.user && req.user.branch_id) meta.branch_id = req.user.branch_id;
+      // ADR-023 Phase 8: stamp the capturer's company beside their branch (multi-company clients),
+      // from the same session source. Absent when the session carries no company (additive).
+      if (req.user && req.user.company_id) meta.company_id = req.user.company_id;
       // ADR-018: upload each image (a PDF is already rasterized to a page image here) to the
       // private `receipts` bucket and carry its object path per-image as `receipt_url`, so
       // assembleExpense stores a durable URL — the dashboard-upload path had NO image before.

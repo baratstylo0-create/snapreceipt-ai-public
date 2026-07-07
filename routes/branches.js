@@ -67,12 +67,14 @@ module.exports = function mountBranches(app) {
   // one-time bot-binding token). Enforces max_branches.
   app.post('/api/branches', businessOnly, branchesLimiter, checkDash, json, async (req, res) => {
     if (!isAdmin(req)) return forbid(res);
-    const { office, state, clerkName } = req.body || {};
+    const { office, state, clerkName, companyId } = req.body || {};
     if (!office || typeof office !== 'string') return res.status(400).json({ error: 'office is required' });
     try {
       const [max, existing] = await Promise.all([getMaxBranches(), listBranches({})]);
       if (existing.length >= max) return res.status(403).json({ error: 'branch limit reached (' + max + ')' });
-      const r = await createBranch({ office, state, clerkName });
+      // ADR-023 Phase 8: an admin may attach the new branch to a company (companyDimension clients);
+      // omitted → null (single-company / pre-Phase-8 behaviour unchanged). createBranch stamps it.
+      const r = await createBranch({ office, state, clerkName, companyId: companyId || null });
       // credentials.password is the ONLY place the plaintext appears — the client shows it once.
       return res.status(201).json({ branch: r.branch, credentials: r.credentials, bindToken: r.bindToken });
     } catch (e) {
