@@ -47,9 +47,10 @@ module.exports = function mountSubmissions(app) {
     }
     const note = typeof (req.body || {}).note === 'string' ? req.body.note.slice(0, NOTE_MAX) : null;
     try {
-      const existing = await sbSelect('submissions', { eq: { branch_id: s.branch_id, period }, limit: 1 });
+      // scope (#131): DB-layer branch stamp/filter on submissions read+write (defense-in-depth).
+      const existing = await sbSelect('submissions', { eq: { branch_id: s.branch_id, period }, limit: 1, scope: s });
       if (existing[0]) {
-        const rows = await sbUpdate('submissions', { id: existing[0].id }, {
+        const rows = await sbUpdate('submissions', { id: existing[0].id, scope: s }, {
           status: 'submitted', note, submitted_by: req.user && req.user.user_id,
           submitted_at: new Date().toISOString(),
         });
@@ -59,7 +60,7 @@ module.exports = function mountSubmissions(app) {
         branch_id: s.branch_id, period, note,
         submitted_by: req.user && req.user.user_id,
         status: 'submitted', submitted_at: new Date().toISOString(),
-      });
+      }, s);
       return res.status(201).json({ submission });
     } catch (e) {
       console.error('[submissions create]', e.message);
@@ -80,7 +81,7 @@ module.exports = function mountSubmissions(app) {
     }
     if (s.role === 'clerk') eq.branch_id = s.branch_id; // the bouncer: clerks never see other branches
     try {
-      const submissions = await sbSelect('submissions', { eq, order: 'submitted_at.desc', limit: 500 });
+      const submissions = await sbSelect('submissions', { eq, order: 'submitted_at.desc', limit: 500, scope: s });
       return res.json({ submissions });
     } catch (e) {
       console.error('[submissions list]', e.message);
@@ -103,7 +104,7 @@ module.exports = function mountSubmissions(app) {
       const sub = rows[0];
       if (!sub) return res.status(404).json({ error: 'not found' });
       if (String(sub.branch_id) !== String(s.branch_id)) return forbid(res);
-      const updated = await sbUpdate('submissions', { id: sub.id }, {
+      const updated = await sbUpdate('submissions', { id: sub.id, scope: s }, {
         status, submitted_at: new Date().toISOString(),
       });
       return res.json({ submission: updated[0] || { ...sub, status } });
