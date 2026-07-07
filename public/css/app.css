@@ -420,6 +420,25 @@ body.theme-warm {
 }
 .token-gate-cancel:hover { color: var(--txt); border-color: var(--txt); }
 
+/* Business login (ADR-021 Phase 6) — reuses the token-gate card; these are the extras. */
+.login-title {
+  margin: 0 0 4px;
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  text-align: center;
+}
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .app-error {
   max-width: 480px;
   margin: 40px auto;

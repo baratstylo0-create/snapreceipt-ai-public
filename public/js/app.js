@@ -21,6 +21,7 @@
   var TOKEN_KEY = 'dashboard_token';
   var THEME_KEY = 'theme';
   var AUTO_MODE_KEY = 'auto_mode';
+  var SESSION_KEY = 'session_info'; // ADR-021 Phase 6: { role, branch_id, display_name } — identity only, NEVER the token
 
   // Resolve dependencies from either CommonJS (Node) or the browser globals that
   // the earlier <script> tags attached. In Node these are only used by boot(),
@@ -42,6 +43,7 @@
         if (name === 'Settings') return require('./components/settings');
         if (name === 'Falc') return require('./components/falc');
         if (name === 'RateMeter') return require('./components/ratemeter');
+        if (name === 'Login') return require('./components/login');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -58,6 +60,31 @@
   function storeToken(t) {
     var s = ss();
     try { if (s) s.setItem(TOKEN_KEY, t); } catch (e) { /* ignore */ }
+  }
+
+  // --- business session identity (ADR-021 Phase 6) ---
+  // The identity ({ role, branch_id, display_name }) is stored SEPARATELY from the
+  // token so a page refresh keeps the role-aware shell without re-login. It is
+  // identity metadata only — authorization always happens server-side per request
+  // (a tampered role here changes labels, never data access).
+  function getStoredSession() {
+    var s = ss();
+    try {
+      var raw = s ? s.getItem(SESSION_KEY) : null;
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (e) { return null; }
+  }
+  function storeSession(sess) {
+    var s = ss();
+    try {
+      if (!s) return;
+      if (sess) s.setItem(SESSION_KEY, JSON.stringify({
+        role: sess.role || '', branch_id: sess.branch_id || null, display_name: sess.display_name || '',
+      }));
+      else s.removeItem(SESSION_KEY);
+    } catch (e) { /* ignore */ }
   }
 
   // --- theme (visual only: toggle a class on <body>, persist the choice) ---
@@ -119,12 +146,25 @@
   }
 
   // Clear the dashboard token from this browser and re-run the boot flow, which
-  // re-shows the token gate when auth is required. Never logs the token.
+  // re-shows the token gate (or the business login) when auth is required. Never
+  // logs the token. Business mode (a stored session identity exists): best-effort
+  // POST /api/logout FIRST so the server revokes every session for this user —
+  // clearing only the browser copy would leave a live token server-side.
   function logout() {
-    var s = ss();
-    try { if (s) s.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
-    try { var api = dep('Api'); if (api && api.setToken) api.setToken(null); } catch (e) { /* ignore */ }
-    reloadPage();
+    var finish = function () {
+      var s = ss();
+      try { if (s) s.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
+      storeSession(null);
+      try { var api = dep('Api'); if (api && api.setToken) api.setToken(null); } catch (e) { /* ignore */ }
+      reloadPage();
+    };
+    if (getStoredSession()) {
+      try {
+        var api = dep('Api');
+        if (api && api.apiFetch) { api.apiFetch('/api/logout', { method: 'POST' }).then(finish, finish); return; }
+      } catch (e) { /* fall through */ }
+    }
+    finish();
   }
   // Best-effort full reload (guarded so Node require() can't throw).
   function reloadPage() {
@@ -288,6 +328,11 @@
     if (mount) mount.textContent = '';
     if (header) header.textContent = '';
 
+    // Role-aware shell (ADR-021 Phase 6): the signed-in identity (business mode only)
+    // is shared with every view via deps.session — views branch on session.role for
+    // admin-vs-clerk affordances. Personal mode: null, everything renders as before.
+    deps.session = getStoredSession();
+
     // Owner request 2026-07-06: two-tier header (big brand block above the
     // pill nav), matching Mugi's reference mockup. Refresh re-loads the page
     // (simplest, safest "get me current data" action — mirrors a normal
@@ -322,6 +367,26 @@
     var RateMeter = deps.RateMeter;
     var rateMeterHost = (brandHeader && brandHeader.actionsEl) || header;
     if (rateMeterHost && RateMeter && typeof RateMeter.mount === 'function') RateMeter.mount(rateMeterHost, deps);
+
+    // Business mode: a "who am I" chip + Sign out in the header actions. Built with
+    // textContent (identity values are still untrusted display text). Personal mode
+    // (no session) renders nothing — header unchanged.
+    if (deps.session && rateMeterHost) {
+      var who = document.createElement('span');
+      who.className = 'session-chip';
+      var roleLabel = deps.session.role === 'admin' ? 'Admin' : deps.session.role === 'clerk' ? 'Clerk' : '';
+      who.textContent = (deps.session.display_name || 'Signed in') + (roleLabel ? ' · ' + roleLabel : '');
+      rateMeterHost.appendChild(who);
+
+      var out = document.createElement('button');
+      out.type = 'button';
+      out.className = 'icon-btn';
+      out.title = 'Sign out';
+      out.setAttribute('aria-label', 'Sign out');
+      out.textContent = '⎋';
+      out.addEventListener('click', function () { logout(); });
+      rateMeterHost.appendChild(out);
+    }
 
     // Expose the real theme setter / login / logout / clear-local to view
     // components (the Settings view uses these) via the shared deps object.
@@ -377,7 +442,7 @@
       Overview: dep('Overview'), Activity: dep('Activity'), Upload: dep('Upload'),
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
       Settings: dep('Settings'), Falc: dep('Falc'),
-      RateMeter: dep('RateMeter'), Render: dep('Render'),
+      RateMeter: dep('RateMeter'), Render: dep('Render'), Login: dep('Login'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
@@ -394,9 +459,18 @@
       deps.config = cfg;
       var decision = deps.AuthGate.authState({
         authRequired: cfg && cfg.auth_required,
+        multiUser: cfg && cfg.multi_user,
         storedToken: getStoredToken(),
       });
-      if (decision === 'prompt') {
+      if (decision === 'login') {
+        // Business mode (ADR-021 Phase 6): username/password login, never the token box.
+        var mount = document.getElementById('app');
+        deps.storeToken = storeToken;
+        deps.Login && deps.Login.render(mount, deps, function (session) {
+          storeSession(session);
+          enterApp(deps);
+        });
+      } else if (decision === 'prompt') {
         renderTokenGate(deps, function () { enterApp(deps); });
       } else {
         enterApp(deps);

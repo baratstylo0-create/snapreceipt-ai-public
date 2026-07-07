@@ -22,11 +22,17 @@
     return s === '' ? null : s;
   }
 
-  // Decide the gate outcome. Returns 'enter' (proceed into the app) or 'prompt'
-  // (show the token-entry screen). Defensive: missing args default to 'enter'
+  // Decide the gate outcome. Returns 'enter' (proceed into the app), 'prompt'
+  // (show the token-entry screen), or 'login' (business mode's username/password
+  // screen — ADR-021 Phase 6). Defensive: missing args default to 'enter'
   // (auth not required), and authRequired is coerced to a boolean.
+  //
+  // Business mode (multiUser truthy) has exactly ONE gate: the login screen. The
+  // static token box never appears there (there is no static token to enter —
+  // sessions replace it), so multiUser is checked FIRST, before authRequired.
   function authState(opts) {
     opts = opts || {};
+    if (opts.multiUser) return normaliseToken(opts.storedToken) ? 'enter' : 'login';
     if (!opts.authRequired) return 'enter';
     return normaliseToken(opts.storedToken) ? 'enter' : 'prompt';
   }
