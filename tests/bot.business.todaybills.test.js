@@ -141,17 +141,17 @@ test('typing a number when NOT armed is ignored (returns false, deletes nothing)
   assert.strictEqual(sent.length, 0);
 });
 
-test('typing an out-of-range number asks again and deletes nothing (stays armed)', async () => {
+test('typing an out-of-range number asks again, deletes nothing, and DISARMS (single-use)', async () => {
   const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2'], armed: true }]]);
   const { deps, sent, deleted } = baseDeps({ pendingBillDelete });
   const handled = await tryResolveBillDelete('900', '9', deps);
   assert.strictEqual(handled, true);
   assert.strictEqual(deleted.length, 0);
   assert.match(sent[0].text, /between 1 and 2/);
-  assert.strictEqual(pendingBillDelete.get('900').armed, true);
+  assert.strictEqual(pendingBillDelete.get('900').armed, false); // consumed — must re-tap Delete
 });
 
-test("typing the number of someone ELSE's bill is refused (submitter-only), stays armed", async () => {
+test("typing the number of someone ELSE's bill is refused (submitter-only) and DISARMS", async () => {
   const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: true }]]);
   const { deps, sent, deleted } = baseDeps({
     pendingBillDelete,
@@ -161,13 +161,28 @@ test("typing the number of someone ELSE's bill is refused (submitter-only), stay
   assert.strictEqual(handled, true);
   assert.strictEqual(deleted.length, 0);
   assert.match(sent[0].text, /Only the person who submitted/);
-  assert.strictEqual(pendingBillDelete.get('900').armed, true);
+  assert.strictEqual(pendingBillDelete.get('900').armed, false);
 });
 
-test('typing non-numeric text while armed falls through (returns false)', async () => {
+test('typing non-numeric text while armed falls through (returns false), leaves arm intact', async () => {
   const pendingBillDelete = new Map([['900', { ids: ['e1'], armed: true }]]);
   const { deps, deleted } = baseDeps({ pendingBillDelete });
   const handled = await tryResolveBillDelete('900', 'hello', deps);
   assert.strictEqual(handled, false);
   assert.strictEqual(deleted.length, 0);
+  assert.strictEqual(pendingBillDelete.get('900').armed, true); // a non-number isn't the "one shot"
+});
+
+// Jeevan's #139 safety note: after a failed attempt the arm is consumed, so a stray number
+// typed later can never soft-delete a bill without a fresh Delete tap.
+test('SAFETY: a stray number after a failed attempt does nothing (single-use armed state)', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2'], armed: true }]]);
+  const { deps, deleted } = baseDeps({
+    pendingBillDelete,
+    sbSelect: async (_t, opts) => BILLS.filter((b) => b.id === (opts.eq && opts.eq.id)),
+  });
+  await tryResolveBillDelete('900', '9', deps);          // out-of-range → disarms
+  const handled = await tryResolveBillDelete('900', '1', deps); // stray valid number later
+  assert.strictEqual(handled, false);                    // ignored — not armed anymore
+  assert.strictEqual(deleted.length, 0);                 // e1 was NOT deleted
 });

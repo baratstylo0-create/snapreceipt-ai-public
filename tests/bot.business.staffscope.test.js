@@ -230,6 +230,21 @@ test('bound photo: the receipt is tagged with the binding\'s branch, then the st
   assert.deepStrictEqual(pickerCalls, [{ chatId: 40, expense: savedExpense, branchId: 'br-A' }]);
 });
 
+// Multi-company client (ADR-023 Phase 8): a binding that carries a company_id stamps BOTH
+// branch and company onto the receipt, so per-company reports/statements need no join.
+const CLERK_BINDING_CO = { id: 'b7', chat_id: '44', branch_id: 'br-A', company_id: 'co-1', role: 'clerk', active: true };
+
+test('bound photo (multi-company): the receipt meta carries BOTH branch_id and company_id', async () => {
+  const photoCalls = [];
+  const { deps } = baseDeps({
+    resolveBinding: async () => CLERK_BINDING_CO,
+    expenseFromPhoto: async (chatId, repName, fileId, meta) => { photoCalls.push({ meta }); return { ok: true, expense: { id: 'e-co1' } }; },
+    sendStaffPicker: async () => {},
+  });
+  await handleUpdate(photoMsg(44), deps);
+  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', company_id: 'co-1' });
+});
+
 test('bound photo: a failed/skipped read sends NO staff picker (nothing was saved to tag)', async () => {
   const pickerCalls = [];
   const { deps } = baseDeps({
@@ -359,5 +374,15 @@ test('assembleExpense: stamps branch_id and staff_user_id ONLY when the caller s
 test('assembleExpense: personal callers (no meta) leave branch/staff completely absent — zero change', async () => {
   const { expense } = await assembleExpense(ocrInput(), ocrDeps());
   assert.ok(!('branch_id' in expense));
+  assert.ok(!('company_id' in expense));
   assert.ok(!('staff_user_id' in expense));
+});
+
+test('assembleExpense: stamps company_id ONLY when the caller supplies it (multi-company attribution)', async () => {
+  const withCo = await assembleExpense(ocrInput({ branch_id: 'br-A', company_id: 'co-1', staff_user_id: 's-ali' }), ocrDeps());
+  assert.strictEqual(withCo.expense.company_id, 'co-1');
+  assert.strictEqual(withCo.expense.branch_id, 'br-A');
+  // a branch-only binding (no company) leaves company_id absent, never null-keyed
+  const branchOnly = await assembleExpense(ocrInput({ branch_id: 'br-A' }), ocrDeps());
+  assert.ok(!('company_id' in branchOnly.expense));
 });

@@ -8,6 +8,7 @@ const { cfg, assertConfig, configSummary } = require('./lib/config');
 const { registerWebhook } = require('./lib/telegram');
 const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
+const { logError } = require('./lib/log'); // #12 structured error logging
 
 const mountWebhook = require('./routes/webhook');
 const mountAuth = require('./routes/auth');       // ADR-021 business login (multiUser only)
@@ -63,9 +64,11 @@ mountSettings(app);
 // server file paths to the client (SOP §7.2 — errors must never leak internals).
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
-  console.error('[unhandled]', err && err.message);
   const status = (err && (err.status || err.statusCode)) || 400;
-  res.status(status < 500 ? status : 400).json({ error: 'invalid request' });
+  const safe = status < 500 ? status : 400;
+  // #12 structured error log — ADR-002 safe (message + scalar route context only; no body/PII).
+  logError('unhandled', err, { status: safe, method: req.method, path: req.path });
+  res.status(safe).json({ error: 'invalid request' });
 });
 
 if (process.argv.includes('--register-only')) {
