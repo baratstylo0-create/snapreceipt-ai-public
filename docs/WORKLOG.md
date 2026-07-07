@@ -16,6 +16,14 @@
 
 ---
 
+## 2026-07-07 · Claude (for Barat) · feature/barat-m2-fieldspec-categories — M2 Phase 5 (final): categories from FieldSpec + OCR-provider/ZDR knob
+- **Files:** `schema.sql` (`field_templates.categories` jsonb, nullable — additive), `lib/templates.js` (`sanitizeCategories`, `getFieldSpec` surfaces optional `FieldSpec.categories`, `saveTemplate` persists/clears it), `routes/templates.js` (JSON `{csv,name,categories}` path; CSV/.xlsx uploads never touch the set), `lib/ocr.js` (`specCategories(fieldSpec)`, category picker + `assembleExpense.categoryOptions` use it), `lib/bot.js` (catpick/catedit resolve indexes against the account's current list; dropped now-unused `CATEGORIES` import), `.env.example` (Groq ZDR + `OCR_API_BASE_URL/OCR_API_KEY` provider knob documented). Tests: `tests/templates.categories.test.js` (**new**, +19), route +3, catpicker +3.
+- **What changed:** A business account's own chart of accounts (e.g. construction co. → Petrol/Diesel, Touch-n-Go, Entertainment) now drives the Telegram category buttons and the categorizer's allow-list, instead of the built-in 18. **SHARED CONTRACT NOTE (SOP §4.6):** `FieldSpec` gains an OPTIONAL `categories: string[]` — purely additive; consumers reading only `.columns` are unaffected, and it's absent entirely for personal accounts (so the personal bot is byte-for-byte unchanged). `lib/categorize.js`'s `effectiveAllow()` already honoured `fieldSpec.categories`, so this wires the storage + picker ends to it. ZDR + OCR-provider are ops levers (no code path), documented in `.env.example`.
+- **What's next:** Jeevan's Excel export reads categories from the company FieldSpec for the petty-cash statement's per-category banners — this storage change feeds that. Full suite 1334/1334 on the branch.
+- **Assumptions:** `field_templates.categories` column added to the live Supabase schema before a business account relies on it (idempotent `ADD COLUMN IF NOT EXISTS`; needs the same SQL-editor apply step as prior schema changes — now covered by the runbook Block F).
+
+---
+
 ## 2026-07-07 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-migration-runbook — ops: Supabase migration runbook (M2 P4–P9 + #123)
 - **Files:** `docs/ops/2026-07-07-supabase-migration-runbook.md` (**new**), this WORKLOG. Docs-only push.
 - **What:** copy-paste-ready runbook for applying the code-merged-but-not-yet-applied M2 schema to a

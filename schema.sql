@@ -69,6 +69,12 @@ create table if not exists field_templates (
 create unique index if not exists field_templates_account_name_idx
   on field_templates (account_id, name);
 
+-- Business category set (ADR-021 Phase 5): the account's own chart of accounts,
+-- e.g. ["Petrol/Diesel","Touch-n-Go","Entertainment",…]. NULL = use the built-in
+-- default CATEGORIES (lib/categorize.js) — personal accounts never set this.
+alter table field_templates
+  add column if not exists categories jsonb;
+
 alter table field_templates enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied.
 
