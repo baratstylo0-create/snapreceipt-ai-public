@@ -190,8 +190,12 @@ module.exports = function mountExpenses(app) {
   // source of truth) lets the frontend build its filter/edit dropdowns + pill colours
   // dynamically instead of keeping a second, driftable hardcoded copy (the bug that
   // produced the Food/Petrol/Software/Inventory/Others vs. the real 18-category set).
+  // multi_user (ADR-021 Phase 6): tells the frontend to show the username/password
+  // login instead of the static token gate. Read per-request (not at mount) so a
+  // flag flip takes effect on the next page load without a server rebuild.
   app.get('/api/config', (req, res) => res.json({
     auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
+    multi_user: !!getCapabilities().multiUser,
   }));
 };
 

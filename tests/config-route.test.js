@@ -39,3 +39,22 @@ test('GET /api/config still returns auth_required + default_currency unchanged',
   assert.strictEqual(typeof json.auth_required, 'boolean');
   assert.strictEqual(typeof json.default_currency, 'string');
 });
+
+test('GET /api/config exposes multi_user (ADR-021 Phase 6: the frontend picks login vs token gate)', async () => {
+  const saved = { CAP_MULTI_USER: process.env.CAP_MULTI_USER, ACCOUNT_TYPE: process.env.ACCOUNT_TYPE };
+  try {
+    process.env.CAP_MULTI_USER = 'true';
+    let { json } = await get((() => { const a = express(); mountExpenses(a); return a; })(), '/api/config');
+    assert.strictEqual(json.multi_user, true);
+
+    process.env.CAP_MULTI_USER = 'false';
+    process.env.ACCOUNT_TYPE = 'personal';
+    ({ json } = await get((() => { const a = express(); mountExpenses(a); return a; })(), '/api/config'));
+    assert.strictEqual(json.multi_user, false);
+  } finally {
+    for (const k of Object.keys(saved)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+});
