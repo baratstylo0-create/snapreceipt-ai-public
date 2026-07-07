@@ -308,3 +308,23 @@ test('buildWorkbook: column width accounts for the header label even with no dat
   const wb = buildWorkbook([], spec);
   assert.ok(wb.worksheets[0].getColumn(1).width >= 'A Fairly Long Column Label'.length);
 });
+
+// Owner report: the Total row showed "#######" (Excel's "number doesn't fit the
+// column" indicator) even though every individual row displayed fine. Auto-fit
+// measured raw numeric-string length (e.g. "1171.28" = 7 chars), not the actual
+// RENDERED width once the currency numFmt applies (e.g. "RM1,171.28" = 10 chars)
+// — and the Total (a sum) is often the widest number in the whole column.
+test('buildWorkbook: the Amount column is wide enough for the Total row\'s formatted value (no #### )', () => {
+  // Total (1171.28 -> "RM1,171.28", 10 chars) is visibly WIDER than either
+  // individual row ("RM400.00"/"RM771.28", 8 chars each) once currency grouping
+  // kicks in — exactly the case the old width calc missed, because it measured
+  // raw numeric-string length and never looked at the Total row.
+  const expenses = [
+    { merchant: 'Cafe', amount: 400 },
+    { merchant: 'Shop', amount: 771.28 },
+  ];
+  const wb = buildWorkbook(expenses, FIELD_SPEC, { currency: 'MYR' });
+  const amountCol = wb.worksheets[0].getColumn(3); // Merchant, Date, Amount
+  assert.ok(amountCol.width >= 'RM1,171.28'.length,
+    'Amount column (' + amountCol.width + ') must be at least as wide as the Total\'s rendered text');
+});
