@@ -363,3 +363,37 @@ create index if not exists submissions_account_period_idx on submissions (accoun
 
 alter table submissions enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- ============================================================================
+-- Migration M2-P8: company dimension — Group → Company → Branch → Staff (ADR-023)
+-- Jeevan · 2026-07-07 · docs/handoff/2026-07-07-phases-8-10/01-phase8-company-dimension.md
+-- ----------------------------------------------------------------------------
+-- Flag-gated by capabilities.companyDimension (ADR-010). With the flag OFF the table
+-- goes unused and every company_id stays null — the single-company product is
+-- byte-for-byte unchanged. A client with multiple legal entities (e.g. Premala) turns
+-- it on: `companies` is the new top level; branches/users/expenses/sessions/bot_bindings
+-- gain a nullable company_id (denormalised so the scope resolves in one lookup, exactly
+-- like branch_id). Additive + nullable everywhere ⇒ existing rows unaffected.
+-- ============================================================================
+create table if not exists companies (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  name        text        not null,
+  currency    text,                              -- statement currency (falls back to account default)
+  template_id uuid,                              -- the company's FieldSpec (category set), field_templates.id
+  active      boolean     not null default true, -- soft-delete only (active=false), never hard-deleted
+  created_at  timestamptz not null default now()
+);
+create index if not exists companies_account_active_idx on companies (account_id) where active;
+
+-- Additive company_id columns — null on every existing row (single-company / personal unaffected).
+alter table branches     add column if not exists company_id uuid;
+alter table users        add column if not exists company_id uuid;   -- denormalised for one-lookup scope
+alter table sessions     add column if not exists company_id uuid;   -- denormalised onto the bearer session
+alter table bot_bindings add column if not exists company_id uuid;   -- carried onto the clerk's bot binding
+alter table expenses     add column if not exists company_id uuid;   -- stamped from the capturer's session/branch
+create index if not exists expenses_account_company_idx on expenses (account_id, company_id)
+  where company_id is not null;
+
+alter table companies enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).

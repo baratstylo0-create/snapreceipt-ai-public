@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { getCapabilities } = require('../lib/account');
 
-const KEYS = ['CAP_LIVE_MASTER_MERGE', 'CAP_EXCEL_LITE_GRID', 'CAP_BRANCH_SUBMISSION', 'CAP_MULTI_USER', 'ACCOUNT_TYPE'];
+const KEYS = ['CAP_LIVE_MASTER_MERGE', 'CAP_EXCEL_LITE_GRID', 'CAP_BRANCH_SUBMISSION', 'CAP_MULTI_USER', 'CAP_COMPANY_DIMENSION', 'ACCOUNT_TYPE'];
 
 function withEnv(vars, fn) {
   const saved = {};
@@ -53,5 +53,23 @@ test('the Premala profile combo resolves as specified (ADR-022)', () => {
     assert.strictEqual(caps.liveMasterMerge, false);
     assert.strictEqual(caps.excelLiteGrid, false);
     assert.strictEqual(caps.branchSubmission, true);
+  });
+});
+
+// ADR-023 Phase 8: the company dimension (Group→Company→Branch→Staff). OFF by default so the
+// single-company product is byte-for-byte unchanged; a client with multiple legal entities flips
+// it on via config (never a fork).
+test('companyDimension defaults OFF and is env-overridable (ADR-023)', () => {
+  withEnv({}, () => {
+    assert.strictEqual(getCapabilities().companyDimension, false, 'default OFF (single-company)');
+  });
+  withEnv({ CAP_COMPANY_DIMENSION: 'true' }, () => {
+    assert.strictEqual(getCapabilities().companyDimension, true);
+  });
+});
+
+test('companyDimension stays OFF even for ACCOUNT_TYPE=business (per-client, not per-type)', () => {
+  withEnv({ ACCOUNT_TYPE: 'business' }, () => {
+    assert.strictEqual(getCapabilities().companyDimension, false, 'not implied by the business default');
   });
 });

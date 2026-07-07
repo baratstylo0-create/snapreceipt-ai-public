@@ -77,6 +77,31 @@ test('mintSession stores null branch_id for an admin (all-branch)', async () => 
   } finally { stub.restore(); }
 });
 
+test('mintSession denormalises company_id onto the session row (ADR-023 Phase 8)', async () => {
+  const stub = stubFetch(() => []);
+  try {
+    await mintSession({ id: 'u1', role: 'clerk', branch_id: 'b1', company_id: 'c1' });
+    assert.strictEqual(stub.calls[0].body.company_id, 'c1');
+  } finally { stub.restore(); }
+});
+
+test('mintSession stores null company_id when the user has none', async () => {
+  const stub = stubFetch(() => []);
+  try {
+    await mintSession({ id: 'u1', role: 'clerk', branch_id: 'b1' });
+    assert.strictEqual(stub.calls[0].body.company_id, null);
+  } finally { stub.restore(); }
+});
+
+test('lookupSession surfaces company_id when the session row carries one', async () => {
+  const stub = stubFetch(() => [{ user_id: 'u1', account_id: 'default', role: 'clerk', branch_id: 'b1',
+    company_id: 'c1', expires_at: new Date(Date.now() + 60000).toISOString() }]);
+  try {
+    const s = await lookupSession('sometoken');
+    assert.strictEqual(s.company_id, 'c1');
+  } finally { stub.restore(); }
+});
+
 test('lookupSession resolves a live session by token hash', async () => {
   const stub = stubFetch((call) => {
     assert.match(call.url, /token_hash=eq\./);
@@ -123,6 +148,24 @@ test('scopeForUser(admin) has NO branch filter (sees all branches)', () => {
 test('scopeForUser(clerk) is hard-filtered to the clerk branch', () => {
   const scope = scopeForUser({ account_id: 'acme', role: 'clerk', branch_id: 'b2' });
   assert.deepStrictEqual(scope, { account_id: 'acme', branch_id: 'b2', role: 'clerk' });
+});
+
+// ADR-023 Phase 8: the clerk scope OPTIONALLY carries company_id when the session denormalises one
+// (multi-company clients). It must be OMITTED (not null-keyed) when absent so pre-Phase-8 clerks
+// and the single-company product keep the exact frozen shape. Admin is unchanged (cross-company).
+test('scopeForUser(clerk) carries company_id when the session has one', () => {
+  const scope = scopeForUser({ account_id: 'acme', role: 'clerk', branch_id: 'b2', company_id: 'c1' });
+  assert.deepStrictEqual(scope, { account_id: 'acme', company_id: 'c1', branch_id: 'b2', role: 'clerk' });
+});
+
+test('scopeForUser(clerk) OMITS company_id when absent (not null-keyed)', () => {
+  const scope = scopeForUser({ account_id: 'acme', role: 'clerk', branch_id: 'b2' });
+  assert.ok(!('company_id' in scope), 'no company_id key on a company-less clerk');
+});
+
+test('scopeForUser(admin) is unchanged by the company dimension (sees all companies)', () => {
+  const scope = scopeForUser({ account_id: 'acme', role: 'admin', company_id: 'c1' });
+  assert.deepStrictEqual(scope, { account_id: 'acme', role: 'admin' });
 });
 
 test('scopeForUser throws for a clerk without a branch, staff, or a missing role', () => {
