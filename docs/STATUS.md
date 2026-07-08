@@ -1,50 +1,59 @@
 # STATUS — Receipt Analyser SaaS
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
+> _Last refreshed 2026-07-08 (Claude, for Barat) — reconciled against `git log` / `gh pr list` / WORKLOG, not the previous stale copy. When in doubt, trust `gh pr list`/WORKLOG over this file._
 
 ## Current phase
-**M1 personal = FEATURE-COMPLETE and END-TO-END VERIFIED.** All 12 backend features + #1 PDF (both surfaces) + the reference frontend + P6 security hardening are **merged to `main`**. `npm test` on `main` = **775 passing**. On 2026-07-03 the Owner + J1 ran a full live E2E walkthrough against the real Supabase (`xurnpvesgcybrnilxszf`) + Groq: dashboard upload → OCR → save → list/filter → edit → 18-category auto-categorization → MYR currency → Excel export → AI agent chat (native tool-calling) → reports → review-queue approve — **all working**. Two real bugs found + fixed during that walkthrough (edit-expense amount `step`, agent currency-symbol) — PR #75.
+**M1 personal = feature-complete, live-E2E-verified, and stable on `main` (unchanged by M2).**
+**M2 business/multi-tenant layer = BUILT through Phases 1–10 and merged to `main`** (PRs #105–#138), with the **first real client instance ("Premala", `xurnpvesgcybrnilxszf`) provisioned end-to-end** (M2 schema applied + first admin + capability profile — PRs #130/#135). The product is now in **pre-live hardening** for that first business client, not in M1 build.
 
-**Now starting: M-Frontend (Mugi).** Owner has assigned Mugi the production frontend. Workflow: **Mugi delivers a design/concept; Jeevan's team extracts the source and adapts our existing frontend to it, following the frozen `/api/*` contract.** Mugi is UNBLOCKED — the reference frontend in `public/` is his starting point (see `docs/roles/MUGI.md`).
-
-**M2 (business/multi-tenant) remains DEFERRED** until the Owner signs off that personal is solid.
+`npm test` on `main` ≈ **1500+ passing** (grew from 775 during M2; exact per-branch counts are in WORKLOG — e.g. observability landed at 1501, the in-review bot branch is 1528). `.env`-aside discipline still applies (see GOTCHAs).
 
 ## Track
-Vertical AI Solution. Milestone M1 = Personal version (12 features).
+Vertical AI Solution. **M1** = personal (done). **M2** = business/multi-branch/multi-staff (built, first client provisioned, pre-live). Flag-gated behind `capabilities.multiUser` — OFF = the personal product byte-for-byte.
 
-## Sprint goal (current)
-1. **Onboard Mugi onto the frontend** (design/concept → team adapts). Everything he needs is in the repo.
-2. **Apply the voucher/reference-number DB migration** (`db/2026-07-03-voucher-reference-number.sql`, ADR-017) to the live Supabase project — merged to `schema.sql` (PR #72) but NOT yet run against `xurnpvesgcybrnilxszf`. Until applied, `voucher_no` is simply never shown (fully backward-compatible). Needs someone with SQL Editor access.
-3. **Receipt-image display** (long-open): dashboard uploads store no image and `/receipt/:fileId` needs `BOT_TOKEN`. Owner chose the proper fix — Supabase Storage → real URL in the `receipt_url` column. Spec still to be written; now unblocked (no longer racing Barat's voucher edits, which landed).
+## Sprint goal (current) — get Premala live, safely
+1. **Merge the last in-review PR:** #139 (business Today's Bills — staff-name lines + "Delete a bill → type number"); approved + CI green, awaiting a non-self merge.
+2. **Pre-live OPS on Premala (not code):** rotate all secrets (LAUNCH GATE, ADR-015), enable **Groq Zero-Data-Retention** (remaining slice of #107), deploy to an always-on HTTPS host (artifacts ready — Render default / Fly+Docker portable, PR #137 + runbook), point an uptime monitor at `/health` (+ optional `/ready`, #138).
+3. **Owner ops on the instance:** admin logs in + rotates the provisioned password, creates real companies/branches, sets petty-cash floats.
 
 ## Who's on what
 | Person | Claude | Current task | State |
 |---|---|---|---|
-| Jeevan | J1 | Merges (voucher #72, spec #70, handoff #71 all merged); ran live E2E; owns receipt-image storage spec next | active |
-| Barat | B1 | Voucher schema/insert-path (PR #72) merged. **Must restart his live ingest pipeline** to pick up MYR (still emitting USD — a stale-`process.env` issue, not a code bug). Onboarding/chat-id spec (PR #73) is M2 — spec only, build ON HOLD | available |
-| Mugi | M1 | **STARTING: production frontend** — design/concept from the existing reference frontend, following the API contract | starting |
+| Barat | this Claude | M2 scope-bouncer + business Telegram bot. Merged: #119 (supabase scope hook), #121 (business bot binding/staff/branch flows), #123 (FieldSpec categories + OCR-provider/ZDR knob), #134 (company_id in scope + write-path, closed #133). **In review: #139** (Today's Bills staff+delete). Remaining #107 slice = **Groq ZDR** (ops). | active |
+| Jeevan | J | Route-level isolation wiring #131/#132 (merged) + ops: Premala provisioning (#130/#135), deploy artifacts (#137), observability Phase 1 — structured logs + `/ready` (#138). Owns `lib/massupload.js` (#31), the render-side of #17, and merges. | active |
+| Mugi | M | Production frontend — design/concept → Jeevan's team adapts the reference frontend in `public/`, following the frozen `/api/*` contract. | ongoing |
 
-## Feature status (personal M1)
-- ✅ All 12 backend features + #1 PDF (both surfaces) merged to `main`.
-- ✅ Reference frontend (every feature surfaced) + P6 security hardening merged.
-- ✅ Voucher/reference number `RC-YYYY-NNNN` — app code merged (PR #72). ⚠️ DB migration not yet applied live.
-- ✅ Live E2E verified end-to-end (2026-07-03).
-- 🔄 Mugi: production frontend (design → adapt).
-- ⏳ Receipt-image storage (Supabase Storage) — spec pending.
+## Feature status (M2, on `main`)
+- ✅ Phase 1 — identity foundation (users/sessions/scrypt auth + `scopeForUser`) (#108)
+- ✅ Phase 2 — provisioning (bootstrap-admin CLI + branch/staff routes) (#112)
+- ✅ Phase 3 — branch/staff master-view, clerk scope, Excel Branch/Staff columns + receipt-image embed (#113/#114/#116)
+- ✅ Phase 4 — staff-first anomaly valve + payments + chunked bulk mark-paid (#117)
+- ✅ Phase 5 — business Telegram bot (binding, staff-tag picker, branch-scoped flows) + FieldSpec categories/ZDR knob (#121/#123)
+- ✅ Phase 6 — business login + role-aware shell + payment tabs / excel-lite grid (#118/#120)
+- ✅ Phase 7 — capability profiles + Send-to-Admin branch submission (ADR-022) (#122)
+- ✅ Phase 8 — company dimension (Group→Company→Branch→Staff) (#125)
+- ✅ Phase 9 — petty-cash floats + claim engine (#126)
+- ✅ Phase 10 — Petty Cash Monthly Statement, dual xlsx/pdf export (#127)
+- ✅ DB-layer isolation: `scopeEq` company_id **null-tolerant** filter + write-path stamping (#134, closed #133); route `req.scope` wiring (#132)
+- 🔄 Business Today's Bills: staff-name lines + single-Delete-by-number (#139, in review)
+- ⏳ Groq ZDR enablement (ops, remaining #107 slice)
 
 ## Blockers
 | Blocker | Owner | Status |
 |---|---|---|
-| **Voucher DB migration not applied live.** `db/2026-07-03-voucher-reference-number.sql` merged into `schema.sql` but not yet run on `xurnpvesgcybrnilxszf`. J1's Supabase MCP only reaches the FrictionAI parent (`fziaxuhonvrhqjulhcyu`), not this project — needs someone with SQL Editor access. Idempotent, safe to re-run. | Barat/Jeevan | pending manual SQL run |
-| **Data question: `M/S Cash` row.** A `M/S Cash` row (created 2026-07-03T14:53) is live with `status=saved`, `deleted_at=null`, but a prior WORKLOG entry claims an `M/S Cash` junk row was soft-deleted. Either a second row exists or the soft-delete didn't take. Not touched — financial data, needs Owner confirmation. | Owner | needs confirmation |
-| **LAUNCH GATE (ADR-015):** no real (non-Owner) user onboarded until every secret is rotated post-dev-exposure AND Jeevan holds an independent Supabase backup outside Barat's account. `DASHBOARD_TOKEN` rotated 2026-07-03; Groq/Supabase keys still owe rotation before real customers. | Owner/Barat | tracked, blocks real-user launch |
-| Non-blocking hardening: categorizer (#14), `/api/templates` label sanitization (#17), exceljs `uuid` bump (#20) | Jeevan | tracked, non-blocking |
-| Mugi GitHub username (to add as collaborator) | Jeevan | needed when Mugi starts pushing |
+| **LAUNCH GATE (ADR-015):** no real (non-Owner) user onboarded until every secret is rotated post-dev-exposure AND an independent Supabase backup exists outside Barat's account. `DASHBOARD_TOKEN` rotated; **Groq/Supabase keys still owe rotation** before real customers. | Owner/Barat | blocks real-user launch |
+| **Groq Zero-Data-Retention** not yet enabled on the business/Premala Groq account (regulated-client requirement; the OCR-provider knob to swap to Azure/Bedrock/Vertex is already in code, #123). | Owner/Barat | pre-live ops |
+| **First validated deploy** of Premala to an always-on HTTPS host — artifacts + runbook ready (#137), but no deploy has been run/verified end-to-end yet. | Barat/Jeevan | pre-live ops |
+| **Legacy `company_id` backfill:** rows created before Phase 8 have `company_id = null`; #134's filter is null-tolerant so they stay visible, but a future **company-scoped-only role** needs the backfill first (see #134 / closed #133). | Barat/Jeevan | tracked, not yet needed |
+| **Data question: `M/S Cash` row** (from M1, 2026-07-03) — a live `status=saved` row vs a WORKLOG soft-delete claim. Financial data, untouched. **Carry-forward — verify still relevant.** | Owner | needs confirmation |
+| Non-blocking hardening: categorizer (#14), `/api/templates` label sanitize-at-render (#17), per-image Telegram links (#31, Jeevan lane) | Jeevan | tracked, non-blocking |
 
-## GOTCHAs (carry forward)
+## GOTCHAs (carry forward — all still valid)
 - **`.env` in the repo root holds LIVE Supabase/Groq secrets** — always `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail (pure env contamination).
-- **`npm install` before diagnosing "post-merge" test failures** — a dep added to `main` after your branch forked leaves `node_modules` stale.
-- Auto-mode classifier **blocks self-authored PR merges** — Owner must direct each one, or do a full read-diff+test review first.
-- Correct Supabase project for THIS app = `xurnpvesgcybrnilxszf`. The FrictionAI parent `fziaxuhonvrhqjulhcyu` is a DIFFERENT db (different schema) — don't confuse them.
+- **`npm install` before diagnosing "post-merge" test failures** — a dep added to `main` after your branch forked (e.g. `pdfkit` for #127) leaves `node_modules` stale.
+- **Never self-merge** — auto-mode classifier blocks self-authored PR merges; Tier-2 (auth/isolation) code needs an independent reviewer regardless. Owner/Jeevan direct each merge.
+- Correct Supabase project for THIS app = the per-client instance (e.g. Premala `xurnpvesgcybrnilxszf`). The FrictionAI parent `fziaxuhonvrhqjulhcyu` is a DIFFERENT db — don't confuse them.
+- **Personal vs business must never clash** — business behaviour is gated behind BOTH `capabilities.multiUser` and a resolved `binding`; keep the personal-mode regression tests green.
 
 ## Not doing yet
-Business-account / multi-tenant layer (M2 — deferred until Owner signs off personal), billing, hosting/deploy, observability (P7), AI eval gate (P8).
+Billing/subscriptions, multi-instance fleet management, AI eval gate (P8), Sentry/APM (observability Phase 2, deferred behind an ADR). M2 itself is no longer "deferred" — it is built and in pre-live for the first client.
