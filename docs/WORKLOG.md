@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-ledger-refresh — DOCS: refresh the stale MEMORY_LEDGER (lean-context memory hygiene)
+- **Files:** `MEMORY_LEDGER.md`, this WORKLOG. Docs-only, no code.
+- **What:** the lean-context durable memory (loaded first each session) was stale from 2026-07-01 ("P4, 150 tests, no remote/commit yet, no open PRs"). Refreshed to current reality: corrected the remote/CI/merge-governance line; **added the session's hard-won GOTCHAS** (`.env` move-aside for tests; **Supabase MCP reaches the FrictionAI parent, NOT the live Premala instance — apply schema via SQL Editor, verify project ref before any DB write**; WORKLOG append-only prepend-conflict pattern; the M2 `scopeForUser`/`scopeEq`/`scopeOr` isolation contract). Replaced the two verbose 07-01 status blocks with **one compact current status** (M2 + operationalisation shipped; 1515 tests; remaining = ops-deploy actions; open PRs #139/#140). Net +2 lines — kept compact (pruned as I added).
+- **What's next:** Owner names the merge (docs-only). Nothing else on this thread.
+- **Assumptions:** none — a factual sync of memory to the merged state of `main` as of this session.
+
+---
+
 ## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-ops-docs-closeout — DOCS: ADR-026 (error tracking) + refresh the stale 16-layer completeness audit
 - **Files:** `docs/DECISIONS.md` (**ADR-026** — error tracking, #12 Phase 2), `docs/SYSTEM_COMPLETENESS.md` (refreshed #7/#8/#12/#13 rows + test count + bottom line), this WORKLOG. Docs-only, no code.
 - **What:** (1) **ADR-026** records the #12 Phase-2 decision so it isn't re-litigated: default to **platform log-drain** of the Phase-1 structured JSON lines (**no new dependency**, aggregation out-of-process, inherits ADR-002 scrub-by-construction); **Sentry stays opt-in, `SENTRY_DSN`-gated, default OFF** (lazy require → base image dep-free unless a client enables it), per-client project (ADR-020), with a **mandatory `beforeSend` PII scrub** (`sendDefaultPii:false` + the `lib/log.js` allow-list) gated by a test if ever wired. No code lands — it's the approach on record. (2) **Refreshed the 16-layer audit**, stale since 07-05: **#8 CI ❌→✅** (I proved `ci.yml` already exists), **#7 hosting ❌→🟡** (artifacts+runbook shipped #137; first validated deploy still pending), **#12 🟡 improved** (Phase-1 logs #138 + ADR-026), **#13 ❌→🟡** (`/health`+`/ready` #138; external monitor is an ops step), test count 1059→1515, bottom line reframed: operationalisation is no longer a *build* phase but an **ops/deploy** phase (one gating action = a first validated per-client deploy).
