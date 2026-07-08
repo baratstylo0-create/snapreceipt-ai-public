@@ -6,6 +6,19 @@
 > Feeds **ADR-025**. Applies to the M2 business layer (ADR-021/022/023) and every client deployment.
 > **Rule:** this is a **launch gate** — no paying-client instance goes live until the ⚠️ items below are closed.
 
+> ## ✅ Verification pass — 2026-07-08 (re-audited against live `main`, not the 07-07 checkboxes)
+> Re-checked every launch-gate item against the actual merged code (post #131/#132/#134/#137/#138). **All
+> code-layer launch-blockers are now CLOSED** (several were already done when 07-07 marked them ⚠️):
+> **SEC-1** ✅ `passwordPolicy()` (`lib/branches.js` — min 10, letters+digits, rejects trivial) on every
+> admin-set/reset · **SEC-2** ✅ `scopeForUser` on every business route + isolation tests (#131/#132/#134) ·
+> **SEC-3** ✅ magic-byte type sniff + private bucket + UUID paths (`lib/storage.js`) · **SEC-4** ✅ only
+> `localStorage` left is a UI colour preference, no financial data · **SEC-5** ✅ `PERIOD_RE`/`isFiniteNum`/
+> admin-only guards on M2 writes; `payment_status` admin-only · **SEC-6** ✅ **central security-event log**
+> (`lib/security-events.js` + `logSecurity` — auth_fail/scope_deny/rate_limit, no PII) · **SEC-7** ✅ limiter
+> on every M2 route (6/6 verified) · **SEC-8** ✅ RLS on **13/13** tables, zero permissive anon/public policy ·
+> **SEC-9** ✅ `npm audit` in CI. **SEC-10** (JWT-scoped RLS) remains a non-blocking roadmap belt.
+> **Remaining gates are OPERATIONAL, not code:** HTTPS-in-prod (deploy), Groq ZDR, secret rotation.
+
 ## 0. Posture in one paragraph
 The system is already **security-forward**: server-side-only DB access with the service-role key (browser
 never touches Supabase), a fail-closed auth gate, per-IP rate limiting, a strict no-inline CSP, generic
@@ -103,18 +116,20 @@ branch revoke). → **SEC-6**. Full log-aggregation + alerting is the operationa
 #12/#13, `docs/SYSTEM_COMPLETENESS.md`).
 
 ## 7. Hardening backlog (the launch-gate checklist — folded into the plan as a Security Gate)
-| ID | Item | Owner | Blocks live? |
-|---|---|---|---|
-| SEC-1 | Password min-policy on admin-set/reset (`lib/auth.js`) | Jeevan | yes |
-| SEC-2 | Server-side role gating + `scopeForUser` on every business route + **isolation tests** | Jeevan (+Barat scope hook) | **yes** |
-| SEC-3 | File-upload magic-byte/content-type validation + store to private bucket (ADR-018), signed/proxied reads | Jeevan/Barat | yes |
-| SEC-4 | Business offline-cache: gate `localStorage` expense cache off under `multiUser`, clear on logout | Jeevan | yes |
-| SEC-5 | Server-side validation for all M2 writes (float numeric, period `YYYY-MM`, name caps, `payment_status` admin-only) | Jeevan | yes |
-| SEC-6 | Security event logging (no PII) | Jeevan | recommended |
-| SEC-7 | Rate limiter on every M2 route (generous env defaults) | Jeevan/Barat | yes |
-| SEC-8 | `enable row level security` on **every** new M2 table (companies/floats/cash_in/…) | Jeevan | **yes** |
-| SEC-9 | `npm audit` (dependency scan) in CI + package updates | Jeevan (CI) | recommended |
-| SEC-10 | JWT-scoped RLS (belt-and-suspenders over app-side scope) | Jeevan/Barat | roadmap |
+| ID | Item | Owner | Blocks live? | Status (verified 2026-07-08) |
+|---|---|---|---|---|
+| SEC-1 | Password min-policy on admin-set/reset | Jeevan | yes | ✅ `passwordPolicy()` `lib/branches.js` (min 10, letters+digits, rejects trivial) |
+| SEC-2 | Server-side role gating + `scopeForUser` on every business route + **isolation tests** | Jeevan (+Barat scope hook) | **yes** | ✅ scope bouncer + wiring #131/#132 + null-tolerant company filter #134; isolation tests green |
+| SEC-3 | File-upload magic-byte/content-type validation + private bucket (ADR-018), signed/proxied reads | Jeevan/Barat | yes | ✅ `lib/storage.js` `extOf()` magic bytes, UUID paths, private `receipts` bucket, service-role-only reads |
+| SEC-4 | Business offline-cache: no financial data at rest in the browser | Jeevan | yes | ✅ only `localStorage` left = UI colour prefs (`ov_category_colors`); no expenses cached |
+| SEC-5 | Server-side validation for all M2 writes (float numeric, period `YYYY-MM`, name caps, `payment_status` admin-only) | Jeevan | yes | ✅ `PERIOD_RE`/`isFiniteNum`/admin guards (`routes/pettyCash.js`); `payment_status` admin-only (`routes/expenses.js:148`) |
+| SEC-6 | Security event logging (no PII) | Jeevan | recommended | ✅ **central middleware** `lib/security-events.js` + `logSecurity` — auth_fail/scope_deny/rate_limit, method/path/status/ip only |
+| SEC-7 | Rate limiter on every M2 route (generous env defaults) | Jeevan/Barat | yes | ✅ limiter present in all M2 route files (branches/companies/submissions/pettyCash/statement/auth) |
+| SEC-8 | `enable row level security` on **every** new M2 table | Jeevan | **yes** | ✅ **13/13** tables `enable row level security`; zero permissive anon/public policy |
+| SEC-9 | `npm audit` (dependency scan) in CI + package updates | Jeevan (CI) | recommended | ✅ `npm audit` step in `.github/workflows/ci.yml` |
+| SEC-10 | JWT-scoped RLS (belt-and-suspenders over app-side scope) | Jeevan/Barat | roadmap | ⬜ roadmap (non-blocking; app-side bouncer + physical silo isolation cover it today) |
+
+**Operational gates still open (not code):** HTTPS-in-prod (deploy/#7), Groq ZDR, secret rotation (ADR-015). These are the only remaining launch-gate items.
 
 ## 8. 16-layer status (delivered-system completeness)
 12/16 solid (`docs/SYSTEM_COMPLETENESS.md`); this doc reinforces **auth/security/rate-limiting/testing**.
