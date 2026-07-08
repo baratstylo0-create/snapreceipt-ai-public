@@ -90,7 +90,12 @@ test('tryResolveRemark: two pending rows for one chat -> resolves the OLDEST fir
 // --- Full handleUpdate integration ---
 
 test('handleUpdate: plain text resolves a pending remark and does NOT fall through to the generic fallback reply', async () => {
-  const { deps, sent, updateCalls } = baseDeps({ sbSelect: async () => [AWAITING_ROW] });
+  // Full handleUpdate now also runs tryResolveDate (issue #149) BEFORE tryResolveRemark in
+  // the dispatch chain — filter by the status the real DB query would use, so this fake
+  // only answers the remark gate's lookup, exactly like a real per-status query would.
+  const { deps, sent, updateCalls } = baseDeps({
+    sbSelect: async (table, opts) => (opts && opts.eq && opts.eq.status === 'awaiting_remark') ? [AWAITING_ROW] : [],
+  });
   await handleUpdate({ message: { chat: { id: 100 }, from: { first_name: 'A' }, text: 'client dinner' } }, deps);
   assert.strictEqual(updateCalls.length, 1);
   assert.strictEqual(sent.length, 1, 'only the remark confirmation is sent, not also the generic fallback');

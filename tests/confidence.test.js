@@ -70,3 +70,27 @@ test('garbage and malformed values stay low (never high by accident)', () => {
   assert.strictEqual(c.perField.remark, 'low');
   assert.strictEqual(c.flagged, true); // required merchant/amount/date are low
 });
+
+// Issue #149 (live Premala QA): a faded/garbled date is a NON-EMPTY string the model
+// returned, but it isn't actually a date — isPresent used to treat any non-empty string
+// as 'high', so lib/money.js's normaliseDate() would silently rewrite it to today with
+// no flag at all. It must now score 'low' so the existing needs_review/⚠️ path fires.
+test('isPresent: a non-empty but unparseable date string is low, not high (issue #149)', () => {
+  assert.strictEqual(isPresent('totally illegible', 'date'), false);
+  assert.strictEqual(isPresent('????', 'date'), false);
+});
+
+// The flip side: a date that's non-ISO/non-DD-MM-YYYY but STILL genuinely readable
+// (a trailing OCR timestamp) must stay 'high' — the model DID read it correctly.
+test('isPresent: a date with a trailing timestamp is still high (issue #149)', () => {
+  assert.strictEqual(isPresent('30/06/2026 12:46:53', 'date'), true);
+});
+
+// Amount parity (issue #149 asked to double-check this): a garbled/non-numeric amount
+// was already correctly low BEFORE this fix — isPresent checks the RAW value with the
+// same Number() cast coerce() uses, so an unreadable amount never scored high by
+// accident. Locking it in as a regression guard, not a behaviour change.
+test('isPresent: a garbled non-numeric amount is low (already-correct parity check, issue #149)', () => {
+  assert.strictEqual(isPresent('RM1O.5O', 'currency'), false); // letter-O instead of zero
+  assert.strictEqual(isPresent(undefined, 'currency'), false);
+});

@@ -314,3 +314,38 @@ test('a saved (non-skipped) receipt has no skipReason key', async () => {
   const { skipReason } = await assembleExpense(goodInput(), deps());
   assert.strictEqual(skipReason, undefined);
 });
+
+// Issue #149 (live Premala QA): the exact reported bug, at the pipeline level. A real
+// receipt's date carried a trailing OCR timestamp — merchant/amount/currency/category all
+// read fine, but the date came out as today with NO signal that anything was wrong. This
+// locks the fix: (a) the trailing-time date now parses correctly (money.js), and (b) a
+// GENUINELY garbled date correctly scores low/flagged (confidence.js) instead of silently
+// passing — lib/ocr.js's expenseFromPhoto uses this exact conf.perField.expense_date
+// signal to decide whether to ask the user (see tests/bot.dateask.test.js for that half).
+test('#149: a trailing-timestamp date parses correctly and scores high (the exact reported bug)', async () => {
+  // fields.expense_date mirrors what coerce()/normaliseDate() would ALREADY have produced
+  // upstream in the real pipeline (extractReceipt runs coerce before assembleExpense sees
+  // it) — rawParsed carries the model's raw string, used only for confidence scoring here.
+  const { normaliseDate } = require('../lib/money');
+  const raw = '30/06/2026 12:46:53';
+  const input = goodInput({
+    fields: { expense_date: normaliseDate(raw) },
+    rawParsed: { merchant: 'Acme', amount: '100', expense_date: raw },
+  });
+  const { expense, conf } = await assembleExpense(input, deps());
+  assert.strictEqual(expense.expense_date, '2026-06-30', 'must use the real receipt date, not fall back to today');
+  assert.strictEqual(conf.perField.expense_date, 'high', 'the model DID read this correctly — must not be flagged');
+});
+
+test('#149: a genuinely unreadable date scores low/flagged instead of silently defaulting to today', async () => {
+  const { normaliseDate } = require('../lib/money');
+  const raw = 'totally illegible';
+  const input = goodInput({
+    fields: { expense_date: normaliseDate(raw) },
+    rawParsed: { merchant: 'Acme', amount: '100', expense_date: raw },
+  });
+  const { expense, conf, flagged } = await assembleExpense(input, deps());
+  assert.strictEqual(expense.expense_date, require('../lib/money').todayISO(), 'storage still falls back to today (unchanged behaviour)');
+  assert.strictEqual(conf.perField.expense_date, 'low', 'but confidence must now catch it');
+  assert.strictEqual(flagged, true, 'expense_date is required -> must flag for review/ask');
+});

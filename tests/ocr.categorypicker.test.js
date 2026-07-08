@@ -3,7 +3,7 @@
 // 2026-07-03). No network — buildCategoryKeyboard/categoryPromptText are hermetic.
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCategoryKeyboard, categoryPromptText, editCategoryKeyboard, PENDING_CATEGORY } = require('../lib/ocr');
+const { buildCategoryKeyboard, categoryPromptText, editCategoryKeyboard, datePromptText, PENDING_CATEGORY } = require('../lib/ocr');
 const { CATEGORIES } = require('../lib/categorize');
 
 test('buildCategoryKeyboard: every real category gets a button, Others is always last on its own row', () => {
@@ -73,4 +73,18 @@ test('editCategoryKeyboard: exactly one button, correct callback_data prefix', (
 test('editCategoryKeyboard: callback_data stays well under Telegram\'s 64-byte limit for a real UUID', () => {
   const kb = editCategoryKeyboard('a'.repeat(36));
   assert.ok(Buffer.byteLength(kb.inline_keyboard[0][0].callback_data, 'utf8') <= 64);
+});
+
+// --- datePromptText (issue #149 part 2): the "I couldn't read the date clearly" ask,
+// mirroring categoryPromptText's style/tone. ---
+
+test('datePromptText: mentions the merchant and amount, and asks for DD/MM/YYYY', () => {
+  const text = datePromptText({ merchant: 'Bonda KL', amount: 183.65, currency: 'MYR' });
+  assert.match(text, /Bonda KL/);
+  assert.match(text, /183\.65|183\.7|184/); // fmtMoney rounding-tolerant
+  assert.match(text, /DD\/MM\/YYYY/);
+});
+
+test('datePromptText: does not throw on a missing merchant', () => {
+  assert.doesNotThrow(() => datePromptText({ amount: 10, currency: 'USD' }));
 });
