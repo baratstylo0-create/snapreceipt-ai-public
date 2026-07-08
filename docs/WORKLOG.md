@@ -4,8 +4,8 @@
 
 ---
 
-## 2026-07-08 · Claude (for Barat) · docs/barat-status-refresh — DOCS: bring STATUS.md back in line with reality (was ~15 PRs stale)
-- **Files:** `docs/STATUS.md` (rewritten), this WORKLOG. Docs-only, no code.
+## 2026-07-08 · Claude (for Barat) · docs/barat-status-refresh — DOCS: refresh STATUS.md + M2 final-test checklist (pre-live readiness)
+- **Files:** `docs/STATUS.md` (rewritten), `docs/qa/2026-07-08-m2-final-test-checklist.md` (**new** — runnable E2E test plan for today's final test: setup gaps, business bot clerk/admin flows, isolation checks, petty-cash statement, M1 regression, pre-launch gates), this WORKLOG. Docs-only, no code.
 - **What:** `STATUS.md` still described the **pre-M2 world** — "M2 DEFERRED", "775 passing", M1-personal phase, Mugi just starting, voucher-migration blocker. Reality (reconciled against `git log`/`gh pr list`/WORKLOG, not the stale copy): **M2 Phases 1–10 are merged** (#105–#138), the **first client (Premala) is provisioned end-to-end** (#130/#135), suite is **~1500+**. Refreshed every section: current phase (M2 built → pre-live hardening), sprint goal (merge #139, then pre-live OPS: secret rotation / Groq ZDR / deploy / uptime), who's-on-what (Barat = scope+bot incl. #134/#139; Jeevan = route wiring #131/#132 + ops #130/#135/#137/#138; Mugi = frontend), M2 feature table, blockers (launch gate, ZDR, first deploy, legacy company_id backfill), and GOTCHAs (kept + added never-self-merge and personal/business-no-clash). Financial `M/S Cash` data question carried forward as "verify still relevant" rather than dropped.
 - **What's next:** Owner/Jeevan merge (docs-only; not self-merging). Keep STATUS current as Premala goes live. No behaviour change, no tests affected.
 - **Assumptions:** exact `main` test count stated as "~1500+" with a pointer to per-branch WORKLOG figures rather than a number I didn't run on `main` this session; every "done/merged" claim is grounded in the merged-PR list, not memory.
