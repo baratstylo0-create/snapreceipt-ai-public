@@ -120,6 +120,13 @@ test('rejects invalid input', () => {
   assert.throws(() => parseTemplate(tooMany), /too many columns/);
 });
 
+test('rejects a header carrying a lossy-decoded U+FFFD replacement char (issue #17)', () => {
+  // Simulates what body-parser hands us once invalid UTF-8 bytes have already
+  // been lossily decoded -- the raw bytes are gone, only the replacement char
+  // survives. parseTemplate must reject rather than silently store it.
+  assert.throws(() => parseTemplate('Vendor�,Date,Amount'), /invalid\/malformed text encoding/);
+});
+
 test('DEFAULT_COLUMNS is a valid FieldSpec.columns shape', () => {
   assert.ok(Array.isArray(DEFAULT_COLUMNS) && DEFAULT_COLUMNS.length > 0);
   const types = new Set(['text', 'date', 'number', 'currency', 'category']);
