@@ -8,6 +8,7 @@ const { cfg, assertConfig, configSummary } = require('./lib/config');
 const { registerWebhook } = require('./lib/telegram');
 const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
+const securityEvents = require('./lib/security-events'); // SEC-6 security-event logging (ADR-025)
 const { logError } = require('./lib/log'); // #12 structured error logging
 
 const mountWebhook = require('./routes/webhook');
@@ -40,6 +41,9 @@ app.use(securityHeaders);
 // CORS preflight (issue #53) — answers OPTIONS on /api/* + /receipt before any route/auth
 // runs, so a cross-origin dashboard deploy (DASHBOARD_ORIGIN set) actually works.
 app.use(corsPreflight);
+// SEC-6 (ADR-025): mounted early so its res-'finish' hook observes every request's final
+// status; logs auth failures / scope denials / rate-limit trips (no PII). See lib/security-events.js.
+app.use(securityEvents);
 mountWebhook(app);
 mountAuth(app);
 mountBranches(app);
