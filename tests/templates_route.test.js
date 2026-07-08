@@ -253,10 +253,13 @@ test('QA: an embedded NUL/control byte in a header is STRIPPED at the boundary (
   });
 });
 
-test('QA: invalid (non-UTF-8) byte sequences in the body are lossily decoded and persisted, not rejected', async () => {
-  // Sending raw invalid UTF-8 bytes gets silently decoded to U+FFFD
-  // replacement characters and stored -- no validation/rejection of malformed
-  // text encoding happens at the boundary.
+test('QA: invalid (non-UTF-8) byte sequences in a header are REJECTED at the boundary (fix, remaining part of #17)', async () => {
+  // UPDATED 2026-07-08 (Barat, #17 follow-up): body-parser lossily decodes invalid
+  // UTF-8 lead/continuation bytes to U+FFFD replacement characters BEFORE
+  // parseTemplate ever sees a string -- the raw bytes are gone by then. Rather than
+  // silently persisting the lossy result, parseTemplate now treats any U+FFFD in a
+  // header as a sign of malformed input and rejects the request (400), same
+  // boundary-validation convention as the too-many-columns / empty-header checks.
   await withServer(emptyDb, async (base) => {
     const buf = Buffer.from([0xFF, 0xFE, 0x41, 0x2C, 0x42, 0x2C, 0x43]); // invalid lead bytes + "A,B,C"
     const r = await fetch(base + '/api/templates', {
@@ -264,9 +267,9 @@ test('QA: invalid (non-UTF-8) byte sequences in the body are lossily decoded and
       headers: { 'Content-Type': 'text/csv; charset=utf-8' },
       body: buf,
     });
-    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.status, 400);
     const j = await r.json();
-    assert.ok(j.columns[0].label.includes('�'), 'expected lossy-decoded replacement character in the stored label');
+    assert.ok(!/�/.test(j.error || ''), 'error message must not itself carry the replacement char through');
   });
 });
 
