@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · docs/jeevan-ledger-refresh — DOCS: refresh the stale MEMORY_LEDGER (lean-context memory hygiene)
+- **Files:** `MEMORY_LEDGER.md`, this WORKLOG. Docs-only, no code.
+- **What:** the lean-context durable memory (loaded first each session) was stale from 2026-07-01 ("P4, 150 tests, no remote/commit yet, no open PRs"). Refreshed to current reality: corrected the remote/CI/merge-governance line; **added the session's hard-won GOTCHAS** (`.env` move-aside for tests; **Supabase MCP reaches the FrictionAI parent, NOT the live Premala instance — apply schema via SQL Editor, verify project ref before any DB write**; WORKLOG append-only prepend-conflict pattern; the M2 `scopeForUser`/`scopeEq`/`scopeOr` isolation contract). Replaced the two verbose 07-01 status blocks with **one compact current status** (M2 + operationalisation shipped; 1515 tests; remaining = ops-deploy actions; open PRs #139/#140). Net +2 lines — kept compact (pruned as I added).
+- **What's next:** Owner names the merge (docs-only). Nothing else on this thread.
+- **Assumptions:** none — a factual sync of memory to the merged state of `main` as of this session.
+
+---
+
 ## 2026-07-08 · Claude-J (Opus, fable-mode, for Jeevan) · ops/jeevan-observability-phase1 — observability Phase 1: #12 structured error logs + #13 /ready deep probe
 - **Files:** `lib/log.js` (**new**), `routes/misc.js` (**shared touch** — add `/ready`, announced per SOP §4.6), `server.js` (**shared touch** — wire structured error log into the global handler, announced), `.env.example` (`READY_RATE_MAX` documented), tests: `tests/log.test.js` (**new**, +6), `tests/ready.route.test.js` (**new**, +5). No `lib/*` owned by others edited (`lib/supabase.js`/`lib/ratelimit.js` import-only).
 - **What — the #12/#13 follow-ups from the operationalisation plan (#136), TDD (RED→GREEN watched).** (1) **#12 `lib/log.js`** — one parseable JSON line per event (`{ts,level,where,msg,…scalars}`) so a host's log aggregator can search/alert instead of scraping prose. **ADR-002 guardrails baked in:** `msg`/`where` length-capped, and any **nested-object** value in `extra` is **dropped** (so a caller can never accidentally log a request body / row / PII). Wired into `server.js`'s global error handler (`logError('unhandled', err, {status, method, path})`) — message + scalar route context only, never bodies. (2) **#13 `GET /ready`** — a **deep** readiness probe (vs `/health` liveness): confirms the Supabase data plane is reachable via a **PII-free** `voucher_counters` limit-1 select, returns `{ok, deps:{db}}` (200 up / 503 down) with **no data rows echoed**. Rate-limited (`READY_RATE_MAX`, default 60 — it touches the DB, SEC-7) and 3s-timeout-bounded (unref'd) so it can't hang. **Groq is deliberately NOT pinged** (polling would burn AI quota / risk 429; AI failures surface via #12 logs).
