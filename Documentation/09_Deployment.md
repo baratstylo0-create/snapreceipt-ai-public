@@ -34,6 +34,22 @@ A single **stateless Node.js (≥20) process** — all state in Supabase, so any
 3. **Set `PUBLIC_URL`** to the live HTTPS URL, redeploy → app auto-registers the Telegram webhook.
 4. **Verify (all four):** `/health` ok → `getWebhookInfo` shows the URL, no errors → send a receipt end-to-end → log in to the dashboard and see it.
 
+## Self-hosted VPS (self-signed cert)
+
+Render/Fly (above) cover a domain + a real, CA-trusted cert. A **self-hosted VPS with a self-signed cert** — Premala's live deployment (`docs/ops/2026-07-08-new-vps-deploy-record.md`) — is the **opposite** procedure, because Telegram will not trust a self-signed host unless the certificate itself is uploaded alongside the webhook URL.
+
+1. **Leave `PUBLIC_URL` empty.** The app's own auto-`registerWebhook()` sends a certless JSON `setWebhook` call, which would silently overwrite (and break) the cert-bearing webhook on every restart if `PUBLIC_URL` were set.
+2. **Register the webhook manually**, uploading the same `.pem` your reverse proxy (nginx) serves:
+   ```bash
+   curl -F "url=https://<host>/webhook" \
+        -F "certificate=@/etc/nginx/ssl/receipt.pem" \
+        -F "secret_token=<WEBHOOK_SECRET>" \
+        https://api.telegram.org/bot<BOT_TOKEN>/setWebhook
+   ```
+3. **Verify** the same way as the standard path (§4 above) — `getWebhookInfo` should show the URL with no errors.
+
+`npm run setup-webhook` / `registerWebhook()` as originally written send a certless JSON body and do **not** work for a self-signed host — that's why step 2 above is manual today. A follow-up (`WEBHOOK_CERT_PATH` env var, self-hosted-cert-aware `registerWebhook()`) codifies this same multipart upload so it no longer needs a manual `curl` — **Requires Manual Review** for current merge status.
+
 ## Notes
 - CI ≠ CD — tests run on every change; deploys are deliberate and on-demand.
 - Rotating the bot token breaks live receipt thumbnails — re-register the webhook after any change.
