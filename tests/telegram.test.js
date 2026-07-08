@@ -1,7 +1,11 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { tgSend, tgEditMessage, tgAnswerCallback } = require('../lib/telegram');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { tgSend, tgEditMessage, tgAnswerCallback, registerWebhook } = require('../lib/telegram');
+const { cfg } = require('../lib/config');
 
 // Stub global.fetch (tgSend -> hreq -> fetch). Each call returns the next queued
 // Telegram API body; records the request body sent so we can assert parse_mode.
@@ -116,4 +120,93 @@ test('tgAnswerCallback never throws on a network error (fetch rejects)', async (
   try {
     await assert.doesNotReject(() => tgAnswerCallback('cbid2'));
   } finally { global.fetch = realFetch; }
+});
+
+// registerWebhook: self-signed-host cert support. A self-signed VPS deploy needs the
+// cert uploaded WITH setWebhook (multipart `certificate` field) or Telegram refuses to
+// trust the host — a plain JSON body (the only path this used to have) silently doesn't
+// work there. These lock the new optional-cert-path behaviour without an env var.
+
+test('registerWebhook: no PUBLIC_URL -> skips without calling fetch', async () => {
+  const realFetch = global.fetch;
+  const realUrl = cfg.PUBLIC_URL;
+  cfg.PUBLIC_URL = '';
+  let called = false;
+  global.fetch = async () => { called = true; return { text: async () => '{}' }; };
+  try {
+    await registerWebhook();
+    assert.strictEqual(called, false, 'must not call fetch when PUBLIC_URL is unset');
+  } finally { global.fetch = realFetch; cfg.PUBLIC_URL = realUrl; }
+});
+
+test('registerWebhook: no cert path -> plain JSON setWebhook body (unchanged existing behaviour)', async () => {
+  const realFetch = global.fetch;
+  const realUrl = cfg.PUBLIC_URL;
+  const realSecret = cfg.WEBHOOK_SECRET;
+  cfg.PUBLIC_URL = 'https://example.com';
+  cfg.WEBHOOK_SECRET = 's3cret';
+  let captured;
+  global.fetch = async (_url, opt) => { captured = opt; return { text: async () => JSON.stringify({ ok: true }) }; };
+  try {
+    await registerWebhook();
+    assert.strictEqual(typeof captured.body, 'string', 'body must still be a plain JSON string with no cert path');
+    const body = JSON.parse(captured.body);
+    assert.strictEqual(body.url, 'https://example.com/webhook');
+    assert.strictEqual(body.secret_token, 's3cret');
+    assert.deepStrictEqual(body.allowed_updates, ['message', 'edited_message', 'callback_query']);
+  } finally { global.fetch = realFetch; cfg.PUBLIC_URL = realUrl; cfg.WEBHOOK_SECRET = realSecret; }
+});
+
+test('registerWebhook: cert path given -> uploads multipart/form-data with the certificate file', async () => {
+  const realFetch = global.fetch;
+  const realUrl = cfg.PUBLIC_URL;
+  const realSecret = cfg.WEBHOOK_SECRET;
+  cfg.PUBLIC_URL = 'https://31.97.70.50';
+  cfg.WEBHOOK_SECRET = 'hook-secret';
+  const certPath = path.join(os.tmpdir(), 'test-cert-' + Date.now() + '.pem');
+  fs.writeFileSync(certPath, '-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n');
+  let captured;
+  global.fetch = async (_url, opt) => { captured = opt; return { text: async () => JSON.stringify({ ok: true }) }; };
+  try {
+    await registerWebhook(certPath);
+    assert.ok(captured.body instanceof FormData, 'body must be sent as multipart FormData, not JSON, when a cert path is given');
+    assert.strictEqual(captured.body.get('url'), 'https://31.97.70.50/webhook');
+    assert.strictEqual(captured.body.get('secret_token'), 'hook-secret');
+    assert.deepStrictEqual(JSON.parse(captured.body.get('allowed_updates')), ['message', 'edited_message', 'callback_query']);
+    const certField = captured.body.get('certificate');
+    assert.ok(certField, 'certificate field must be present');
+    assert.ok((await certField.text()).includes('BEGIN CERTIFICATE'));
+  } finally {
+    global.fetch = realFetch; cfg.PUBLIC_URL = realUrl; cfg.WEBHOOK_SECRET = realSecret;
+    fs.unlinkSync(certPath);
+  }
+});
+
+test('registerWebhook: falls back to cfg.WEBHOOK_CERT_PATH when no explicit arg is passed', async () => {
+  const realFetch = global.fetch;
+  const realUrl = cfg.PUBLIC_URL;
+  const realCertCfg = cfg.WEBHOOK_CERT_PATH;
+  cfg.PUBLIC_URL = 'https://example.com';
+  const certPath = path.join(os.tmpdir(), 'test-cert-cfg-' + Date.now() + '.pem');
+  fs.writeFileSync(certPath, 'dummy');
+  cfg.WEBHOOK_CERT_PATH = certPath;
+  let captured;
+  global.fetch = async (_url, opt) => { captured = opt; return { text: async () => JSON.stringify({ ok: true }) }; };
+  try {
+    await registerWebhook(); // no arg -> must read cfg.WEBHOOK_CERT_PATH itself
+    assert.ok(captured.body instanceof FormData);
+  } finally {
+    global.fetch = realFetch; cfg.PUBLIC_URL = realUrl; cfg.WEBHOOK_CERT_PATH = realCertCfg;
+    fs.unlinkSync(certPath);
+  }
+});
+
+test('registerWebhook: never throws on a network error, cert path or not', async () => {
+  const realFetch = global.fetch;
+  const realUrl = cfg.PUBLIC_URL;
+  cfg.PUBLIC_URL = 'https://example.com';
+  global.fetch = async () => { throw new Error('ECONNRESET'); };
+  try {
+    await assert.doesNotReject(() => registerWebhook());
+  } finally { global.fetch = realFetch; cfg.PUBLIC_URL = realUrl; }
 });
