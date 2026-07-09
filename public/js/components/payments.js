@@ -78,13 +78,15 @@
 
   // --- Statement export pure logic (ADR-023/024 Phase 10 UI) -----------------
 
+  var statementBranchRequiredMessage = 'Statements are per-branch - pick a branch, or use Manage -> Export for all branches.';
+
   // statementReady({ month, branch }, isAdmin) -> { ok, reason? }. A clerk only needs a
   // month (the server hard-forces their own branch); an admin also needs a real branch
   // picked — 'All branches'/'unassigned' isn't a valid single-branch statement.
   function statementReady(opts, isAdmin) {
     opts = opts || {};
     if (!opts.month) return { ok: false, reason: 'Pick a month first.' };
-    if (isAdmin && (!opts.branch || opts.branch === 'unassigned')) return { ok: false, reason: 'Pick a branch first.' };
+    if (isAdmin && (!opts.branch || opts.branch === 'unassigned')) return { ok: false, reason: statementBranchRequiredMessage };
     return { ok: true };
   }
 
@@ -122,6 +124,51 @@
     return out;
   }
 
+  // optionModels(label, values, names) -> deterministic select options. The option value
+  // remains the stable id used by filters/API calls; names only affect the visible label.
+  function optionModels(label, values, names) {
+    var out = [{ value: '', label: label }];
+    var list = Array.isArray(values) ? values : [];
+    for (var i = 0; i < list.length; i++) {
+      var value = String(list[i]);
+      out.push({ value: value, label: value === 'unassigned' ? 'Unassigned' : (names && names[value]) || value });
+    }
+    return out;
+  }
+
+  // staffNameMapFromResponses([{ staff: [...] }]) -> { staff_user_id: display_name }.
+  // Mirrors Team's /api/branches/:id/staff source without coupling this view to team.js.
+  function staffNameMapFromResponses(responses) {
+    var names = {};
+    var list = Array.isArray(responses) ? responses : [];
+    for (var i = 0; i < list.length; i++) {
+      var staff = (list[i] && list[i].staff) || [];
+      for (var j = 0; j < staff.length; j++) {
+        var s = staff[j];
+        if (!s || s.id == null) continue;
+        var id = String(s.id);
+        names[id] = s.display_name || s.name || s.email || id;
+      }
+    }
+    return names;
+  }
+
+  function staffLookupBranchIds(rows, session) {
+    var seen = {};
+    var out = [];
+    function add(id) {
+      if (id == null || id === '' || id === 'unassigned') return;
+      id = String(id);
+      if (seen[id]) return;
+      seen[id] = true;
+      out.push(id);
+    }
+    var list = Array.isArray(rows) ? rows : [];
+    for (var i = 0; i < list.length; i++) if (list[i]) add(list[i].branch_id);
+    if (session) add(session.branch_id);
+    return out;
+  }
+
   // selectionSummary(rows, selectedIds) -> { count, total } for the sticky bar. Non-finite
   // amounts count toward `count` but contribute 0 to the money total (never a fake number).
   function selectionSummary(rows, selectedIds) {
@@ -147,7 +194,7 @@
     var Api = deps.Api, Escape = deps.Escape, Format = deps.Format || (typeof root !== 'undefined' && root.Format) || null;
     var isAdmin = !!(deps.session && deps.session.role === 'admin');
 
-    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, loaded: false, mySubmission: null };
+    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, staffNames: {}, loaded: false, mySubmission: null };
 
     var wrap = document.createElement('div');
     wrap.className = 'payments';
@@ -277,14 +324,10 @@
       // in the data; 'unassigned' groups untagged rows. Staff: distinct ids in the data.
       function fill(sel, label, values, names) {
         sel.textContent = '';
-        var all = document.createElement('option');
-        all.value = '';
-        all.textContent = label;
-        sel.appendChild(all);
-        values.forEach(function (v) {
+        optionModels(label, values, names).forEach(function (opt) {
           var o = document.createElement('option');
-          o.value = v;
-          o.textContent = v === 'unassigned' ? 'Unassigned' : (names && names[v]) || v;
+          o.value = opt.value;
+          o.textContent = opt.label;
           sel.appendChild(o);
         });
       }
@@ -295,7 +338,7 @@
         staff[r.staff_user_id == null || r.staff_user_id === '' ? 'unassigned' : String(r.staff_user_id)] = true;
       });
       fill(branchSel, 'All branches', Object.keys(branches).sort(), state.branchNames);
-      fill(staffSel, 'All staff', Object.keys(staff).sort(), null);
+      fill(staffSel, 'All staff', Object.keys(staff).sort(), state.staffNames);
       branchSel.value = state.branch;
       staffSel.value = state.staff;
     }
@@ -488,6 +531,19 @@
           }).catch(function () { /* names stay ids */ });
         });
       }
+      chain = chain.then(function () {
+        var branchIds = staffLookupBranchIds(state.rows, deps.session);
+        if (!branchIds.length) {
+          state.staffNames = {};
+          return null;
+        }
+        return Promise.all(branchIds.map(function (id) {
+          return Api.apiFetch('/api/branches/' + encodeURIComponent(id) + '/staff')
+            .catch(function () { return { staff: [] }; });
+        })).then(function (responses) {
+          state.staffNames = staffNameMapFromResponses(responses);
+        });
+      });
       return chain.then(function () { rebuildFilterOptions(); render(); refreshSubmissions(); })
         .catch(function () { Escape.setText(msg, 'Could not load expenses. Please try again shortly.'); });
     }
@@ -501,5 +557,7 @@
     mount: mount, filterRows: filterRows, selectionSummary: selectionSummary,
     submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
     statementReady: statementReady, statementUrl: statementUrl, statementExportRows: statementExportRows,
+    statementBranchRequiredMessage: statementBranchRequiredMessage,
+    optionModels: optionModels, staffNameMapFromResponses: staffNameMapFromResponses,
   };
 });
