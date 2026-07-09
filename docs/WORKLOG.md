@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-10 · Codex + Claude-J (for Jeevan) · qa/pr-f-ia — QA PR-F: Reports→Overview fold + Manage export trio
+
+- **Authored by GPT-5.5/Codex, finished + verified by Claude-J** (Owner-directed takeover; Codex rate-limited mid-PR). Codex's uncommitted WIP was preserved as commit `da3ea05` before Claude finished it.
+- **F1 (Codex):** Reports folded into Overview behind a **Summary | Trends** segmented toggle; the standalone Reports nav tab removed (`nav.js`). Trends reuses `reports.js` wholesale — period picker/charts/Export-to-Excel all intact. (`overview.js`, `nav.js`, `app.js`, `app.css`.)
+- **F2 (Codex):** new `routes/manageExport.js` — `POST /api/manage-export?format=csv|xlsx|pdf` re-fetches scope-filtered expenses and intersects by id (a tampered id list can't escape the caller's scope; rejected/deleted excluded). CSV has a receipt-URL column, xlsx a receipt hyperlink, **pdf reuses `lib/statementPdf.js`'s evidence-pack engine** (summary + one appended receipt page per row) — the Owner's petty-cash-summary sample shape. Three buttons wired into the Manage Data-editor grid (`grid.js`).
+- **Claude-J finish:** mounted the route in `server.js` (Codex left it unmounted → would 404); fixed the stale `tests/frontend/nav.test.js` section-list assertion (still expected the removed `reports` tab).
+- **Verified live (local, admin session):** Reports tab gone + Summary/Trends render + Trends shows full reports view (screenshots); `POST /api/manage-export?format=csv` → **200 `text/csv`** with columns Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL, scope/status filtering confirmed (3 ids in → 2 rows, rejected row correctly dropped). Suite **1644/1644** green (`.env` moved aside).
+- **Next:** QA Round doc B/C/D items still open — B9/B8 (rejected recategorise + permanent delete), B7 (recently-deleted bin), B4 (bulk select), C2 (multi-branch clerk), D10–D13 (Telegram). Plan authored by Claude for Sonnet to execute.
+
 ## 2026-07-10 · Codex (for Jeevan) · qa/pr-e-payments-fix — QA PR-E Payments fixes
 
 - **Files:** `public/js/components/payments.js`, `tests/frontend/payments.test.js`, `tests/statementPdf.test.js`.
