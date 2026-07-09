@@ -26,7 +26,7 @@ format **pending client samples**.
 |---|---|---|
 | **Live data** (rows-not-workbooks, ADR-021) | **Unchanged.** Every branch receipt flows into the one shared DB → admin's **reports/analysis are live**. | default M2 data layer |
 | **Live merged master workbook** | **OFF.** No all-branches-into-one live master spreadsheet. Admin's master file = their own Head-Office expenses. | `liveMasterMerge` = false |
-| **In-dashboard live cell editing** ("excel-lite") | **OFF.** | `excelLiteGrid` = false |
+| **In-dashboard live cell editing** ("excel-lite") | **ON** (Owner reversed the earlier OFF, 2026-07-09 — repeatedly requested). Lives as the **"Data editor (spreadsheet)"** sub-page of the **Manage** tab (dropdown), NOT a standalone tab. Read-only by default + an "Edit cells" toggle; search, pagination, category dropdown, CSV export. | `excelLiteGrid` = **true** |
 | **Document hand-off** | **ON** — clerk hits **"Send to Admin"** in the dashboard; their compiled branch export lands in the admin's dashboard (no more WhatsApp). | `branchSubmission` = true |
 | **Per-branch formatted Excel/PDF export** (receipts embedded → PDF, their layout) | **Pending samples** — build deferred. Foundation = Phase 3 receipt-image-in-Excel embed (ADR-018/021). | client-specific export task |
 
@@ -40,9 +40,15 @@ multiUser        = true    # branches + admin/clerk roles (M2)
 companyDimension = true    # Group → Company → Branch → Staff (ADR-023; Premala runs multiple companies)
 pettyCash        = true    # petty-cash floats + claim maths + Monthly Statement (ADR-023)
 liveMasterMerge  = false   # NO live all-branch master workbook
-excelLiteGrid    = false   # NO in-dashboard live cell editing
+excelLiteGrid    = true     # ON (2026-07-09, Owner) — the "Data editor" sub-page under Manage
 branchSubmission = true    # "Send to Admin" in-dashboard hand-off
 ```
+
+> **⚠️ OPS — live instances need the env flip too.** `excelLiteGrid` reads `CAP_EXCEL_LITE_GRID`
+> (`lib/account.js`). The repo's local `.env` was set to `true` on 2026-07-09; **each live instance's
+> `.env` (VPS) must be set `CAP_EXCEL_LITE_GRID=true` and the app restarted** for the Data editor
+> sub-page to appear there. Until that flip, the live dashboard shows only the Template & Categories
+> sub-page under Manage.
 
 Everything else = general product defaults (their template/categories/branding/currency configured at
 provisioning per ADR-020).
@@ -82,6 +88,20 @@ month) with **receipt snapshots appended**, exported as **both Excel and PDF**. 
   template import #109; floats per branch). We already learned the needed *shape* from the sample files.
   (Optional: we could pre-seed their instance at handoff for a smoother start, but it's not required and
   not a blocker.)
+- [x] **Categories imported (2026-07-09, Owner-directed).** The live instance's account-wide category set is
+  now the **Construction co.** 9-category chart of accounts (Petrol/Diesel, Touch-n-Go, Entertainment,
+  Printing & Stationery, Sundry, Travelling, Accommodation, Hardware & Loose Tools, Parking — `+Others`
+  auto-appended), applied via `saveTemplate()` (`lib/templates.js`), existing template columns left untouched.
+  **Known limitation, explicitly deferred (not a blocker):** the runtime only supports ONE account-wide
+  category set today — `companies.template_id` exists in schema (references `field_templates.id`) but
+  `getFieldSpec()` doesn't use it yet, so the **Trading co.** 5-category set (Tickets, Hotel, Food, Others,
+  Hardware(PPE) & Touch-n-Go) from the same sample batch is NOT wired in. Per-company category-set
+  resolution is a small, contained follow-up (`lib/templates.js` + the OCR-categorization + statement-export
+  call sites) whenever Trading co. is actually provisioned — not needed for the current customisation pass.
+- [x] **Category editor UI (2026-07-09).** The gap noted above (categories could only be changed via a
+  script) is closed — the **Manage** tab (`public/js/components/templates.js`) now has a "Category list
+  (chart of accounts)" section: add/remove/reorder rows, Save. Reuses the existing visual field builder's
+  exact CSS/interaction idioms; order matters (the Statement export numbers categories in this order).
 - [ ] **Operational pre-live only** (not build blockers): provision Premala's isolated instance (own
   Supabase project + Telegram bot token + Groq keys, ADR-015), enable **Groq ZDR**, apply migrations,
   hosting + HTTPS, run `setup-admin` (Phase 2 bootstrap) to mint the first admin.

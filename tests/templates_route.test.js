@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const express = require('express');
 const mountTemplates = require('../routes/templates');
+const { adminWriteOnly } = mountTemplates;
 
 // Spin up the route on an ephemeral port and hit it with real fetch (same shape
 // as tests/smoke.test.js). Supabase calls (getFieldSpec/saveTemplate -> REST) are
@@ -324,5 +325,125 @@ test('POST /api/templates JSON with a non-array categories is a 400 (reject-and-
     assert.strictEqual(r.status, 400);
     const j = await r.json();
     assert.match(j.error, /categories must be an array/);
+  });
+});
+
+// --- adminWriteOnly (2026-07-09, independent-review finding #3: ADR-021 HQ-owned template) ---
+
+test('adminWriteOnly: no scope (personal/static-token mode) -> next() called, no 403', () => {
+  let called = false;
+  adminWriteOnly({ scope: undefined }, { status() { throw new Error('must not respond'); } }, () => { called = true; });
+  assert.strictEqual(called, true);
+});
+
+test('adminWriteOnly: scope.role admin -> next() called', () => {
+  let called = false;
+  adminWriteOnly({ scope: { role: 'admin' } }, { status() { throw new Error('must not respond'); } }, () => { called = true; });
+  assert.strictEqual(called, true);
+});
+
+test('adminWriteOnly: scope.role clerk -> 403, next() never called', () => {
+  let called = false;
+  let sentStatus, sentBody;
+  const res = { status(s) { sentStatus = s; return { json(b) { sentBody = b; } }; } };
+  adminWriteOnly({ scope: { role: 'clerk' } }, res, () => { called = true; });
+  assert.strictEqual(called, false);
+  assert.strictEqual(sentStatus, 403);
+  assert.match(sentBody.error, /admin/i);
+});
+
+// Wiring proof: with a business session already resolved (req.scope set, as checkDashSession
+// would do), a clerk's real HTTP POST is rejected by the full route BEFORE any DB write.
+test('POST /api/templates: a clerk-scoped session is rejected end-to-end (403), no write attempted', async () => {
+  let dbWriteHappened = false;
+  const db = (_u, opt) => {
+    if ((opt.method || 'GET') !== 'GET') dbWriteHappened = true;
+    return { text: async () => '[]' };
+  };
+  const realFetch = global.fetch;
+  global.fetch = async (url, opt) => {
+    const u = String(url);
+    if (u.startsWith('http://127.0.0.1') || u.startsWith('http://localhost')) return realFetch(url, opt);
+    return db(u, opt);
+  };
+  const app = express();
+  app.use((req, res, next) => { req.scope = { account_id: 'default', role: 'clerk', branch_id: 'b1' }; next(); }); // simulates checkDashSession's business path
+  mountTemplates(app);
+  const server = app.listen(0);
+  const port = server.address().port;
+  try {
+    const r = await fetch('http://127.0.0.1:' + port + '/api/templates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv: 'Store,Date,Amount' }),
+    });
+    assert.strictEqual(r.status, 403);
+    assert.strictEqual(dbWriteHappened, false);
+  } finally { server.close(); global.fetch = realFetch; }
+});
+
+test('POST /api/templates: an admin-scoped session still succeeds end-to-end (200)', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url, opt) => {
+    const u = String(url);
+    if (u.startsWith('http://127.0.0.1') || u.startsWith('http://localhost')) return realFetch(url, opt);
+    return { text: async () => '[]' };
+  };
+  const app = express();
+  app.use((req, res, next) => { req.scope = { account_id: 'default', role: 'admin' }; next(); });
+  mountTemplates(app);
+  const server = app.listen(0);
+  const port = server.address().port;
+  try {
+    const r = await fetch('http://127.0.0.1:' + port + '/api/templates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv: 'Store,Date,Amount' }),
+    });
+    assert.strictEqual(r.status, 200);
+  } finally { server.close(); global.fetch = realFetch; }
+});
+
+// --- categories-only save (2026-07-09, independent-review finding #4) -----------------------
+
+test('POST /api/templates: JSON { categories } with NO csv -> categories-only save, columns untouched', async () => {
+  let written = null;
+  const db = (_u, opt) => {
+    const method = (opt && opt.method) || 'GET';
+    if (method === 'GET') {
+      return { text: async () => JSON.stringify([{ id: 'row1', columns: [{ key: 'merchant', label: 'Vendor', type: 'text', required: true }], categories: ['Fuel'], updated_at: 'old' }]) };
+    }
+    written = { method, body: opt.body ? JSON.parse(opt.body) : null };
+    return { text: async () => '' };
+  };
+  await withServer(db, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: ['Petrol/Diesel', 'Touch-n-Go'] }),
+    });
+    assert.strictEqual(r.status, 200);
+    const spec = await r.json();
+    assert.deepStrictEqual(spec.columns.map(c => c.key), ['merchant']); // the EXISTING column, echoed unchanged
+    assert.deepStrictEqual(spec.categories, ['Petrol/Diesel', 'Touch-n-Go', 'Others']);
+    assert.strictEqual(written.method, 'PATCH');
+    assert.ok(!('columns' in written.body), 'a categories-only save must never send a columns key');
+  });
+});
+
+test('POST /api/templates: { categories, csv } together still writes both (combined path unchanged)', async () => {
+  let written = null;
+  const db = (_u, opt) => {
+    const method = (opt && opt.method) || 'GET';
+    if (method === 'GET') return { text: async () => '[]' };
+    written = { method, body: opt.body ? JSON.parse(opt.body) : null };
+    return { text: async () => '' };
+  };
+  await withServer(db, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv: 'Vendor,Date,Amount', categories: ['Fuel'] }),
+    });
+    assert.strictEqual(r.status, 200);
+    assert.ok('columns' in written.body, 'a combined csv+categories save still writes columns');
+    assert.deepStrictEqual(written.body.categories, ['Fuel', 'Others']);
   });
 });

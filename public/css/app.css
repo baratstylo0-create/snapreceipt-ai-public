@@ -1316,6 +1316,26 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   background: var(--accent-strong);
 }
 
+/* --- Manage shell: sub-page dropdown + panels (2026-07-09) ----------------
+   The Manage view hosts sub-pages (template/category editor + the excel-lite Data
+   editor) chosen from a dropdown. Reuses the same select idiom as the Payments
+   filters (.pay-filter-*) so the control language stays consistent. */
+.manage-shell { display: flex; flex-direction: column; gap: 18px; }
+.manage-subnav {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.manage-subnav-label {
+  font-size: 12.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.manage-subnav-select {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.manage-panels { display: block; }
+.manage-panel[hidden] { display: none; }
+
 /* --- Manage: field-template import (Task E) ------------------------------- */
 .tp-root { display: flex; flex-direction: column; gap: 20px; }
 .tp-intro { margin: 0; }
@@ -1929,6 +1949,205 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .switch-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: var(--accent-contrast); border-radius: 50%; transition: transform 0.2s ease; box-shadow: var(--panel-shadow); }
 .switch input:checked ~ .switch-track { background: var(--accent); }
 .switch input:checked ~ .switch-knob { transform: translateX(18px); }
+
+/* --- Team: branches / staff / companies (M2 business layer) --- */
+.team { display: flex; flex-direction: column; gap: 18px; }
+.team-error { color: var(--clay); font-size: 13px; }
+
+.team-cred-panel {
+  background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.team-cred-title { font-weight: 700; color: var(--txt); font-size: 14px; }
+.team-cred-warn { font-size: 12.5px; color: var(--txt-soft); line-height: 1.6; }
+.team-cred-grid { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.team-cred-row { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.team-cred-label { min-width: 130px; font-weight: 600; color: var(--muted); }
+.team-cred-value { font-family: var(--font-mono, ui-monospace, monospace); color: var(--txt); word-break: break-all; }
+.team-cred-value--mono { font-size: 12px; }
+.team-cred-hint { font-size: 12px; color: var(--txt-soft); }
+.team-cred-link {
+  align-self: flex-start; font-size: 13px; font-weight: 700; color: var(--accent);
+  text-decoration: none; padding: 6px 0;
+}
+.team-cred-link:hover { text-decoration: underline; }
+
+.team-add-row, .team-companies { display: flex; flex-direction: column; gap: 8px; }
+.team-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.team-add-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.team-input {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; min-width: 160px;
+}
+.team-input--sm { min-width: 120px; padding: 6px 10px; font-size: 12.5px; }
+.team-form-status { font-size: 12px; }
+
+.team-company-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.team-company-chip {
+  font-size: 12px; color: var(--txt-soft); background: var(--sage-bg); border-radius: 999px; padding: 4px 12px;
+}
+
+.team-branches { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.team-branch-card {
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--teal);
+  border-radius: var(--radius-sm); box-shadow: var(--panel-shadow); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.team-branch-card.is-inactive { opacity: 0.55; }
+.team-branch-head { display: flex; flex-direction: column; gap: 2px; }
+.team-branch-name { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--txt); }
+.team-branch-clerk { font-size: 11.5px; color: var(--txt-soft); }
+.team-branch-remove {
+  align-self: flex-start; font-size: 11.5px; color: var(--muted); background: none; border: none;
+  cursor: pointer; padding: 0; text-decoration: underline;
+}
+.team-branch-remove:hover, .team-branch-remove.is-confirming { color: var(--clay); }
+
+.team-staff-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 6px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.team-staff-list { display: flex; flex-direction: column; gap: 4px; }
+.team-staff-empty { font-size: 12px; margin: 0; }
+.team-staff-row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--txt); }
+.team-staff-remove {
+  width: 20px; height: 20px; line-height: 1; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); cursor: pointer; font-size: 12px;
+}
+.team-staff-remove:hover, .team-staff-remove.is-confirming { color: #fff; background: var(--clay); border-color: var(--clay); }
+.team-staff-add { display: flex; gap: 6px; margin-top: 6px; }
+
+.team-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.team-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.team-btn--ghost { background: var(--panel); color: var(--muted); }
+.team-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+.team-btn--sm { padding: 5px 12px; font-size: 12px; }
+
+/* --- Payments: Pending/Paid tabs + bulk mark-paid (M2 business layer) ---
+   Pre-existing view (ADR-021 Phase 6) whose JS classes were never styled —
+   filters/table/tabs rendered as raw browser-default controls. Reuses the
+   EXACT SAME idioms already established elsewhere (no new visual language):
+   .pay-tabs/.pay-tab = .act-view-toggle/.act-view-btn's pill-toggle language;
+   filter inputs = .team-input; the table = .act-table's border/radius/panel
+   language (descendant th/td selectors since payments.js's cells carry no
+   per-element class); buttons = .team-btn/.set-btn. */
+.payments { display: flex; flex-direction: column; gap: 14px; }
+
+.pay-tabs {
+  display: inline-flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px; width: fit-content;
+}
+.pay-tab {
+  background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 999px;
+  padding: 6px 16px; font: inherit; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.pay-tab:hover { color: var(--txt); }
+.pay-tab.is-active { color: var(--accent-contrast); background: var(--txt); border-color: var(--txt); }
+body.theme-dark .pay-tab.is-active { color: var(--bg); }
+
+.pay-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.pay-filter-month, .pay-filter-branch, .pay-filter-staff {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+
+.pay-submission { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.pay-submission-msg { font-size: 13px; }
+.pay-send-btn, .pay-withdraw-btn {
+  padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line);
+}
+.pay-send-btn { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.pay-send-btn:disabled { opacity: 0.5; cursor: default; }
+.pay-withdraw-btn { background: var(--panel); color: var(--muted); }
+.pay-withdraw-btn:hover { color: var(--clay); border-color: var(--clay); }
+
+.pay-statement { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 0; }
+.pay-statement-label { font-size: 12.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.pay-statement-btn {
+  padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--panel); color: var(--accent);
+}
+.pay-statement-btn:hover { background: var(--accent); color: var(--accent-contrast); }
+.pay-statement-btn:disabled { opacity: 0.5; cursor: default; background: var(--panel); color: var(--accent); }
+.pay-statement-msg { font-size: 13px; }
+
+.pay-msg { font-size: 13px; }
+
+.pay-table-host { overflow-x: auto; border-radius: var(--radius-sm); }
+.pay-table {
+  width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.pay-table th, .pay-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.pay-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pay-table tbody tr:last-child td { border-bottom: none; }
+.pay-table tbody tr:hover { background: rgba(91, 157, 255, 0.06); }
+.pay-row-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+
+.pay-selection-bar {
+  position: sticky; bottom: 12px; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; background: var(--txt); color: var(--bg); border-radius: var(--radius-sm);
+  padding: 12px 18px; box-shadow: var(--shadow);
+}
+.pay-selection-label { font-weight: 600; font-size: 13.5px; }
+.pay-action-btn {
+  padding: 8px 18px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-contrast);
+}
+.pay-action-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* --- Ledger: the excel-lite grid, read-only-by-default with an Edit-cells toggle
+   (M2 business layer). Never had any CSS either (same pre-existing gap as Payments) —
+   built alongside the redesign this time. Reuses the exact same idioms already
+   established: toolbar buttons = .team-btn/.set-btn, badge = .concept-tag's pill
+   language, search input = .team-input, table = .pay-table/.act-table's border/
+   radius/panel language, pager = a slim variant of .pay-selection-bar. */
+.ledger { display: flex; flex-direction: column; gap: 12px; }
+
+.ledger-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ledger-badge {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); background: var(--line); border-radius: 999px; padding: 4px 12px;
+}
+.ledger-badge--edit { color: var(--moss); background: var(--moss-bg); }
+
+.ledger-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.ledger-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.ledger-btn--ghost { background: var(--panel); color: var(--muted); }
+.ledger-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+
+.ledger-search-row { display: flex; }
+.ledger-search {
+  width: 100%; max-width: 360px; padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+
+.ledger-msg { font-size: 13px; }
+
+.ledger-host { overflow-x: auto; border-radius: var(--radius-sm); }
+.ledger-table {
+  width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.ledger-table th, .ledger-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.ledger-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ledger-table tbody tr:last-child td { border-bottom: none; }
+.ledger-cell.is-editable { cursor: pointer; }
+.ledger-cell.is-editable:hover { background: rgba(91, 157, 255, 0.08); }
+.ledger-cell.is-editing { padding: 4px 8px; }
+.ledger-cell-input {
+  width: 100%; padding: 6px 8px; font: inherit; font-size: 13.5px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--accent); border-radius: 6px;
+}
+
+.ledger-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ledger-pager-info { font-size: 12px; color: var(--muted); }
+.ledger-pager-nav { display: flex; align-items: center; gap: 10px; }
+.ledger-pager-page { font-size: 12.5px; font-weight: 600; color: var(--txt); font-variant-numeric: tabular-nums; }
+.ledger-pager-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel);
+  color: var(--txt); cursor: pointer; font-size: 14px; line-height: 1;
+}
+.ledger-pager-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ledger-pager-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* --- Falc: floating assistant --- */
 .sora-perch { position: fixed; right: clamp(16px, 3vw, 30px); bottom: 24px; z-index: 96; }

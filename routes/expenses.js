@@ -5,6 +5,7 @@ const { cfg } = require('../lib/config');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
 const { hreq } = require('../lib/http'); // Phase 4 bulk-pay: chunked id=in.(…) PATCH (multi-row, unlike sbUpdate)
 const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
+const { getFieldSpec } = require('../lib/templates'); // read-only: the account's own chart of accounts
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sanitizeExpensePatch } = require('../lib/expenseValidation');
 const { getCapabilities } = require('../lib/account'); // ADR-010 flags (multiUser)
@@ -213,23 +214,38 @@ module.exports = function mountExpenses(app) {
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });
 
-  // `categories` (#6's real chart-of-accounts, lib/categorize.js CATEGORIES — single
-  // source of truth) lets the frontend build its filter/edit dropdowns + pill colours
-  // dynamically instead of keeping a second, driftable hardcoded copy (the bug that
-  // produced the Food/Petrol/Software/Inventory/Others vs. the real 18-category set).
+  // `categories` — the frontend's filter/edit dropdowns + pill colours. Prefers the
+  // ACCOUNT'S OWN chart of accounts (field_templates.categories, set via template
+  // import — the mechanism docs/clients/premala.md points to: "categories via
+  // template import", never hand-coded per client) over lib/categorize.js's generic
+  // CATEGORIES default. This was previously always the generic list regardless of
+  // what a client imported — a real gap: a client's own categories (e.g. Premala's
+  // "Touch n Go") could be imported and used for OCR categorisation (lib/categorize.js
+  // ALREADY preferred fieldSpec.categories there) but never actually showed up
+  // anywhere in the dashboard UI. getFieldSpec() failures fall back to the generic
+  // list rather than ever breaking /api/config, which most of the app depends on to boot.
   // multi_user (ADR-021 Phase 6): tells the frontend to show the username/password
   // login instead of the static token gate. Read per-request (not at mount) so a
   // flag flip takes effect on the next page load without a server rebuild.
   // excel_lite_grid / branch_submission (ADR-022 Phase 7): per-client profile flags the
   // frontend uses to include/exclude the Ledger section and the Send-to-Admin controls.
   // Display shaping only — the server enforces each capability on its own routes.
-  app.get('/api/config', (req, res) => {
+  app.get('/api/config', async (req, res) => {
     const caps = getCapabilities();
+    let categories = CATEGORIES;
+    try {
+      const spec = await getFieldSpec();
+      if (spec && Array.isArray(spec.categories) && spec.categories.length) categories = spec.categories;
+    } catch (e) { console.error('[api/config] getFieldSpec failed, using default categories:', e.message); }
     res.json({
-      auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories: CATEGORIES,
+      auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories,
       multi_user: !!caps.multiUser,
       excel_lite_grid: !!caps.excelLiteGrid,
       branch_submission: !!caps.branchSubmission,
+      // Public @handle, not a secret (BOT_TOKEN itself is never exposed here) — lets the
+      // Team view render a clickable t.me/<bot>?start=<code> bot-binding link. Empty when
+      // unset; the frontend falls back to showing the raw code.
+      bot_username: cfg.BOT_USERNAME || '',
     });
   });
 };

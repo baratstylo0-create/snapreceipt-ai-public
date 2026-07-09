@@ -342,3 +342,33 @@ test('fieldDisplayName: empty/garbage never throws, returns ""', () => {
   assert.strictEqual(Templates.fieldDisplayName(null), '');
   assert.strictEqual(Templates.fieldDisplayName({}), '');
 });
+
+// --- category editor (additive, ADR-021 chart of accounts) ------------------
+
+// --- namedCategoryNames (pure filter: trim + drop blank rows) --------------
+
+test('namedCategoryNames: trims and drops blank/whitespace-only entries, keeps order', () => {
+  const kept = Templates.namedCategoryNames(['  Petrol/Diesel  ', '', '   ', 'Entertainment']);
+  assert.deepStrictEqual(kept, ['Petrol/Diesel', 'Entertainment']);
+});
+
+test('namedCategoryNames: never throws on garbage input', () => {
+  assert.doesNotThrow(() => Templates.namedCategoryNames(null));
+  assert.doesNotThrow(() => Templates.namedCategoryNames(undefined));
+  assert.doesNotThrow(() => Templates.namedCategoryNames('garbage'));
+  assert.deepStrictEqual(Templates.namedCategoryNames(null), []);
+  assert.deepStrictEqual(Templates.namedCategoryNames(undefined), []);
+  assert.deepStrictEqual(Templates.namedCategoryNames('garbage'), []);
+  // null/undefined entries stringify to '' and drop; a stray non-string like 42 stringifies
+  // to '42' (a valid, non-blank category name) and is kept — same str() convention as
+  // fieldDisplayName/str() elsewhere in this file.
+  assert.deepStrictEqual(Templates.namedCategoryNames([null, undefined, 42, '  X  ']), ['42', 'X']);
+});
+
+test('namedCategoryNames: does NOT dedupe or cap — that stays server-side (sanitizeCategories)', () => {
+  assert.deepStrictEqual(Templates.namedCategoryNames(['Food', 'food', 'Food']), ['Food', 'food', 'Food']);
+});
+
+// columnsToCsvHeader was removed 2026-07-09 (independent-review finding #4): the categories-only
+// save no longer round-trips columns through the client at all — see routes/templates.js's
+// saveCategories path and tests/templates_route.test.js / tests/templates.categories.test.js.

@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const express = require('express');
 const mountExpenses = require('../routes/expenses');
 const { CATEGORIES } = require('../lib/categorize');
+const { cfg } = require('../lib/config');
 
 function get(app, path) {
   return new Promise((resolve, reject) => {
@@ -81,3 +82,62 @@ test('GET /api/config exposes the ADR-022 profile flags — defaults: grid ON, s
     }
   }
 });
+
+test('GET /api/config exposes bot_username (Team view deep-link) — fixed at process start like BOT_TOKEN, always a string, matches cfg', async () => {
+  const app = express();
+  mountExpenses(app);
+  const { json } = await get(app, '/api/config');
+  assert.strictEqual(typeof json.bot_username, 'string');
+  assert.strictEqual(json.bot_username, cfg.BOT_USERNAME);
+  // Never the raw token — only the public @handle is ever exposed here.
+  assert.strictEqual(json.bot_username.includes(cfg.BOT_TOKEN || ' no-token '), false);
+});
+
+// --- account-aware categories (docs/clients/premala.md: "categories via template
+// import" — a client's own chart of accounts, e.g. Premala's "Touch n Go", must
+// actually reach the dashboard once imported, not just the OCR categoriser which
+// already preferred it). Stubs the field_templates Supabase call the same way
+// tests/branches.route.test.js stubs /rest/v1/* — only that one table is faked;
+// everything else (including this test's own HTTP call to the express server)
+// passes through to the real fetch. ---
+
+// A syntactically valid FieldSpec.columns array — getFieldSpec() early-returns the
+// DEFAULT_COLUMNS/no-categories shape when columns is empty/invalid (lib/templates.js
+// isValidColumn), so the stub row needs real columns to ever reach the categories logic.
+const VALID_COLUMNS = [
+  { key: 'merchant', label: 'Merchant', type: 'text', required: true },
+  { key: 'amount', label: 'Amount', type: 'currency', required: true },
+];
+
+function withFieldSpecCategories(categories, fn) {
+  const realFetch = global.fetch;
+  global.fetch = async (url, opt = {}) => {
+    const u = String(url);
+    if (!u.includes('/rest/v1/field_templates')) return realFetch(url, opt);
+    return { text: async () => JSON.stringify([{ columns: VALID_COLUMNS, categories }]) };
+  };
+  return fn().finally(() => { global.fetch = realFetch; });
+}
+
+test('GET /api/config prefers the account\'s own field_templates.categories when set (Premala\'s real chart of accounts)', () => withFieldSpecCategories(
+  ['Petrol/Diesel', 'Touch n Go', 'Entertainment', 'Printing & Stationery', 'Sundry Expenses', 'Travelling Expenses', 'Accommodation', 'Hardware & Loose Tools', 'Parking Fee'],
+  async () => {
+    const app = express();
+    mountExpenses(app);
+    const { json } = await get(app, '/api/config');
+    // sanitizeCategories (lib/templates.js) always appends 'Others' when absent — the
+    // categorizer fallback + the picker's "type a note" escape hatch both assume it exists.
+    assert.deepStrictEqual(json.categories, [
+      'Petrol/Diesel', 'Touch n Go', 'Entertainment', 'Printing & Stationery', 'Sundry Expenses',
+      'Travelling Expenses', 'Accommodation', 'Hardware & Loose Tools', 'Parking Fee', 'Others',
+    ]);
+    assert.ok(!json.categories.every((c) => CATEGORIES.includes(c)), 'must be the account\'s own set, not the generic default');
+  },
+));
+
+test('GET /api/config falls back to the generic CATEGORIES when the account has no custom set (empty array)', () => withFieldSpecCategories([], async () => {
+  const app = express();
+  mountExpenses(app);
+  const { json } = await get(app, '/api/config');
+  assert.deepStrictEqual(json.categories, CATEGORIES);
+}));

@@ -21,6 +21,7 @@
   var TOKEN_KEY = 'dashboard_token';
   var THEME_KEY = 'theme';
   var AUTO_MODE_KEY = 'auto_mode';
+  var DEFAULT_VIEW_KEY = 'default_view';
   var SESSION_KEY = 'session_info'; // ADR-021 Phase 6: { role, branch_id, display_name } — identity only, NEVER the token
 
   // Resolve dependencies from either CommonJS (Node) or the browser globals that
@@ -46,6 +47,8 @@
         if (name === 'Login') return require('./components/login');
         if (name === 'Payments') return require('./components/payments');
         if (name === 'Grid') return require('./components/grid');
+        if (name === 'Team') return require('./components/team');
+        if (name === 'Manage') return require('./components/manage');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -120,6 +123,21 @@
   // unrecognised/missing stored value is treated as index 0 BEFORE advancing
   // -- not as "the answer" -- otherwise the very first click would silently
   // no-op instead of moving to 'warm'.
+  // Default page (Settings' "which page opens when you launch the dashboard
+  // fresh" picker). Same sessionStorage convention as theme/auto-mode (never
+  // localStorage — matches the file's own token-storage rule above). Validated
+  // against the CURRENT section list at read time in enterApp, since a stored
+  // id from a personal-mode session (e.g. 'team') would be meaningless/absent
+  // if that same browser later opens a personal-only instance.
+  function storedDefaultView() {
+    var s = ss();
+    try { return s ? s.getItem(DEFAULT_VIEW_KEY) : null; } catch (e) { return null; }
+  }
+  function setDefaultView(id) {
+    var s = ss();
+    try { if (s) s.setItem(DEFAULT_VIEW_KEY, String(id || '')); } catch (e) { /* ignore */ }
+  }
+
   function toggleTheme() {
     var idx = THEME_CYCLE.indexOf(storedTheme());
     var next = THEME_CYCLE[((idx === -1 ? 0 : idx) + 1) % THEME_CYCLE.length];
@@ -182,12 +200,12 @@
     overview: 'A quick snapshot of your spending: your total, the trend this year, and your top categories.',
     activity: "Every receipt you've captured — search, filter, edit, or review any of them.",
     upload: 'Add a receipt manually from this browser, instead of sending it to the Telegram bot.',
-    manage: "Teaches the app what information to pull off every receipt — like Merchant, Date, and Amount. Upload your own spreadsheet (CSV or Excel) once, and it copies your exact column names, so you never have to type them in by hand.",
+    manage: "Set up how the app reads your receipts and, in business mode, edit your data directly. Use the Section dropdown to switch between the field/category template and the spreadsheet-style Data editor (click any cell to edit it in place).",
     reports: 'Deeper breakdowns of your spending by day, week, month, or year.',
     settings: 'Adjust preferences like theme, categories, and account options.',
-    // Business-only (ADR-021 Phase 6): only ever shown when Nav.sectionsFor(business) is used.
+    // Business-only (ADR-021 Phase 6/8): only ever shown when Nav.sectionsFor(business) is used.
+    team: 'Manage your branches and each branch’s staff directory. Admins can also add branches and companies.',
     payments: 'Track which expenses are pending vs paid. Admins can select several and mark them paid at once.',
-    ledger: 'A spreadsheet-style view of your expenses — click any cell to edit it in place.',
   };
 
   // The "i" button + popup logic itself now lives in Render.buildInfoIcon
@@ -257,13 +275,15 @@
       overview: (deps && deps.Overview) || dep('Overview'),
       activity: (deps && deps.Activity) || dep('Activity'),
       upload: (deps && deps.Upload) || dep('Upload'),
-      manage: (deps && deps.Templates) || dep('Templates'),
+      // Manage is a shell hosting sub-pages (template/category editor + the excel-lite Data
+      // editor) — it mounts Templates and Grid itself, reading deps.Templates/deps.Grid.
+      manage: (deps && deps.Manage) || dep('Manage'),
       reports: (deps && deps.Reports) || dep('Reports'),
       settings: (deps && deps.Settings) || dep('Settings'),
-      // Business-only sections (ADR-021 Phase 6). Registered unconditionally — they simply
-      // never appear in `sections` (buildViews) unless Nav.sectionsFor({business:true}) ran.
+      // Business-only sections (ADR-021 Phase 6/8). Registered unconditionally — they
+      // simply never appear in `sections` (buildViews) unless Nav.sectionsFor({business:true}) ran.
+      team: (deps && deps.Team) || dep('Team'),
       payments: (deps && deps.Payments) || dep('Payments'),
-      ledger: (deps && deps.Grid) || dep('Grid'),
     };
   }
 
@@ -349,13 +369,11 @@
     // and the mounted view panels (buildViews below). Business mode (deps.session set)
     // inserts Payments/Ledger before Settings; personal mode is the classic SECTIONS,
     // byte-identical. Computed once so the two can never drift apart.
+    // The excel-lite grid is no longer a top-level section — it's a sub-page of Manage
+    // (components/manage.js), which reads config.excel_lite_grid itself. So the nav list no
+    // longer depends on that flag; business mode just adds Team + Payments.
     var sections = Nav && Nav.sectionsFor
-      ? Nav.sectionsFor({
-          business: !!deps.session,
-          // ADR-022 Phase 7 profile flag: /api/config exposes excel_lite_grid; false
-          // (the Premala profile) drops the Ledger. Missing/old config -> default ON.
-          excelLiteGrid: !(deps.config && deps.config.excel_lite_grid === false),
-        })
+      ? Nav.sectionsFor({ business: !!deps.session })
       : (Nav && Nav.SECTIONS) || [];
 
     // Owner request 2026-07-06: two-tier header (big brand block above the
@@ -363,6 +381,9 @@
     // (simplest, safest "get me current data" action — mirrors a normal
     // browser refresh, no separate per-view refetch plumbing needed).
     var brandHeader = Nav.buildBrandHeader && Nav.buildBrandHeader({
+      // Same signal `sections` above already uses — the nav and the header title
+      // must never disagree about which mode this boot is in.
+      business: !!deps.session,
       onSettings: function () { select('settings'); },
       // The Settings view is built once at boot and never re-rendered, so its
       // theme <select> (tagged .set-select--theme) would otherwise show a
@@ -417,6 +438,12 @@
     // components (the Settings view uses these) via the shared deps object.
     deps.setTheme = setTheme;
     deps.logout = logout;
+    // Default-page picker (Settings view): the CURRENT boot's section list (so the
+    // picker only ever offers views that actually exist right now) + the stored
+    // value + a setter.
+    deps.sections = sections;
+    deps.defaultView = storedDefaultView();
+    deps.setDefaultView = setDefaultView;
     // Bug fix: Settings' "Log in" button used to call `logout()` unconditionally
     // (there was no separate login path at all) — harmless-looking but wrong: in
     // an open (no-token-required) dashboard, clearing an already-empty token and
@@ -455,7 +482,12 @@
       if (inst && typeof inst.load === 'function') inst.load();
     }
 
-    var first = (sections[0] && sections[0].id) || 'overview';
+    // A stored default-view id only wins if it's actually in THIS boot's section
+    // list (business vs personal, or a since-removed view) — otherwise fall back
+    // to the first section, same as before this preference existed.
+    var storedDefault = storedDefaultView();
+    var validDefault = storedDefault && sections.some(function (s) { return s.id === storedDefault; });
+    var first = (validDefault && storedDefault) || (sections[0] && sections[0].id) || 'overview';
     select(first);
   }
 
@@ -468,7 +500,9 @@
       Templates: dep('Templates'), Reports: dep('Reports'), Agent: dep('Agent'),
       Settings: dep('Settings'), Falc: dep('Falc'),
       RateMeter: dep('RateMeter'), Render: dep('Render'), Login: dep('Login'),
-      Payments: dep('Payments'), Grid: dep('Grid'),
+      Payments: dep('Payments'), Grid: dep('Grid'), Team: dep('Team'),
+      // Manage shell — hosts the Templates + Grid sub-pages behind a dropdown.
+      Manage: dep('Manage'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
@@ -532,5 +566,7 @@
     showView: showView,
     storedAutoMode: storedAutoMode,
     setAutoMode: setAutoMode,
+    storedDefaultView: storedDefaultView,
+    setDefaultView: setDefaultView,
   };
 });

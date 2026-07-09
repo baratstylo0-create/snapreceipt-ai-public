@@ -139,6 +139,29 @@
     return namedFields(fields).length > 0;
   }
 
+  // ---- category editor (additive, ADR-021 business category set) ---------
+  // A second, independent visual builder for FieldSpec.categories (the chart of
+  // accounts shown in the receipt dropdown, the bot's category picker, and the
+  // Statement export's numbered sections — order matters there).
+  //
+  // 2026-07-09 (independent-review finding #4): this used to resend a locally-cached
+  // snapshot of the current columns alongside every categories save, because
+  // POST /api/templates always overwrote `columns` from whatever csv it was given.
+  // That meant a stale/racing snapshot could silently revert a concurrent columns
+  // save. Fixed at the SERVER (routes/templates.js + lib/templates.js's new
+  // saveCategories()): a JSON body with `categories` and no `csv` is now a TRUE
+  // partial update that never reads or writes `columns` at all. The client no
+  // longer needs to track or resend columns for a categories-only save — see
+  // submitCategories below.
+
+  // Trim + drop blank rows. Unlike the server's sanitizeCategories, this does NOT
+  // dedupe/cap/append 'Others' — that stays server-side (single source of truth);
+  // this only prepares what the user typed for the wire. Never throws.
+  function namedCategoryNames(names) {
+    var list = Array.isArray(names) ? names : [];
+    return list.map(str).map(function (s) { return s.trim(); }).filter(function (s) { return s !== ''; });
+  }
+
   // QA report #4: importing a real .xlsx used to get read via FileReader.readAsText,
   // which garbles binary bytes into a string; POSTing that garbage broke JSON.parse
   // server-side, surfacing only "malformed request body" — a dead end for the user.
@@ -401,6 +424,61 @@
     return rowApi;
   }
 
+  // Category-editor counterpart to buildFieldRow above — same move/remove
+  // mechanics, minus type/required (a category is just a name). Returns
+  // { el, getName(), setBusy(b), setMoveEnabled(canUp, canDown) }.
+  function buildCategoryRow(onRemove, onMove, initialName) {
+    var row = el('div', 'tp-fb-row');
+
+    var moveWrap = el('div', 'tp-fb-move');
+    var upBtn = el('button', 'tp-fb-move-btn'); upBtn.type = 'button';
+    upBtn.setAttribute('aria-label', 'Move category up'); upBtn.title = 'Move up';
+    Escape.setText(upBtn, '▲');
+    var downBtn = el('button', 'tp-fb-move-btn'); downBtn.type = 'button';
+    downBtn.setAttribute('aria-label', 'Move category down'); downBtn.title = 'Move down';
+    Escape.setText(downBtn, '▼');
+    upBtn.addEventListener('click', function () { onMove(rowApi, -1); });
+    downBtn.addEventListener('click', function () { onMove(rowApi, 1); });
+    moveWrap.appendChild(upBtn); moveWrap.appendChild(downBtn);
+    row.appendChild(moveWrap);
+
+    var nameInput = el('input', 'tp-fb-name');
+    nameInput.type = 'text';
+    nameInput.setAttribute('placeholder', 'Category name, e.g. Petrol/Diesel');
+    nameInput.value = typeof initialName === 'string' ? initialName : '';
+    row.appendChild(nameInput);
+
+    var removeBtn = el('button', 'tp-fb-remove');
+    removeBtn.type = 'button';
+    Escape.setText(removeBtn, 'Remove');
+    removeBtn.addEventListener('click', function () {
+      var name = nameInput.value.trim();
+      showConfirmDialog(
+        name ? 'Remove the category "' + name + '"?' : 'Remove this category?',
+        'Remove category',
+        function () { onRemove(rowApi); }
+      );
+    });
+    row.appendChild(removeBtn);
+
+    var moveState = { canUp: true, canDown: true };
+    var rowApi = {
+      el: row,
+      getName: function () { return nameInput.value; },
+      setBusy: function (b) {
+        nameInput.disabled = b; removeBtn.disabled = b;
+        upBtn.disabled = b || !moveState.canUp;
+        downBtn.disabled = b || !moveState.canDown;
+      },
+      setMoveEnabled: function (canUp, canDown) {
+        moveState.canUp = !!canUp; moveState.canDown = !!canDown;
+        upBtn.disabled = !canUp;
+        downBtn.disabled = !canDown;
+      },
+    };
+    return rowApi;
+  }
+
   function mount(section, opts) {
     if (!hasDom() || !section) return null;
     opts = opts || {};
@@ -542,10 +620,11 @@
       });
     }
 
-    // Shared submit path: both the "paste CSV" form and the visual builder
-    // call this with their own csv/name + status element + busy setter, so
-    // the fetch/error-handling logic is written exactly once (per the plan).
-    // onSuccess(spec) lets the builder additionally reset its rows.
+    // Shared submit path: both the "paste CSV" form and the visual field
+    // builder call this with their own csv/name + status element + busy
+    // setter, so the fetch/error-handling logic is written exactly once.
+    // Never touches categories (columns-only contract — saveTemplate leaves
+    // the stored category set untouched when categories is omitted).
     function submitCsv(csv, name, statusTarget, setBusyFn, onSuccess) {
       if (!apiFetch) return;
       var built = buildImportBody(csv, name);
@@ -563,6 +642,31 @@
         setBusyFn(false);
         Escape.setText(statusTarget, 'Template saved.');
         renderSpec(spec);
+        if (typeof onSuccess === 'function') onSuccess(spec);
+      }).catch(function (err) {
+        setBusyFn(false);
+        var status = err && typeof err === 'object' ? err.status : 0;
+        var body = err && typeof err === 'object' ? err.body : null;
+        Escape.setText(statusTarget, errorMessage(status, body, 'save'));
+      });
+    }
+
+    // Categories-only submit path (2026-07-09, independent-review finding #4): a JSON body
+    // with `categories` and NO `csv` at all — routes/templates.js treats this as a TRUE
+    // partial update (lib/templates.js's saveCategories()) that never reads or writes
+    // `columns`, so it cannot revert a concurrent/just-prior columns save.
+    function submitCategories(names, name, statusTarget, setBusyFn, onSuccess) {
+      if (!apiFetch) return;
+      setBusyFn(true);
+      Escape.setText(statusTarget, 'Saving…');
+      var trimmedName = str(name).trim();
+      apiFetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { name: trimmedName !== '' ? trimmedName : 'default', categories: names },
+      }).then(function (spec) {
+        setBusyFn(false);
+        Escape.setText(statusTarget, 'Categories saved.');
         if (typeof onSuccess === 'function') onSuccess(spec);
       }).catch(function (err) {
         setBusyFn(false);
@@ -740,6 +844,125 @@
 
     rootEl.appendChild(builderWrap);
 
+    // ---- category editor section (additive, ADR-021) -----------------------
+    // A second, independent visual builder (chart of accounts, not columns).
+    // Reuses the field builder's exact CSS idioms (.tp-fb-row/-move/-name/
+    // -remove/-add/-save) — same visual language, per the project's "no new
+    // visual language" convention; .tp-cat only distinguishes the container.
+    var catWrap = el('div', 'tp-fb tp-cat');
+
+    var catTitleRow = el('div', 'view-title-row');
+    catTitleRow.appendChild(msg('tp-fb-title', 'Category list (chart of accounts)'));
+    if (opts.Render && opts.Render.buildInfoIcon) {
+      var catIcon = opts.Render.buildInfoIcon(
+        'The categories shown in the receipt dropdown, the Telegram bot’s category picker, and the ' +
+        'Petty Cash Statement export (categories are numbered in this order there). Saving here never changes ' +
+        'your field columns above. “Others” is always kept as a fallback even if you remove it here.',
+        'What does this section do?'
+      );
+      if (catIcon) catTitleRow.appendChild(catIcon);
+    }
+    catWrap.appendChild(catTitleRow);
+    catWrap.appendChild(msg('tp-fb-sub muted', 'Add, remove, or reorder categories, then save.'));
+
+    var catRowsWrap = el('div', 'tp-fb-rows');
+    catWrap.appendChild(catRowsWrap);
+
+    var catRows = [];
+
+    function refreshCatMoveButtons() {
+      catRows.forEach(function (r, i) { r.setMoveEnabled(i > 0, i < catRows.length - 1); });
+    }
+
+    function removeCatRow(rowApi) {
+      var idx = catRows.indexOf(rowApi);
+      if (idx === -1) return;
+      catRows.splice(idx, 1);
+      catRowsWrap.removeChild(rowApi.el);
+      refreshCatMoveButtons();
+    }
+
+    // Same left-to-right-order-IS-array-order convention as moveRow above —
+    // this order is what the Statement export numbers categories by.
+    function moveCatRow(rowApi, delta) {
+      var idx = catRows.indexOf(rowApi);
+      var next = idx + delta;
+      if (idx === -1 || next < 0 || next >= catRows.length) return;
+      catRows.splice(idx, 1);
+      catRows.splice(next, 0, rowApi);
+      if (delta < 0) catRowsWrap.insertBefore(rowApi.el, catRowsWrap.children[next]);
+      else catRowsWrap.insertBefore(rowApi.el, catRowsWrap.children[next + 1] || null);
+      refreshCatMoveButtons();
+    }
+
+    function addCatRow(initialName) {
+      var rowApi = buildCategoryRow(removeCatRow, moveCatRow, initialName);
+      catRows.push(rowApi);
+      catRowsWrap.appendChild(rowApi.el);
+      refreshCatMoveButtons();
+      return rowApi;
+    }
+
+    var addCatBtn = el('button', 'tp-fb-add');
+    addCatBtn.type = 'button';
+    Escape.setText(addCatBtn, 'Add category');
+    addCatBtn.addEventListener('click', function () {
+      addCatRow();
+      var last = catRows[catRows.length - 1];
+      if (last) { var input = last.el.querySelector('.tp-fb-name'); if (input) input.focus(); }
+    });
+    catWrap.appendChild(addCatBtn);
+
+    var catSaveBtn = el('button', 'tp-fb-save');
+    catSaveBtn.type = 'button';
+    Escape.setText(catSaveBtn, 'Save categories');
+    catWrap.appendChild(catSaveBtn);
+
+    var catStatusEl = msg('tp-status muted', '');
+    catWrap.appendChild(catStatusEl);
+
+    var catBusy = false;
+    function setCatBusy(b) {
+      catBusy = b;
+      catSaveBtn.disabled = b;
+      addCatBtn.disabled = b;
+      catRows.forEach(function (r) { r.setBusy(b); });
+    }
+
+    // Clears + reseeds the rows from a fresh list (used on initial load and
+    // after every save, so the editor always mirrors the server's EFFECTIVE
+    // list — sanitized/deduped/'Others'-appended — never a stale local guess).
+    function reseedCatRows(names) {
+      catRows.slice().forEach(function (r) { catRowsWrap.removeChild(r.el); });
+      catRows.length = 0;
+      var list = Array.isArray(names) ? names : [];
+      if (list.length) list.forEach(function (n) { addCatRow(n); });
+      else addCatRow();
+    }
+
+    // /api/config (not /api/templates) is the source of the EFFECTIVE list —
+    // it already falls back to the built-in default set when nothing custom
+    // is stored (routes/expenses.js), so the editor always starts from what's
+    // actually active, not an empty box on a fresh account.
+    function loadCategories() {
+      if (!apiFetch) return;
+      return apiFetch('/api/config').then(function (cfg) {
+        reseedCatRows(isPlainObject(cfg) && Array.isArray(cfg.categories) ? cfg.categories : []);
+      }).catch(function () {
+        Escape.setText(catStatusEl, 'Could not load categories. Please try again.');
+      });
+    }
+
+    catSaveBtn.addEventListener('click', function () {
+      if (catBusy) return;
+      var names = namedCategoryNames(catRows.map(function (r) { return r.getName(); }));
+      submitCategories(names, nameInput.value, catStatusEl, setCatBusy, function () {
+        loadCategories(); // re-sync with the server's sanitized/effective list
+      });
+    });
+
+    rootEl.appendChild(catWrap);
+
     // ---- lazy load ----------------------------------------------------------
     // Lazy-load on first view (mirrors overview.js's load-on-first-show pattern).
     // Also seeds the builder from the current FieldSpec when one exists, so
@@ -765,6 +988,7 @@
         p.then(function (spec) {
           state.loading = false; state.loaded = true;
           seedBuilder(spec);
+          loadCategories();
         }).catch(function () { state.loading = false; }); // leave loaded=false so a revisit can retry
       } else {
         state.loading = false;
@@ -772,8 +996,8 @@
     }
 
     // No-apiFetch/no-DOM-load environments (e.g. some tests) still get one
-    // empty starter row so the builder is usable standalone.
-    if (!apiFetch) addRow();
+    // empty starter row so each builder is usable standalone.
+    if (!apiFetch) { addRow(); addCatRow(); }
 
     return { el: rootEl, load: load };
   }
@@ -790,6 +1014,7 @@
     isExcelFile: isExcelFile,
     fieldDisplayName: fieldDisplayName,
     FIELD_TYPES: FIELD_TYPES,
+    namedCategoryNames: namedCategoryNames,
     // render (browser)
     mount: mount,
   };

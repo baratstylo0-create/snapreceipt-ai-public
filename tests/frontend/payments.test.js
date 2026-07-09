@@ -5,7 +5,7 @@
 // and the clerk's send-button state. Node-testable, no DOM.
 const test = require('node:test');
 const assert = require('node:assert');
-const { filterRows, selectionSummary, submissionStatusLine, clerkSendState } = require('../../public/js/components/payments');
+const { filterRows, selectionSummary, submissionStatusLine, clerkSendState, statementReady, statementUrl } = require('../../public/js/components/payments');
 
 const ROWS = [
   { id: 'a', amount: 10, payment_status: 'pending', expense_date: '2026-07-01', branch_id: 'bA', staff_user_id: 's1' },
@@ -93,4 +93,25 @@ test('clerkSendState: month picked, never sent -> Send; already submitted -> Re-
   const withdrawn = clerkSendState({ month: '2026-07', submission: { id: 's1', status: 'withdrawn' } });
   assert.strictEqual(withdrawn.label, 'Send to Admin');
   assert.strictEqual(withdrawn.withdrawable, false);
+});
+
+// --- ADR-023/024 Phase 10 UI: Statement export pure logic ---
+
+test('statementReady: clerk only needs a month; admin also needs a real branch', () => {
+  assert.deepStrictEqual(statementReady({ month: '' }, false), { ok: false, reason: 'Pick a month first.' });
+  assert.deepStrictEqual(statementReady({ month: '2026-07' }, false), { ok: true });
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: '' }, true), { ok: false, reason: 'Pick a branch first.' });
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'unassigned' }, true), { ok: false, reason: 'Pick a branch first.' });
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'bA' }, true), { ok: true });
+});
+
+test('statementUrl: builds period+format for a clerk, adds branch for an admin', () => {
+  assert.strictEqual(
+    statementUrl({ month: '2026-07', branch: 'bA' }, false, 'pdf'),
+    '/api/statement?period=2026-07&format=pdf'
+  );
+  assert.strictEqual(
+    statementUrl({ month: '2026-07', branch: 'bA' }, true, 'xlsx'),
+    '/api/statement?period=2026-07&format=xlsx&branch=bA'
+  );
 });

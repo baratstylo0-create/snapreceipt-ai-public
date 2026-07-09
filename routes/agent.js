@@ -30,15 +30,36 @@ module.exports = function mountAgent(app, deps = {}) {
   // The chat adapter binds model/token config onto the tool-calling Groq client.
   const chat = deps.chat || ((messages, opts) => groqChatTools(messages, { model: AGENT_MODEL, max_tokens: AGENT_MAX_TOKENS, temperature: 0, ...opts }));
   // Write helpers + template helpers: overridable in tests, default to the real modules —
-  // same override pattern as chat/sbSelect above. confirmProposal's auto-mode path (invoked
-  // from inside runAgent) needs all of these on the deps object we pass down.
-  const writeDeps = {
-    sbSelect: deps.sbSelect || sbSelect,
-    sbUpdate: deps.sbUpdate || sbUpdate,
-    sbSoftDelete: deps.sbSoftDelete || sbSoftDelete,
-    saveTemplate: deps.saveTemplate || saveTemplate,
-    getFieldSpec: deps.getFieldSpec || getFieldSpec,
-  };
+  // same override pattern as chat/sbSelect above.
+  const sbSelectFn = deps.sbSelect || sbSelect;
+  const sbUpdateFn = deps.sbUpdate || sbUpdate;
+  const sbSoftDeleteFn = deps.sbSoftDelete || sbSoftDelete;
+  const saveTemplateFn = deps.saveTemplate || saveTemplate;
+  const getFieldSpecFn = deps.getFieldSpec || getFieldSpec;
+
+  // SECURITY (2026-07-09, independent-review finding #1): writeDeps used to be built ONCE at
+  // mount time, so req.scope (per-request, set by checkDash) never reached the DB helpers —
+  // lib/agent.js's sbSelect/sbUpdate/sbSoftDelete calls ran completely unscoped, meaning a
+  // branch clerk's Agent chat could read AND write every other branch's expenses (M2's core
+  // isolation invariant, bypassed). Fix: build the write deps FRESH per request, with the
+  // request's trusted req.scope injected AFTER any caller-supplied opts — same "scope always
+  // wins" contract lib/supabase.js's own stampScope() already uses, so a clerk can never smuggle
+  // a different scope through a tool's args. req.scope is undefined in personal/static-token
+  // mode (checkDash never sets it there), so scope: undefined there is byte-identical to the
+  // previous unscoped behavior — this is a no-op for personal accounts.
+  function scopedDeps(req) {
+    const scope = req.scope;
+    return {
+      sbSelect: (table, opts = {}) => sbSelectFn(table, { ...opts, scope }),
+      sbUpdate: (table, key, patch) => sbUpdateFn(table, { ...key, scope }, patch),
+      sbSoftDelete: (table, key) => sbSoftDeleteFn(table, { ...key, scope }),
+      saveTemplate: saveTemplateFn,
+      getFieldSpec: getFieldSpecFn,
+      // Exposed so tool-level role checks (e.g. proposeAddTemplateField — ADR-021, HQ-owned
+      // template) can see who's asking, without needing their own DB round-trip.
+      scope,
+    };
+  }
 
   app.post('/api/agent', agentLimiter, checkDash, express.json({ limit: '256kb' }), async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
@@ -55,7 +76,7 @@ module.exports = function mountAgent(app, deps = {}) {
       // boolean true (missing, "true" string, 1, etc.) must resolve to false.
       const autoMode = req.body && req.body.autoMode === true;
 
-      const out = await runAgent(messages, { chat, ...writeDeps, autoMode });
+      const out = await runAgent(messages, { chat, ...scopedDeps(req), autoMode });
       const answer = (out && out.answer) || '';
       const updated = messages.concat([{ role: 'assistant', content: answer }]);
       const response = { answer, messages: updated, toolCalls: (out && out.toolCalls) || [] };
@@ -79,7 +100,7 @@ module.exports = function mountAgent(app, deps = {}) {
       }
       const proposalId = raw.slice(0, MAX_PROPOSAL_ID_LEN);
 
-      const result = await confirmProposal(proposalId, writeDeps);
+      const result = await confirmProposal(proposalId, scopedDeps(req));
       res.json(result);
     } catch (e) {
       console.error('[api/agent/confirm]', e.message);

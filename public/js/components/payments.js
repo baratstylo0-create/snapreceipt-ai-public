@@ -76,6 +76,26 @@
     return { canSend: true, label: sent ? 'Re-send to Admin' : 'Send to Admin', withdrawable: sent };
   }
 
+  // --- Statement export pure logic (ADR-023/024 Phase 10 UI) -----------------
+
+  // statementReady({ month, branch }, isAdmin) -> { ok, reason? }. A clerk only needs a
+  // month (the server hard-forces their own branch); an admin also needs a real branch
+  // picked — 'All branches'/'unassigned' isn't a valid single-branch statement.
+  function statementReady(opts, isAdmin) {
+    opts = opts || {};
+    if (!opts.month) return { ok: false, reason: 'Pick a month first.' };
+    if (isAdmin && (!opts.branch || opts.branch === 'unassigned')) return { ok: false, reason: 'Pick a branch first.' };
+    return { ok: true };
+  }
+
+  // statementUrl({ month, branch }, isAdmin, format) -> the GET /api/statement query string.
+  function statementUrl(opts, isAdmin, format) {
+    opts = opts || {};
+    var params = ['period=' + encodeURIComponent(opts.month), 'format=' + encodeURIComponent(format)];
+    if (isAdmin) params.push('branch=' + encodeURIComponent(opts.branch));
+    return '/api/statement?' + params.join('&');
+  }
+
   // selectionSummary(rows, selectedIds) -> { count, total } for the sticky bar. Non-finite
   // amounts count toward `count` but contribute 0 to the money total (never a fake number).
   function selectionSummary(rows, selectedIds) {
@@ -172,6 +192,35 @@
       }
       wrap.appendChild(subWrap);
     }
+
+    // -- Statement export (ADR-023/024 Phase 10 UI): the client-facing formatted deliverable,
+    // separate from the raw Payments table above. Two DISTINCT buttons (never a combined
+    // dropdown, per Owner spec) — Excel and PDF are different artifacts a client asks for by
+    // name. Reuses the month/branch filters already in the toolbar above. Both formats already
+    // carry the receipt images server-side (xlsx embeds them inline, pdf appends one page per
+    // receipt) — this UI only has to reach the existing GET /api/statement, not build that part.
+    var stmtWrap = document.createElement('div');
+    stmtWrap.className = 'pay-statement';
+    var stmtLabel = document.createElement('span');
+    stmtLabel.className = 'pay-statement-label';
+    stmtLabel.textContent = 'Petty Cash Statement:';
+    stmtWrap.appendChild(stmtLabel);
+    var xlsxBtn = document.createElement('button');
+    xlsxBtn.type = 'button';
+    xlsxBtn.className = 'pay-statement-btn pay-statement-xlsx';
+    xlsxBtn.textContent = 'Export Excel';
+    xlsxBtn.addEventListener('click', function () { doStatementExport('xlsx'); });
+    stmtWrap.appendChild(xlsxBtn);
+    var pdfBtn = document.createElement('button');
+    pdfBtn.type = 'button';
+    pdfBtn.className = 'pay-statement-btn pay-statement-pdf';
+    pdfBtn.textContent = 'Export PDF';
+    pdfBtn.addEventListener('click', function () { doStatementExport('pdf'); });
+    stmtWrap.appendChild(pdfBtn);
+    var stmtMsg = document.createElement('span');
+    stmtMsg.className = 'pay-statement-msg muted';
+    stmtWrap.appendChild(stmtMsg);
+    wrap.appendChild(stmtWrap);
 
     var msg = document.createElement('p');
     msg.className = 'pay-msg muted';
@@ -357,6 +406,39 @@
       });
     }
 
+    // Trigger a browser download of `blob` named `filename` via a synthetic <a> click — same
+    // technique as reports.js's Excel export (no navigation, no innerHTML).
+    function triggerStatementDownload(blob, filename) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+    }
+
+    function doStatementExport(format) {
+      var ready = statementReady({ month: state.month, branch: state.branch }, isAdmin);
+      if (!ready.ok) { Escape.setText(stmtMsg, ready.reason); return; }
+      xlsxBtn.disabled = true;
+      pdfBtn.disabled = true;
+      Escape.setText(stmtMsg, 'Preparing ' + format.toUpperCase() + '…');
+      var url = statementUrl({ month: state.month, branch: state.branch }, isAdmin, format);
+      Api.fetchBlob(url).then(function (blob) {
+        var branchToken = isAdmin ? state.branch : 'own-branch';
+        triggerStatementDownload(blob, 'petty-cash-' + branchToken + '-' + state.month + '.' + format);
+        Escape.setText(stmtMsg, format.toUpperCase() + ' downloaded.');
+      }).catch(function (err) {
+        Escape.setText(stmtMsg, err && err.status === 404 ? 'Statement export is not enabled for this account.' : 'Export failed. Please try again.');
+      }).then(function () {
+        xlsxBtn.disabled = false;
+        pdfBtn.disabled = false;
+      });
+    }
+
     function load() {
       var chain = Api.apiFetch('/api/expenses').then(function (rows) {
         state.rows = Array.isArray(rows) ? rows : [];
@@ -384,5 +466,6 @@
   return {
     mount: mount, filterRows: filterRows, selectionSummary: selectionSummary,
     submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
+    statementReady: statementReady, statementUrl: statementUrl,
   };
 });

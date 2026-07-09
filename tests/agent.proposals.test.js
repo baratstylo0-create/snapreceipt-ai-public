@@ -141,6 +141,47 @@ test('proposeAddTemplateField: defaults type=text, required=false; missing name 
   assert.throws(() => t.validate({}));
 });
 
+// --- proposeAddTemplateField: admin-only (2026-07-09, independent-review finding #1/#3) ---
+// ADR-021: the account's FieldSpec is HQ-owned. A branch clerk asking the assistant to add a
+// template field must be refused both at propose time (so a clerk isn't even offered a fake
+// confirm card) AND at confirm time (defense in depth, matching every other kind's
+// re-validate-fresh pattern).
+
+test('proposeAddTemplateField: clerk scope -> refused, no proposal created', async () => {
+  const t = tool('proposeAddTemplateField');
+  const deps = noWriteDeps({}, { scope: { account_id: 'a', role: 'clerk', branch_id: 'b1' } });
+  const out = await t.run(t.validate({ name: 'Payment Method' }), deps);
+  assert.match(out.error, /admin/i);
+  assert.equal(proposals._size(), 0);
+});
+
+test('proposeAddTemplateField: admin scope -> allowed (unchanged happy path)', async () => {
+  const t = tool('proposeAddTemplateField');
+  const deps = noWriteDeps({}, { scope: { account_id: 'a', role: 'admin' } });
+  const out = await t.run(t.validate({ name: 'Payment Method' }), deps);
+  assert.equal(out.proposal.kind, KINDS.ADD_TEMPLATE_FIELD);
+});
+
+test('proposeAddTemplateField: no scope (personal/static-token mode) -> allowed (unaffected)', async () => {
+  const t = tool('proposeAddTemplateField');
+  const deps = noWriteDeps({}); // scope undefined
+  const out = await t.run(t.validate({ name: 'Payment Method' }), deps);
+  assert.equal(out.proposal.kind, KINDS.ADD_TEMPLATE_FIELD);
+});
+
+test('confirmProposal ADD_TEMPLATE_FIELD: clerk scope -> refused at confirm time too, no write', async () => {
+  const t = tool('proposeAddTemplateField');
+  const spec = { columns: [{ key: 'merchant', label: 'Merchant' }] };
+  const { deps, writes } = makeDeps({}, { spec });
+  deps.scope = { account_id: 'a', role: 'admin' }; // allowed to propose...
+  const p = await t.run(t.validate({ name: 'Payment Method' }), deps);
+  deps.scope = { account_id: 'a', role: 'clerk', branch_id: 'b1' }; // ...but a clerk confirms it
+  const res = await confirmProposal(p.proposal.id, deps);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /admin/i);
+  assert.equal(writes.saveTemplate.length, 0);
+});
+
 // --- confirmProposal: happy path per kind ---------------------------------
 
 test('confirmProposal EDIT: calls sbUpdate with the sanitized patch', async () => {

@@ -200,3 +200,84 @@ test('confirm: unexpected confirmProposal throw -> 502 JSON, no stack trace (def
   assert.equal(r.status, 502);
   assert.ok(!JSON.stringify(r.json).includes('internal/path.js'));
 });
+
+// --- branch-scope wiring (2026-07-09, independent-review finding #1: CRITICAL) --------------
+// writeDeps used to be built ONCE at mount time, so req.scope (per-request, set by
+// checkDashSession in business mode) never reached lib/agent.js's sbSelect/sbUpdate/
+// sbSoftDelete calls — a branch clerk's Agent chat could read AND write every other branch's
+// expenses. These tests prove the fix: a real per-request req.scope must reach the underlying
+// DB helper calls exactly as ordinary routes (routes/expenses.js) already do it.
+
+function appWithScope(scope, runAgentFake, extraDeps = {}) {
+  const app = express();
+  // Simulates checkDashSession's business-mode path (real session lookup is out of scope for
+  // this route-only test — the wiring under test is "does req.scope reach the DB helpers",
+  // not session resolution itself, which lib/auth.js already covers).
+  app.use((req, res, next) => { req.scope = scope; next(); });
+  mountAgent(app, { runAgent: runAgentFake, chat: async () => ({ role: 'assistant', content: 'ok' }), ...extraDeps });
+  return app;
+}
+
+test('POST /api/agent: a branch-A clerk session -> the sbSelect deps.runAgent receives is scoped to branch A', async () => {
+  let seenScope;
+  const scope = { account_id: 'acct1', role: 'clerk', branch_id: 'bA' };
+  const sbSelectSpy = async (table, opts) => { seenScope = opts && opts.scope; return []; };
+  const runAgentFake = async (messages, deps) => { await deps.sbSelect('expenses', { extra: 'x' }); return { answer: 'ok', toolCalls: [] }; };
+  const app = appWithScope(scope, runAgentFake, { sbSelect: sbSelectSpy });
+  const r = await post(app, { messages: [{ role: 'user', content: 'list expenses' }] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(seenScope, scope, 'the real req.scope must reach sbSelect — this is the whole branch-isolation guarantee');
+});
+
+test('POST /api/agent: sbUpdate/sbSoftDelete deps.runAgent receives are also scoped', async () => {
+  let seenUpdateScope, seenDeleteScope;
+  const scope = { account_id: 'acct1', role: 'clerk', branch_id: 'bA' };
+  const sbUpdateSpy = async (table, key) => { seenUpdateScope = key && key.scope; return [{}]; };
+  const sbSoftDeleteSpy = async (table, key) => { seenDeleteScope = key && key.scope; };
+  const runAgentFake = async (messages, deps) => {
+    await deps.sbUpdate('expenses', { id: 'e1' }, { amount: 1 });
+    await deps.sbSoftDelete('expenses', { id: 'e1' });
+    return { answer: 'ok', toolCalls: [] };
+  };
+  const app = appWithScope(scope, runAgentFake, { sbUpdate: sbUpdateSpy, sbSoftDelete: sbSoftDeleteSpy });
+  const r = await post(app, { messages: [{ role: 'user', content: 'edit' }] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(seenUpdateScope, scope);
+  assert.deepEqual(seenDeleteScope, scope);
+});
+
+test('POST /api/agent: a caller-supplied opts.scope inside a tool call can never override the trusted req.scope', async () => {
+  // Mirrors lib/supabase.js's stampScope contract: trusted scope always wins, applied AFTER
+  // any caller-provided options — so a malicious/buggy tool call can't smuggle a different
+  // branch via its own opts.
+  let seenScope;
+  const trueScope = { account_id: 'acct1', role: 'clerk', branch_id: 'bA' };
+  const sbSelectSpy = async (table, opts) => { seenScope = opts && opts.scope; return []; };
+  const runAgentFake = async (messages, deps) => {
+    await deps.sbSelect('expenses', { scope: { account_id: 'acct1', role: 'admin', branch_id: 'bB' } }); // attempted override
+    return { answer: 'ok', toolCalls: [] };
+  };
+  const app = appWithScope(trueScope, runAgentFake, { sbSelect: sbSelectSpy });
+  await post(app, { messages: [{ role: 'user', content: 'x' }] });
+  assert.deepEqual(seenScope, trueScope, 'the trusted req.scope must win over anything a tool call tries to pass');
+});
+
+test('POST /api/agent/confirm: confirmProposal receives scope-wrapped sbUpdate/sbSoftDelete too', async () => {
+  let seenScope;
+  const scope = { account_id: 'acct1', role: 'clerk', branch_id: 'bA' };
+  const sbUpdateSpy = async (table, key) => { seenScope = key && key.scope; return [{}]; };
+  const confirmProposalFake = async (id, deps) => { await deps.sbUpdate('expenses', { id: 'e1' }, {}); return { ok: true }; };
+  const app = appWithScope(scope, async () => ({ answer: 'x' }), { confirmProposal: confirmProposalFake, sbUpdate: sbUpdateSpy });
+  const r = await postConfirm(app, { proposalId: 'p_1' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(seenScope, scope);
+});
+
+test('POST /api/agent: personal/static-token mode (no req.scope set) -> scope: undefined reaches sbSelect (byte-identical prior behavior)', async () => {
+  let seenOpts;
+  const sbSelectSpy = async (table, opts) => { seenOpts = opts; return []; };
+  const runAgentFake = async (messages, deps) => { await deps.sbSelect('expenses', {}); return { answer: 'ok', toolCalls: [] }; };
+  const app = appWith(runAgentFake, { sbSelect: sbSelectSpy }); // no req.scope middleware — the original appWith()
+  await post(app, { messages: [{ role: 'user', content: 'x' }] });
+  assert.strictEqual(seenOpts.scope, undefined);
+});

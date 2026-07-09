@@ -1,16 +1,21 @@
-// components/settings.js — the Settings screen (Phase 2 of Mugi's Treehouse
-// concept): account/session, appearance (theme), currency & display, and a few
-// forward-looking "concept" rows (capture, notifications, privacy) that describe
-// the multi-tenant M2 behaviour without wiring backend that doesn't exist yet.
+// components/settings.js — the Settings screen (built from Mugi's Treehouse
+// concept mockup): account/session, appearance (theme, default page), currency
+// & display, and a few rows (capture, notifications, retention) that the
+// concept itself marks "concept" — intentional placeholders for a later
+// version, not things this build was ever meant to wire up.
 //
 // Only the rows that map to something REAL today actually do something:
 //   • Session — Log out (clears the dashboard token via deps.logout) / status.
-//   • Theme — switches the light/dark forest palette (deps.setTheme, persisted).
+//   • Theme — switches the light/warm/dark forest palette (deps.setTheme, persisted).
+//   • Default page — which view opens on a fresh launch (deps.sections/
+//     deps.defaultView/deps.setDefaultView; wiring lives in app.js).
 //   • Account currency — read-only, from GET /api/config (deps.config).
 //   • Clear local data — wipes the saved token + theme from this browser.
 //   • Agent auto-mode — skips confirmation for edits & review decisions
 //     (deps.autoMode / deps.setAutoMode; wiring lives in app.js, ADR-019).
-// Everything else is tagged "concept" so it's honest about not being live.
+// Team/company/staff management (the M2 business layer) lives in its own
+// components/team.js view, not here. Everything else below is tagged "concept"
+// so it stays honest about not being live — same as the source mockup.
 //
 // TWO layers so the logic is unit-testable without a DOM:
 //   1. PURE helpers — settingsModel / currentTheme. No DOM, never throw on junk.
@@ -185,6 +190,17 @@
     // the select would show a stale value after the icon is clicked.
     themeSel.classList.add('set-select--theme');
     app.body.appendChild(setRow('Theme', 'Light, warm, or dark forest palette. Saved to this browser.', themeSel));
+    // Default page (real, wired to app.js's storedDefaultView/setDefaultView):
+    // which view opens on a fresh launch. Options are whatever THIS boot's
+    // section list actually is (opts.sections, business vs personal) — never
+    // offer a view that doesn't exist right now.
+    if (Array.isArray(opts.sections) && opts.sections.length) {
+      var viewOptions = opts.sections.map(function (s) { return [s.id, s.label]; });
+      var landingSel = pick(viewOptions, opts.defaultView || opts.sections[0].id, function (v) {
+        if (typeof opts.setDefaultView === 'function') opts.setDefaultView(v);
+      });
+      app.body.appendChild(setRow('Default page', 'Which page opens when you launch the dashboard fresh.', landingSel));
+    }
     rootEl.appendChild(app.el);
 
     // --- Agent (real: auto-mode) ---
@@ -234,7 +250,7 @@
 
     // --- About ---
     var about = collapsible('About', false);
-    about.body.appendChild(setRow('AutoReceipt Dashboard', 'Treehouse frontend concept · Mugi design, adapted onto the app.', valueChip('v0.2')));
+    about.body.appendChild(setRow('AutoReceipt Dashboard', 'Treehouse design · Mugi.', valueChip('v0.2')));
     rootEl.appendChild(about.el);
 
     // Settings is static — no async data to fetch on view.
