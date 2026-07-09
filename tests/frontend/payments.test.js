@@ -5,7 +5,7 @@
 // and the clerk's send-button state. Node-testable, no DOM.
 const test = require('node:test');
 const assert = require('node:assert');
-const { filterRows, selectionSummary, submissionStatusLine, clerkSendState, statementReady, statementUrl } = require('../../public/js/components/payments');
+const { filterRows, selectionSummary, submissionStatusLine, clerkSendState, statementReady, statementUrl, statementExportRows } = require('../../public/js/components/payments');
 
 const ROWS = [
   { id: 'a', amount: 10, payment_status: 'pending', expense_date: '2026-07-01', branch_id: 'bA', staff_user_id: 's1' },
@@ -113,5 +113,23 @@ test('statementUrl: builds period+format for a clerk, adds branch for an admin',
   assert.strictEqual(
     statementUrl({ month: '2026-07', branch: 'bA' }, true, 'xlsx'),
     '/api/statement?period=2026-07&format=xlsx&branch=bA'
+  );
+});
+
+test('statementExportRows: admin export data check follows statement month+branch, not the current paid/pending tab', () => {
+  assert.deepStrictEqual(
+    statementExportRows(ROWS, { month: '2026-07', branch: 'bA' }, true).map((r) => r.id),
+    ['a', 'c']
+  );
+  assert.deepStrictEqual(
+    statementExportRows(ROWS, { month: '2026-07', branch: 'bB' }, true),
+    []
+  );
+});
+
+test('statementExportRows: clerk export data check relies on already-scoped rows and only requires month', () => {
+  assert.deepStrictEqual(
+    statementExportRows(ROWS, { month: '2026-07' }, false).map((r) => r.id),
+    ['a', 'c', 'd']
   );
 });

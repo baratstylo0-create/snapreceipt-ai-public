@@ -1071,6 +1071,21 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-receipt { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; }
 .act-receipt-label { font-size: 12px; }
 .act-receipt-link { color: var(--accent); font-size: 13px; }
+.act-receipt-pdf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--bg);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+.act-card-thumb .act-receipt-pdf { margin: auto; }
 
 /* --- Activity: review queue ---------------------------------------------- */
 /* Awaiting-category picker (dashboard parity of the bot #74 picker) — amber accent to

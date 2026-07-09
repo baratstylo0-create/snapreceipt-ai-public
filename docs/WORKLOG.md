@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-09 · Codex (for Jeevan) · qa/pr-a-export — QA PR-A export guardrails + PDF receipt references
+
+- **Files:** `public/js/exportGuards.js` (new shared extract guard), `public/index.html`, `public/js/components/reports.js`, `public/js/components/payments.js`, `public/js/components/activity.js`, `public/css/app.css`, `tests/frontend/exportGuards.test.js` (new), `tests/frontend/payments.test.js`, `tests/frontend/activity.ref.test.js`.
+- **What changed:** Started the Owner-directed QA round with **PR-A only** (`qa/pr-a-export`, off latest `main`). Confirmed the real wiring first via `rg "export"` and read the Reports, Payments, Activity, API, statement/export, receipt-proxy, and PDF renderer paths before editing. Added a shared export/extract guard: zero-data views now stop with **"No data to export."**, and non-empty exports require the shared **"Confirm you've reviewed this data before exporting?"** modal before continuing. Wired it into Reports Excel export and Payments statement Excel/PDF export. Payments now checks statement data by month+branch (admin) or already-scoped month (clerk) rather than exporting an empty statement. Activity now classifies stored `.pdf` receipts as PDF references and renders an auth-fetched object-URL link instead of trying to display a PDF in an `<img>`.
+- **QA IDs:** Closes A1/A2/A3/A5 on the implemented surfaces. A6 was already substantially implemented on `main` by `routes/statement.js` + `lib/statementPdf.js` (PDF statement appends image receipts and rasterised source-PDF pages); this branch preserves that path and leaves the existing renderer/route tests green. There is no separate **"See Report"** button/string in the current codebase (`rg "See Report"` returned none), so the PR will flag that as an Owner/product wording mismatch rather than inventing a new surface.
+- **Tests:** TDD red first on the new frontend tests (missing `exportGuards`, `statementExportRows`, `receiptKind`/`receiptLabel`), then green. Full suite **1635/1635** with `.env` moved aside/restored.
+- **What's next:** push branch and open PR against `main`; stop for Claude-J review/merge per QA workflow.
+- **Assumptions:** Status-line text counts as the requested popup/toast for empty exports on these existing screens; the shared confirmation modal is the canonical popup for extracts.
+
+---
+
 ## 2026-07-09 · Claude-J (for Jeevan) · feat/jeevan-m2-business-frontend (5th push) — security fix: Agent branch-isolation bypass (critical) + HQ-owned template/category authorization + true categories-only save + legacy-category preservation
 
 - **Context.** Owner requested an independent second opinion on PR #154 from GPT-5.5 Codex, run out-of-session; its findings landed at `docs/reviews/2026-07-09-pr154-independent-review.md` (also added `AGENTS.md`, Codex's own guide file mirroring `CLAUDE.md`). Per fable-mode discipline, every claimed finding was independently re-traced against the actual code (not taken on faith) before any fix — see verification notes per finding below. Four confirmed findings were fixed this push; the rest (concurrency CAS, statement branch-selector, config-endpoint exposure, Manage retry, CSV-guard hardening) are deferred, listed at the end.

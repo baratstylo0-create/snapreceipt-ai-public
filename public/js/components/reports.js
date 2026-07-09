@@ -46,11 +46,11 @@
 // layer simply isn't exercised there — no document/Blob/fetch).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../format'), require('../api'));
+    module.exports = factory(require('../escape'), require('../format'), require('../api'), require('../exportGuards'));
   } else {
-    root.Reports = factory(root.Escape, root.Format, root.Api);
+    root.Reports = factory(root.Escape, root.Format, root.Api, root.ExportGuards);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api, ExportGuards) {
   'use strict';
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
@@ -670,6 +670,7 @@
       weekAnchor: startOfWeekIso(today),
       monthAnchor: { year: todayYear, month: todayMonth },
       yearAnchor: todayYear,
+      lastReports: null,
     };
     setActivePeriod(state.uiPeriod);
 
@@ -711,6 +712,7 @@
       apiFetch(path).then(function (reports) {
         state.loading = false;
         state.loaded = true;
+        state.lastReports = reports;
         renderInto(body, reports, period, anchor);
       }).catch(function () {
         state.loading = false;
@@ -725,6 +727,12 @@
     var exportBusy = false;
     exportBtn.addEventListener('click', function () {
       if (exportBusy) return;
+      var gate = ExportGuards.exportGate({ data: state.lastReports, confirmed: false });
+      if (!gate.ok && !gate.needsConfirm) {
+        Escape.setText(exportStatus, gate.message);
+        return;
+      }
+      ExportGuards.requestReviewedConfirmation(function () {
       // Owner request 2026-07-06: ask which timeframe every time, instead of
       // silently exporting whatever period/anchor happens to be on screen.
       showExportChoiceDialog(function (choice) {
@@ -742,6 +750,7 @@
           Escape.setText(exportStatus, exportErrorMessage(status));
         });
       });
+      }, { confirmLabel: 'Confirm and continue' });
     });
 
     // Lazy-load on first view (mirrors overview.js's load-on-first-show pattern).
