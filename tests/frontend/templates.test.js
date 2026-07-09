@@ -369,29 +369,6 @@ test('namedCategoryNames: does NOT dedupe or cap — that stays server-side (san
   assert.deepStrictEqual(Templates.namedCategoryNames(['Food', 'food', 'Food']), ['Food', 'food', 'Food']);
 });
 
-// --- columnsToCsvHeader (round-trips current columns unchanged for a categories-only save) ---
-
-test('columnsToCsvHeader: rebuilds a csv header from FieldSpec columns via their labels', () => {
-  const columns = [
-    { key: 'merchant', label: 'Merchant', type: 'text', required: true },
-    { key: 'expense_date', label: 'Date', type: 'date', required: true },
-  ];
-  assert.strictEqual(Templates.columnsToCsvHeader(columns), 'Merchant,Date');
-});
-
-test('columnsToCsvHeader: falls back to a prettified key when a column has no label', () => {
-  assert.strictEqual(Templates.columnsToCsvHeader([{ key: 'and_how_much' }]), 'And how much');
-});
-
-test('columnsToCsvHeader: empty/garbage columns -> "" (the "load a template first" sentinel)', () => {
-  assert.strictEqual(Templates.columnsToCsvHeader([]), '');
-  assert.strictEqual(Templates.columnsToCsvHeader(null), '');
-  assert.strictEqual(Templates.columnsToCsvHeader(undefined), '');
-});
-
-test('columnsToCsvHeader output round-trips through buildImportBody exactly like pasted CSV', () => {
-  const csv = Templates.columnsToCsvHeader([{ label: 'Vendor' }, { label: 'Total' }]);
-  const built = buildImportBody(csv, 'default');
-  assert.strictEqual(built.ok, true);
-  assert.strictEqual(built.csv, 'Vendor,Total');
-});
+// columnsToCsvHeader was removed 2026-07-09 (independent-review finding #4): the categories-only
+// save no longer round-trips columns through the client at all — see routes/templates.js's
+// saveCategories path and tests/templates_route.test.js / tests/templates.categories.test.js.

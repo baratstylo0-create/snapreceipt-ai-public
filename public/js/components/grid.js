@@ -262,13 +262,28 @@
       var input;
       if (field === 'category' && categories.length) {
         input = document.createElement('select');
+        var current = String(row.category || '');
+        // Owner-reported bug (2026-07-09) + independent-review finding #6: if the row's stored
+        // category isn't in the account's current list (renamed/removed since this receipt was
+        // categorized), a plain <select> has no matching <option> — setting .value to it then
+        // silently resolves to '' (no option selected). Clicking the cell and clicking away
+        // WITHOUT deliberately picking anything then committed that '' on blur, erasing the
+        // classification. Fix: always inject the row's current value as a real option first (even
+        // if it's not in the account list), so .value always matches something and blur-without-
+        // choosing preserves it instead of blanking it.
+        if (current && categories.indexOf(current) === -1) {
+          var legacy = document.createElement('option');
+          legacy.value = current;
+          legacy.textContent = current + ' (not in category list)';
+          input.appendChild(legacy);
+        }
         categories.forEach(function (c) {
           var o = document.createElement('option');
           o.value = c;
           o.textContent = c;
           input.appendChild(o);
         });
-        input.value = String(row.category || '');
+        input.value = current;
       } else {
         input = document.createElement('input');
         input.type = 'text';

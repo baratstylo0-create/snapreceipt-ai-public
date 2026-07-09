@@ -142,12 +142,17 @@
   // ---- category editor (additive, ADR-021 business category set) ---------
   // A second, independent visual builder for FieldSpec.categories (the chart of
   // accounts shown in the receipt dropdown, the bot's category picker, and the
-  // Statement export's numbered sections — order matters there). Saving categories
-  // must resend the CURRENT columns unchanged (POST /api/templates always sets
-  // columns from the csv it's given) — columnsToCsvHeader rebuilds that csv from
-  // the loaded FieldSpec's columns via the exact same buildCsvHeader path the
-  // field builder above already uses, so round-tripping columns is proven code,
-  // not a new assumption.
+  // Statement export's numbered sections — order matters there).
+  //
+  // 2026-07-09 (independent-review finding #4): this used to resend a locally-cached
+  // snapshot of the current columns alongside every categories save, because
+  // POST /api/templates always overwrote `columns` from whatever csv it was given.
+  // That meant a stale/racing snapshot could silently revert a concurrent columns
+  // save. Fixed at the SERVER (routes/templates.js + lib/templates.js's new
+  // saveCategories()): a JSON body with `categories` and no `csv` is now a TRUE
+  // partial update that never reads or writes `columns` at all. The client no
+  // longer needs to track or resend columns for a categories-only save — see
+  // submitCategories below.
 
   // Trim + drop blank rows. Unlike the server's sanitizeCategories, this does NOT
   // dedupe/cap/append 'Others' — that stays server-side (single source of truth);
@@ -155,15 +160,6 @@
   function namedCategoryNames(names) {
     var list = Array.isArray(names) ? names : [];
     return list.map(str).map(function (s) { return s.trim(); }).filter(function (s) { return s !== ''; });
-  }
-
-  // columnsToCsvHeader(columns) -> the csv header text POST /api/templates needs
-  // to leave columns untouched while changing only categories. Reuses
-  // buildCsvHeader/fieldDisplayName (the same round-trip the visual field
-  // builder's "seed from current spec, then re-save" flow already relies on).
-  function columnsToCsvHeader(columns) {
-    var list = Array.isArray(columns) ? columns : [];
-    return buildCsvHeader(list.map(function (c) { return { name: fieldDisplayName(c) }; }));
   }
 
   // QA report #4: importing a real .xlsx used to get read via FileReader.readAsText,
@@ -604,16 +600,9 @@
       submitBtn.disabled = b;
     }
 
-    // Tracked so the category editor's Save can resend the CURRENT columns
-    // unchanged (POST /api/templates always sets columns from the csv it's
-    // given — see columnsToCsvHeader above). Updated on every successful
-    // load/save of the field template, independent of the category editor.
-    var currentColumns = [];
     function renderSpec(spec) {
       clear(specArea);
-      var vm = summarizeFieldSpec(spec);
-      currentColumns = vm.columns;
-      specArea.appendChild(renderFieldSpecTable(vm));
+      specArea.appendChild(renderFieldSpecTable(summarizeFieldSpec(spec)));
     }
 
     function loadCurrent() {
@@ -631,14 +620,12 @@
       });
     }
 
-    // Shared submit path: the "paste CSV" form, the visual field builder, AND
-    // the category editor all call this with their own csv/name + status
-    // element + busy setter, so the fetch/error-handling logic is written
-    // exactly once (per the plan). `categories` is OPTIONAL (undefined ==
-    // "leave the stored category set untouched" — saveTemplate's own contract,
-    // lib/templates.js) so the two column-only callers pass nothing extra and
-    // behave exactly as before. onSuccess(spec) lets a caller react further.
-    function submitCsv(csv, name, categories, statusTarget, setBusyFn, onSuccess) {
+    // Shared submit path: both the "paste CSV" form and the visual field
+    // builder call this with their own csv/name + status element + busy
+    // setter, so the fetch/error-handling logic is written exactly once.
+    // Never touches categories (columns-only contract — saveTemplate leaves
+    // the stored category set untouched when categories is omitted).
+    function submitCsv(csv, name, statusTarget, setBusyFn, onSuccess) {
       if (!apiFetch) return;
       var built = buildImportBody(csv, name);
       if (!built.ok) {
@@ -647,16 +634,39 @@
       }
       setBusyFn(true);
       Escape.setText(statusTarget, 'Saving…');
-      var body = { csv: built.csv, name: built.name };
-      if (categories !== undefined) body.categories = categories;
       apiFetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: body,
+        body: { csv: built.csv, name: built.name },
       }).then(function (spec) {
         setBusyFn(false);
-        Escape.setText(statusTarget, categories !== undefined ? 'Categories saved.' : 'Template saved.');
+        Escape.setText(statusTarget, 'Template saved.');
         renderSpec(spec);
+        if (typeof onSuccess === 'function') onSuccess(spec);
+      }).catch(function (err) {
+        setBusyFn(false);
+        var status = err && typeof err === 'object' ? err.status : 0;
+        var body = err && typeof err === 'object' ? err.body : null;
+        Escape.setText(statusTarget, errorMessage(status, body, 'save'));
+      });
+    }
+
+    // Categories-only submit path (2026-07-09, independent-review finding #4): a JSON body
+    // with `categories` and NO `csv` at all — routes/templates.js treats this as a TRUE
+    // partial update (lib/templates.js's saveCategories()) that never reads or writes
+    // `columns`, so it cannot revert a concurrent/just-prior columns save.
+    function submitCategories(names, name, statusTarget, setBusyFn, onSuccess) {
+      if (!apiFetch) return;
+      setBusyFn(true);
+      Escape.setText(statusTarget, 'Saving…');
+      var trimmedName = str(name).trim();
+      apiFetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { name: trimmedName !== '' ? trimmedName : 'default', categories: names },
+      }).then(function (spec) {
+        setBusyFn(false);
+        Escape.setText(statusTarget, 'Categories saved.');
         if (typeof onSuccess === 'function') onSuccess(spec);
       }).catch(function (err) {
         setBusyFn(false);
@@ -709,7 +719,7 @@
         submitExcelFile(excelFile, nameInput.value, statusEl, setBusy, function () { pendingExcelFile = null; });
         return;
       }
-      submitCsv(textarea.value, nameInput.value, undefined, statusEl, setBusy);
+      submitCsv(textarea.value, nameInput.value, statusEl, setBusy);
     });
 
     // ---- visual field builder section (additive) ---------------------------
@@ -829,7 +839,7 @@
         return;
       }
       var csv = buildCsvHeader(fields);
-      submitCsv(csv, nameInput.value, undefined, fbStatusEl, setFbBusy);
+      submitCsv(csv, nameInput.value, fbStatusEl, setFbBusy);
     });
 
     rootEl.appendChild(builderWrap);
@@ -945,13 +955,8 @@
 
     catSaveBtn.addEventListener('click', function () {
       if (catBusy) return;
-      var csv = columnsToCsvHeader(currentColumns);
-      if (!csv) {
-        Escape.setText(catStatusEl, 'Load or create a field template first (see the field columns above).');
-        return;
-      }
       var names = namedCategoryNames(catRows.map(function (r) { return r.getName(); }));
-      submitCsv(csv, nameInput.value, names, catStatusEl, setCatBusy, function () {
+      submitCategories(names, nameInput.value, catStatusEl, setCatBusy, function () {
         loadCategories(); // re-sync with the server's sanitized/effective list
       });
     });
@@ -1010,7 +1015,6 @@
     fieldDisplayName: fieldDisplayName,
     FIELD_TYPES: FIELD_TYPES,
     namedCategoryNames: namedCategoryNames,
-    columnsToCsvHeader: columnsToCsvHeader,
     // render (browser)
     mount: mount,
   };
