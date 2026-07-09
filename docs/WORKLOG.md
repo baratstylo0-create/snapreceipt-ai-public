@@ -13,6 +13,17 @@
 - **Verified live (local, admin session):** Reports tab gone + Summary/Trends render + Trends shows full reports view (screenshots); `POST /api/manage-export?format=csv` → **200 `text/csv`** with columns Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL, scope/status filtering confirmed (3 ids in → 2 rows, rejected row correctly dropped). Suite **1644/1644** green (`.env` moved aside).
 - **Next:** QA Round doc B/C/D items still open — B9/B8 (rejected recategorise + permanent delete), B7 (recently-deleted bin), B4 (bulk select), C2 (multi-branch clerk), D10–D13 (Telegram). Plan authored by Claude for Sonnet to execute.
 
+---
+
+## 2026-07-10 · Claude-J (for Jeevan) · ops (VPS deploy, not a push) — PR #156 + #157 deployed to Premala VPS
+
+- **What.** `main` at `6297dee` (PR #156 export guards + PR #157 payments staff-name fix/statement message) deployed to the Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 `receipt-analyser`). Built the tarball from a clean isolated `git worktree` on `origin/main` (not the shared working directory) to avoid disturbing GPT-5.5/Codex's in-progress, uncommitted PR-F work (`qa/pr-f-ia`: nav/overview restructure + new `routes/manageExport.js`) sitting in that same local clone. No dependency changes since the last deploy, so no reinstall.
+- **Verified live:** `pm2 restart` clean, `/health` → `{"ok":true}`, `/ready` → `{"ok":true,"deps":{"db":"up"}}`.
+- **Why now:** GPT-5.5/Codex hit its rate limit mid-PR-F (resets ~4am); Owner directed shipping what's already fixed rather than waiting.
+- **Next:** PR-F (Reports→Overview fold, Manage export trio incl. evidence-pack PDF) resumes once Codex's limit resets. Colleague can QA PR-A + PR-E's fixes live now.
+
+---
+
 ## 2026-07-10 · Codex (for Jeevan) · qa/pr-e-payments-fix — QA PR-E Payments fixes
 
 - **Files:** `public/js/components/payments.js`, `tests/frontend/payments.test.js`, `tests/statementPdf.test.js`.
