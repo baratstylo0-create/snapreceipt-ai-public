@@ -15,6 +15,7 @@ const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
+  bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -624,4 +625,64 @@ test('hostile card remark/merchant render INERT via Escape.safeText (same bar as
   const remarkOut = Escape.safeText(hostile.remark);
   assert.ok(remarkOut.indexOf('<script>') === -1);
   assert.ok(remarkOut.indexOf('&lt;script&gt;') !== -1);
+});
+
+// --- bulkApprovePath / bulkDeletePath / allSelected / toggleAllSelected / summarizeBulkResult
+// --- (QA B4: bulk select -> Approve/Delete) --------------------------------
+
+test('bulkApprovePath / bulkDeletePath: fixed endpoints', () => {
+  assert.strictEqual(bulkApprovePath(), '/api/review/bulk');
+  assert.strictEqual(bulkDeletePath(), '/api/expenses/bulk-delete');
+});
+
+test('allSelected: true iff every id on the current page is in the selected set', () => {
+  assert.strictEqual(allSelected(['a', 'b'], new Set(['a', 'b'])), true);
+  assert.strictEqual(allSelected(['a', 'b'], new Set(['a'])), false);
+  assert.strictEqual(allSelected(['a', 'b'], new Set(['a', 'b', 'c'])), true, 'extra selections outside the page are fine');
+});
+
+test('allSelected: empty page is never "all selected" (nothing to tick)', () => {
+  assert.strictEqual(allSelected([], new Set(['a'])), false);
+  assert.strictEqual(allSelected([], new Set()), false);
+});
+
+test('allSelected: tolerates null/non-array/non-Set input, never throws', () => {
+  assert.strictEqual(allSelected(null, null), false);
+  assert.strictEqual(allSelected(undefined, undefined), false);
+  assert.doesNotThrow(() => allSelected('nope', 'nope'));
+});
+
+test('toggleAllSelected: checked=true adds every page id; checked=false removes every page id', () => {
+  const on = toggleAllSelected(['a', 'b'], new Set(), true);
+  assert.deepStrictEqual(Array.from(on).sort(), ['a', 'b']);
+  const off = toggleAllSelected(['a', 'b'], new Set(['a', 'b', 'c']), false);
+  assert.deepStrictEqual(Array.from(off).sort(), ['c']);
+});
+
+test('toggleAllSelected: never mutates the input Set (returns a new one)', () => {
+  const input = new Set(['x']);
+  const out = toggleAllSelected(['a'], input, true);
+  assert.deepStrictEqual(Array.from(input).sort(), ['x'], 'input Set must be untouched');
+  assert.deepStrictEqual(Array.from(out).sort(), ['a', 'x']);
+});
+
+test('toggleAllSelected: tolerates null/non-array/non-Set input, never throws', () => {
+  assert.doesNotThrow(() => toggleAllSelected(null, null, true));
+  assert.deepStrictEqual(Array.from(toggleAllSelected(null, null, true)), []);
+});
+
+test('summarizeBulkResult: all succeeded', () => {
+  assert.strictEqual(summarizeBulkResult({ requested: 3, updated: 3 }, 'approved'), 'All 3 approved.');
+  assert.strictEqual(summarizeBulkResult({ requested: 2, deleted: 2 }, 'deleted'), 'All 2 deleted.');
+});
+
+test('summarizeBulkResult: partial success reports the failure count', () => {
+  assert.strictEqual(summarizeBulkResult({ requested: 4, updated: 3 }, 'approved'), '3 of 4 approved — 1 failed.');
+});
+
+test('summarizeBulkResult: zero requested / malformed input never throws', () => {
+  assert.strictEqual(summarizeBulkResult({ requested: 0, updated: 0 }, 'approved'), 'Nothing to approved.');
+  assert.doesNotThrow(() => summarizeBulkResult(null, 'approved'));
+  assert.doesNotThrow(() => summarizeBulkResult(undefined, 'approved'));
+  assert.strictEqual(summarizeBulkResult(null, 'approved'), 'Something went wrong. Please try again.');
 });

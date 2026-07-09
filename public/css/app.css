@@ -937,6 +937,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   gap: 14px;
 }
 .act-card {
+  position: relative; /* anchors .act-card-select (QA B4 bulk-select tickbox) */
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -1173,6 +1174,39 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   cursor: pointer;
 }
 .act-review-msg { font-size: 13px; }
+
+/* QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Approve/Delete. The select bar
+   sits between the toolbar and the table/cards; the confirm dialog reuses .tp-confirm-* (see
+   templates.js's showConfirmDialog) — activity.js's showBulkConfirm mirrors that exact markup. */
+.act-select-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.act-select-toggle {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 13px;
+}
+.act-select-toggle:hover { border-color: var(--accent); }
+.act-select-tickall { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.act-select-approve, .act-select-delete, .act-select-cancel {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.act-select-approve { background: var(--moss); color: #fff; }
+.act-select-delete { background: var(--clay); color: #fff; }
+.act-select-cancel { background: transparent; border: 1px solid var(--line); color: var(--txt); font-weight: 400; }
+.act-select-approve:disabled, .act-select-delete:disabled { opacity: .5; cursor: default; }
+.act-select-status { font-size: 12px; margin: 0; }
+.act-th--select, .act-td--select { width: 32px; text-align: center; }
+.act-row-select, .act-select-tickall-input { cursor: pointer; }
+.act-card-select { position: absolute; top: 10px; left: 10px; z-index: 1; cursor: pointer; }
 
 /* ---- Mass Upload (Task D) ------------------------------------------------ */
 .up-root { display: flex; flex-direction: column; gap: 14px; }

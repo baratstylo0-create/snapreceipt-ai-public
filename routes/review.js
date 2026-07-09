@@ -10,6 +10,10 @@ const { resolveDecision, canRoleDecide, buildReviewAudit } = require('../lib/rev
 // force-decide it (the safety valve). Business mode only; personal mode never consults it.
 const ANOMALY_VALVE_DAYS = Number(process.env.ANOMALY_VALVE_DAYS) || 7;
 
+// QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Approve/Delete. Bounds one
+// request's total work (DoS-adjacent), same pattern as routes/expenses.js's BULK_PAY_MAX_IDS.
+const BULK_REVIEW_MAX_IDS = Number(process.env.BULK_REVIEW_MAX_IDS) || 200;
+
 module.exports = function mountReview(app) {
   // GET /api/review — the review queue: expenses awaiting an accept/reject decision.
   // Business mode: a clerk sees only their own branch's queue (req.scope, the frozen bouncer);
@@ -30,6 +34,44 @@ module.exports = function mountReview(app) {
       console.error('[api/review]', e.message);
       res.status(502).json({ error: 'review load failed' });
     }
+  });
+
+  // POST /api/review/bulk { ids, decision, note? } — QA B4: the Activity list's bulk
+  // Select -> Approve/Delete action. Registered BEFORE /api/review/:id so Express never
+  // swallows 'bulk' as :id (same convention as /api/expenses/payments in routes/expenses.js).
+  // Applies the EXACT same per-row resolveDecision/canRoleDecide/buildReviewAudit path the
+  // single-row route below uses, just looped over a batch — no new business rule, only
+  // orchestration. Each id is judged independently: one clerk-wrong-branch or already-decided
+  // (for a clerk) row failing does NOT abort the rest of the batch — the response carries a
+  // per-id result so the frontend can show exactly which ones landed.
+  app.post('/api/review/bulk', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    const { ids, decision, note: rawNote } = req.body || {};
+    const resolved = resolveDecision(decision);
+    if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => typeof v !== 'string' || !v)) {
+      return res.status(400).json({ error: 'ids must be a non-empty array of expense ids' });
+    }
+    if (ids.length > BULK_REVIEW_MAX_IDS) return res.status(413).json({ error: 'too many ids (max ' + BULK_REVIEW_MAX_IDS + ')' });
+    const status = resolved.status;
+    const note = rawNote ? String(rawNote).slice(0, 500) : null;
+    const results = [];
+    for (const id of ids) {
+      try {
+        const existing = await supabase.sbSelect('expenses', { eq: { id } });
+        const cur = existing[0];
+        const decidable = canRoleDecide(cur, req.scope || null, { valveDays: ANOMALY_VALVE_DAYS });
+        if (!decidable.ok) { results.push({ id, ok: false, error: decidable.error }); continue; }
+        const who = req.scope && req.scope.role ? { role: req.scope.role, override: !!decidable.override } : null;
+        const anomaly = buildReviewAudit(cur.anomaly, decision, note, who);
+        await supabase.sbUpdate('expenses', { id, scope: req.scope }, { status, anomaly });
+        results.push({ id, ok: true });
+      } catch (e) {
+        results.push({ id, ok: false, error: 'update failed' });
+      }
+    }
+    const updated = results.filter((r) => r.ok).length;
+    res.json({ ok: true, requested: ids.length, updated, status, results });
   });
 
   // POST /api/review/:id { decision: 'approve'|'reject', note? } — a decision.

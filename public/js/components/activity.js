@@ -269,6 +269,43 @@
     return body;
   }
 
+  // QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Approve/Delete. Pure helpers,
+  // unit-testable without a DOM — the render layer (buildTable/buildCard/mount) just calls these.
+  function bulkApprovePath() { return '/api/review/bulk'; }
+  function bulkDeletePath() { return '/api/expenses/bulk-delete'; }
+
+  // allSelected(pageIds, selectedIds) -> true iff every id on the current page is selected.
+  // Drives the "tick all" checkbox's checked state. Empty page -> false (nothing to tick).
+  function allSelected(pageIds, selectedIds) {
+    var ids = Array.isArray(pageIds) ? pageIds : [];
+    if (!ids.length) return false;
+    var sel = selectedIds instanceof Set ? selectedIds : new Set();
+    return ids.every(function (id) { return sel.has(id); });
+  }
+
+  // toggleAllSelected(pageIds, selectedIds, checked) -> a NEW Set (never mutates the input) with
+  // every id on the current page added (checked=true) or removed (checked=false). Ids outside
+  // the current page (a prior page's selections) are left untouched.
+  function toggleAllSelected(pageIds, selectedIds, checked) {
+    var next = new Set(selectedIds instanceof Set ? selectedIds : []);
+    (Array.isArray(pageIds) ? pageIds : []).forEach(function (id) {
+      if (checked) next.add(id); else next.delete(id);
+    });
+    return next;
+  }
+
+  // summarizeBulkResult({requested, updated|deleted, results}, verb) -> a short human status
+  // line for the bulk action's outcome. verb is the past-tense action word ('approved'/'deleted').
+  function summarizeBulkResult(json, verb) {
+    if (!json || typeof json !== 'object') return 'Something went wrong. Please try again.';
+    var requested = typeof json.requested === 'number' ? json.requested : 0;
+    var succeeded = typeof json.updated === 'number' ? json.updated
+      : (typeof json.deleted === 'number' ? json.deleted : 0);
+    if (requested === 0) return 'Nothing to ' + verb + '.';
+    if (succeeded === requested) return 'All ' + requested + ' ' + verb + '.';
+    return succeeded + ' of ' + requested + ' ' + verb + ' — ' + (requested - succeeded) + ' failed.';
+  }
+
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
@@ -439,6 +476,94 @@
 
   // ---- render: expense table ---------------------------------------------
 
+  // Small Yes/No confirm modal (QA B4: bulk Approve/Delete needs a confirmation window before
+  // it commits). Reuses the EXACT same CSS classes templates.js's showConfirmDialog already
+  // defines (tp-confirm-host/tp-confirm-card/tp-confirm-msg/tp-confirm-actions/tp-confirm-cancel/
+  // tp-confirm-ok, see app.css "Popup confirm dialog") — no new CSS, same look everywhere.
+  function showBulkConfirm(message, confirmLabel, onConfirm) {
+    if (typeof document === 'undefined') return;
+    var overlay = el('div', 'tp-confirm-host');
+    var card = el('div', 'tp-confirm-card');
+    card.setAttribute('role', 'alertdialog');
+    card.setAttribute('aria-modal', 'true');
+    card.appendChild(msg('tp-confirm-msg', message));
+
+    var actions = el('div', 'tp-confirm-actions');
+    var cancelBtn = el('button', 'tp-confirm-cancel'); cancelBtn.type = 'button';
+    Escape.setText(cancelBtn, 'Cancel');
+    var confirmBtn = el('button', 'tp-confirm-ok'); confirmBtn.type = 'button';
+    Escape.setText(confirmBtn, confirmLabel || 'Confirm');
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    function onKeydown(ev) { if (ev.key === 'Escape') close(); }
+    function close() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKeydown);
+    }
+    document.addEventListener('keydown', onKeydown);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close(); });
+    cancelBtn.addEventListener('click', close);
+    confirmBtn.addEventListener('click', function () { close(); onConfirm(); });
+    confirmBtn.focus();
+  }
+
+  // QA B4: the Select toggle + (once active) tick-all/Approve/Delete/Cancel row. pageIds is the
+  // CURRENT PAGE's row ids (what "tick all" ticks) — a prior page's selections are preserved
+  // untouched (toggleAllSelected only touches pageIds). Rendered once per renderTable() pass so
+  // it always reflects the live selection count.
+  function buildSelectBar(state, pageIds, handlers) {
+    var bar = el('div', 'act-select-bar');
+    if (!state.selectMode) {
+      // A completed bulk action exits select mode (see runBulkAction) but its outcome message
+      // should still be visible for this one render — show it here, not just in the active
+      // select-mode branch below, or the user never sees "2 approved" flash by.
+      if (state.bulkStatus) bar.appendChild(msg('act-select-status muted', state.bulkStatus));
+      var selectBtn = el('button', 'act-select-toggle');
+      selectBtn.type = 'button';
+      Escape.setText(selectBtn, 'Select');
+      selectBtn.addEventListener('click', handlers.onEnterSelectMode);
+      bar.appendChild(selectBtn);
+      return bar;
+    }
+
+    var tickAllWrap = el('label', 'act-select-tickall');
+    var tickAll = el('input', 'act-select-tickall-input');
+    tickAll.type = 'checkbox';
+    tickAll.checked = allSelected(pageIds, state.selectedIds);
+    tickAll.setAttribute('aria-label', 'Select all on this page');
+    tickAll.addEventListener('change', function () { handlers.onToggleAllRows(pageIds, tickAll.checked); });
+    tickAllWrap.appendChild(tickAll);
+    var tickAllLabel = el('span'); Escape.setText(tickAllLabel, 'Select all');
+    tickAllWrap.appendChild(tickAllLabel);
+    bar.appendChild(tickAllWrap);
+
+    var count = state.selectedIds instanceof Set ? state.selectedIds.size : 0;
+    var approveBtn = el('button', 'act-select-approve'); approveBtn.type = 'button';
+    Escape.setText(approveBtn, 'Approve (' + count + ')');
+    approveBtn.disabled = count === 0;
+    approveBtn.addEventListener('click', handlers.onBulkApprove);
+    bar.appendChild(approveBtn);
+
+    var deleteBtn = el('button', 'act-select-delete'); deleteBtn.type = 'button';
+    Escape.setText(deleteBtn, 'Delete (' + count + ')');
+    deleteBtn.disabled = count === 0;
+    deleteBtn.addEventListener('click', handlers.onBulkDelete);
+    bar.appendChild(deleteBtn);
+
+    var cancelBtn = el('button', 'act-select-cancel'); cancelBtn.type = 'button';
+    Escape.setText(cancelBtn, 'Cancel');
+    cancelBtn.addEventListener('click', handlers.onExitSelectMode);
+    bar.appendChild(cancelBtn);
+
+    if (state.bulkStatus) bar.appendChild(msg('act-select-status muted', state.bulkStatus));
+
+    return bar;
+  }
+
   function buildToolbar(state, onChange) {
     var bar = el('div', 'act-toolbar');
 
@@ -556,6 +681,9 @@
     var table = el('table', 'act-table');
     var thead = el('thead');
     var htr = el('tr');
+    // QA B4: a leading checkbox column, only present in select mode (tick-all lives in the
+    // select bar above the table, not this header — see buildSelectBar).
+    if (state.selectMode) htr.appendChild(textCell('th', 'act-th act-th--select', ''));
     htr.appendChild(textCell('th', 'act-th act-th--ref', 'Ref'));
     htr.appendChild(textCell('th', 'act-th', labels.merchant));
     htr.appendChild(sortableTh(labels.expense_date, 'date', state, handlers.onChange));
@@ -570,6 +698,20 @@
       var tr = el('tr', 'act-row');
       tr.setAttribute('tabindex', '0');
       tr.setAttribute('role', 'button');
+
+      // QA B4: the row's tickbox. stopPropagation on click (not just change) so ticking a box
+      // never also fires the row's onOpen (which opens the edit drawer).
+      if (state.selectMode) {
+        var selTd = el('td', 'act-td act-td--select');
+        var rowCb = el('input', 'act-row-select');
+        rowCb.type = 'checkbox';
+        rowCb.checked = !!(state.selectedIds instanceof Set && state.selectedIds.has(r.id));
+        rowCb.setAttribute('aria-label', 'Select this bill');
+        rowCb.addEventListener('click', function (ev) { ev.stopPropagation(); });
+        rowCb.addEventListener('change', function () { handlers.onToggleRow(r.id, rowCb.checked); });
+        selTd.appendChild(rowCb);
+        tr.appendChild(selTd);
+      }
 
       // Reference number (RC-2026-0041). Falls back to '—' for a row that predates
       // the voucher migration (or if it's not applied yet) — never a blank cell.
@@ -607,10 +749,22 @@
   // descriptors as the table row — no duplicated badge logic) and the shared
   // loadReceiptImage auth'd-fetch helper for the thumbnail. Clicking a card opens
   // the same detail drawer as clicking a table row (handlers.onOpen).
-  function buildCard(r, handlers) {
+  function buildCard(r, handlers, selectState) {
     var card = el('div', 'act-card');
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
+
+    // QA B4: same tickbox as the table row, top-left of the card. stopPropagation on click so
+    // ticking never also opens the drawer.
+    if (selectState && selectState.selectMode) {
+      var cardCb = el('input', 'act-card-select');
+      cardCb.type = 'checkbox';
+      cardCb.checked = !!(selectState.selectedIds instanceof Set && selectState.selectedIds.has(r.id));
+      cardCb.setAttribute('aria-label', 'Select this bill');
+      cardCb.addEventListener('click', function (ev) { ev.stopPropagation(); });
+      cardCb.addEventListener('change', function () { handlers.onToggleRow(r.id, cardCb.checked); });
+      card.appendChild(cardCb);
+    }
 
     if (hasReceiptImage(r)) {
       var thumbWrap = el('div', 'act-card-thumb');
@@ -654,9 +808,9 @@
     return card;
   }
 
-  function buildCardGrid(page, handlers) {
+  function buildCardGrid(page, handlers, selectState) {
     var grid = el('div', 'act-card-grid');
-    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers)); });
+    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, selectState)); });
     return grid;
   }
 
@@ -921,8 +1075,63 @@
       viewMode: getStoredViewMode(storageRoot),
       categories: resolveCategories(opts.config),
       fieldSpec: null,
+      // QA B4: bulk select -> Approve/Delete.
+      selectMode: false, selectedIds: new Set(), bulkStatus: '',
     };
     var reviewState = { loading: false, loaded: false, rows: [] };
+
+    // ---- QA B4: bulk select handlers ----------------------------------------
+    var selectHandlers = {
+      onEnterSelectMode: function () {
+        state.selectMode = true; state.selectedIds = new Set(); state.bulkStatus = '';
+        renderTable();
+      },
+      onExitSelectMode: function () {
+        state.selectMode = false; state.selectedIds = new Set(); state.bulkStatus = '';
+        renderTable();
+      },
+      onToggleRow: function (id, checked) {
+        var next = new Set(state.selectedIds);
+        if (checked) next.add(id); else next.delete(id);
+        state.selectedIds = next;
+        renderTable();
+      },
+      onToggleAllRows: function (pageIds, checked) {
+        state.selectedIds = toggleAllSelected(pageIds, state.selectedIds, checked);
+        renderTable();
+      },
+      onBulkApprove: function () { runBulkAction('approve'); },
+      onBulkDelete: function () { runBulkAction('delete'); },
+    };
+
+    // Shared by Approve and Delete: confirm, then fire the matching bulk endpoint. Both reuse
+    // the exact per-row business rules the single-row routes already enforce (routes/review.js
+    // POST /api/review/bulk, routes/expenses.js POST /api/expenses/bulk-delete) — a row this
+    // caller can't touch just fails individually in the response, it never aborts the batch.
+    function runBulkAction(action) {
+      var ids = Array.from(state.selectedIds instanceof Set ? state.selectedIds : []);
+      if (!ids.length || !apiFetch) return;
+      var plural = ids.length === 1 ? 'bill' : 'bills';
+      var message = action === 'approve'
+        ? 'Approve ' + ids.length + ' selected ' + plural + '?'
+        : 'Delete ' + ids.length + ' selected ' + plural + '?';
+      showBulkConfirm(message, action === 'approve' ? 'Approve' : 'Delete', function () {
+        state.bulkStatus = action === 'approve' ? 'Approving…' : 'Deleting…';
+        renderTable();
+        var req = action === 'approve'
+          ? apiFetch(bulkApprovePath(), { method: 'POST', body: { ids: ids, decision: 'approve' } })
+          : apiFetch(bulkDeletePath(), { method: 'POST', body: { ids: ids } });
+        req.then(function (json) {
+          state.bulkStatus = summarizeBulkResult(json, action === 'approve' ? 'approved' : 'deleted');
+          state.selectMode = false;
+          state.selectedIds = new Set();
+          load(true); // refresh from the server so approved/deleted rows reflect immediately
+        }).catch(function () {
+          state.bulkStatus = 'Bulk ' + action + ' failed. Please try again.';
+          renderTable();
+        });
+      });
+    }
 
     function renderTable() {
       var focused = captureFocus(tableArea);
@@ -934,14 +1143,19 @@
       tableArea.appendChild(buildViewToggle(state, onChange));
       renderAwaiting(); // independent of table filters/pagination — reflects ALL pending rows
       var pageData = filterSortPage(state.rows, state);
+      var pageIds = pageData.rows.map(function (r) { return r.id; });
+      tableArea.appendChild(buildSelectBar(state, pageIds, selectHandlers));
       if (pageData.total === 0) {
         tableArea.appendChild(msg('act-empty muted', state.rows.length ? 'No expenses match your filters.' : 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
         return;
       }
       if (state.viewMode === 'cards') {
-        tableArea.appendChild(buildCardGrid(pageData, { onOpen: openDrawer }));
+        tableArea.appendChild(buildCardGrid(pageData,
+          { onOpen: openDrawer, onToggleRow: selectHandlers.onToggleRow },
+          { selectMode: state.selectMode, selectedIds: state.selectedIds }));
       } else {
-        tableArea.appendChild(buildTable(pageData, state, { onChange: onChange, onOpen: openDrawer }));
+        tableArea.appendChild(buildTable(pageData, state,
+          { onChange: onChange, onOpen: openDrawer, onToggleRow: selectHandlers.onToggleRow }));
       }
       tableArea.appendChild(buildPager(pageData, onChange));
     }
@@ -1105,6 +1319,11 @@
     refDisplay: refDisplay,
     anomalyReasonText: anomalyReasonText,
     patchBody: patchBody,
+    bulkApprovePath: bulkApprovePath,
+    bulkDeletePath: bulkDeletePath,
+    allSelected: allSelected,
+    toggleAllSelected: toggleAllSelected,
+    summarizeBulkResult: summarizeBulkResult,
     receiptPath: receiptPath,
     receiptByIdPath: receiptByIdPath,
     hasReceiptImage: hasReceiptImage,
