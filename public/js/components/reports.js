@@ -727,30 +727,33 @@
     var exportBusy = false;
     exportBtn.addEventListener('click', function () {
       if (exportBusy) return;
-      var gate = ExportGuards.exportGate({ data: state.lastReports, confirmed: false });
-      if (!gate.ok && !gate.needsConfirm) {
-        Escape.setText(exportStatus, gate.message);
-        return;
-      }
-      ExportGuards.requestReviewedConfirmation(function () {
-      // Owner request 2026-07-06: ask which timeframe every time, instead of
-      // silently exporting whatever period/anchor happens to be on screen.
-      showExportChoiceDialog(function (choice) {
-        exportBusy = true;
-        exportBtn.disabled = true;
-        Escape.setText(exportStatus, 'Preparing your export…');
-        exportExcel(exportRangeFor(choice)).then(function () {
-          exportBusy = false;
-          exportBtn.disabled = false;
-          Escape.setText(exportStatus, 'Export downloaded.');
-        }).catch(function (err) {
-          exportBusy = false;
-          exportBtn.disabled = false;
-          var status = err && typeof err === 'object' ? err.status : 0;
-          Escape.setText(exportStatus, exportErrorMessage(status));
-        });
+      // A3 (Owner 2026-07-10): only remind if there are unreviewed receipts; export straight
+      // through otherwise. runExportGuard keeps the empty-data guard + fetches the scoped review
+      // count itself.
+      ExportGuards.runExportGuard({
+        data: state.lastReports,
+        apiFetch: apiFetch,
+        onEmpty: function (m) { Escape.setText(exportStatus, m); },
+        onProceed: function () {
+          // Owner request 2026-07-06: ask which timeframe every time, instead of
+          // silently exporting whatever period/anchor happens to be on screen.
+          showExportChoiceDialog(function (choice) {
+            exportBusy = true;
+            exportBtn.disabled = true;
+            Escape.setText(exportStatus, 'Preparing your export…');
+            exportExcel(exportRangeFor(choice)).then(function () {
+              exportBusy = false;
+              exportBtn.disabled = false;
+              Escape.setText(exportStatus, 'Export downloaded.');
+            }).catch(function (err) {
+              exportBusy = false;
+              exportBtn.disabled = false;
+              var status = err && typeof err === 'object' ? err.status : 0;
+              Escape.setText(exportStatus, exportErrorMessage(status));
+            });
+          });
+        },
       });
-      }, { confirmLabel: 'Confirm and continue' });
     });
 
     // Lazy-load on first view (mirrors overview.js's load-on-first-show pattern).

@@ -492,11 +492,14 @@
     function doStatementExport(format) {
       var ready = statementReady({ month: state.month, branch: state.branch }, isAdmin);
       if (!ready.ok) { Escape.setText(stmtMsg, ready.reason); return; }
-      var gate = ExportGuards.exportGate({ data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin), confirmed: false });
-      if (!gate.ok && !gate.needsConfirm) { Escape.setText(stmtMsg, gate.message); return; }
-      ExportGuards.requestReviewedConfirmation(function () {
-        startStatementExport(format);
-      }, { confirmLabel: 'Confirm and export' });
+      // A3 (Owner 2026-07-10): remind only when receipts still await review; otherwise export
+      // straight through. runExportGuard keeps the empty-data guard + counts the scoped queue.
+      ExportGuards.runExportGuard({
+        data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin),
+        apiFetch: Api.apiFetch,
+        onEmpty: function (m) { Escape.setText(stmtMsg, m); },
+        onProceed: function () { startStatementExport(format); },
+      });
     }
 
     function startStatementExport(format) {

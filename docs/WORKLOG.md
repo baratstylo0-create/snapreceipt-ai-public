@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-10 · Claude (for Jeevan) · qa/pr-a3-review-reminder — QA A3 refinement: conditional pre-export review reminder
+
+- **Files:** `public/js/exportGuards.js` (new `countUnreviewed`, `reviewReminderMessage`, `runExportGuard`), `public/js/components/reports.js` + `payments.js` + `grid.js` (all three export buttons rewired), `tests/frontend/exportGuards.test.js`.
+- **Why:** Owner clarified A3. Codex's PR-A shipped an **always-on** generic "Confirm you've reviewed this data before exporting?" modal that fired on *every* export regardless of whether anything actually needed reviewing — annoying and uninformative. The Owner wants a **conditional reminder**: only interrupt when there are receipts still in the review queue, say how many, and offer a non-blocking **"Download anyway"** (a reminder, not a hard gate).
+- **What counts as "unreviewed" (Owner decision, 2026-07-10):** the **review queue only** — receipts with `status === 'needs_review'` (the ones sitting in Activity's review queue awaiting Approve/Reject). Blank category/remark do NOT trigger it. Count comes from the already-scoped `GET /api/review` (clerk = own branch, admin = all), so the reminder respects isolation for free.
+- **Behaviour** (`runExportGuard`, the single entry point all three export buttons now share): empty view → "No data to export." (unchanged); **0 unreviewed → export runs immediately, no popup**; **>0 unreviewed → reminder "You still have N receipt(s) waiting for review in Activity. Download anyway?"** with `Download anyway` / `Go review`; **count unknown** (no apiFetch, or the `/api/review` fetch errored) → falls back to the old generic reviewed-confirm so there is always *some* checkpoint and it never blocks or silently skips.
+- **Tests:** TDD red-first — `countUnreviewed` (counts only `needs_review`, garbage-tolerant), `reviewReminderMessage` (singular/plural + count), and `runExportGuard` decision matrix (empty→onEmpty/no-fetch; 0→proceed/no-popup; >0→reminder-with-count/`Download anyway`, proceeds only on confirm; fetch-error and no-apiFetch→generic fallback). The DOM modal is dependency-injected (`opts.confirm`) so the orchestrator is fully testable without a browser. Full suite **1652/1652** green (`.env` moved aside/restored), +8 over the 1644 baseline.
+- **Live-verified** in the browser preview (real modal DOM, not the injected fake): 2 unreviewed → popup reads "You still have **2 receipts** waiting for review in Activity. Download anyway?" with `Download anyway` + `Go review`, no export before clicking; 1 unreviewed → correct singular "**1 receipt**"; clicking `Download anyway` proceeds and closes; **0 unreviewed → no popup at all, export runs directly**. No console errors.
+- **What's next:** not merging myself — Owner/reviewer to merge. This closes the last open item from Codex's PR-A/E/F scope (A3's pre-export confirm). Remaining QA-round work: my PRs #160/#161/#165 + Barat's issues #162/#164 all awaiting review, then VPS deploy.
+
+---
+
 ## 2026-07-10 · Codex + Claude-J (for Jeevan) · qa/pr-f-ia — QA PR-F: Reports→Overview fold + Manage export trio
 
 - **Authored by GPT-5.5/Codex, finished + verified by Claude-J** (Owner-directed takeover; Codex rate-limited mid-PR). Codex's uncommitted WIP was preserved as commit `da3ea05` before Claude finished it.
