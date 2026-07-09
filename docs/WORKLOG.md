@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-09 · Claude-J (for Jeevan) · ops (VPS deploy, not a push) — PR #154 merged to main, deployed to Premala VPS
+
+- **What.** PR #154 (5th push above) merged to `main` (Owner-directed). Deployed to the live Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 process `receipt-analyser`): working tree tarred (excl. `.git`/`node_modules`/`.env`), uploaded, extracted over the existing deployment (`.env` and `node_modules` untouched — no dependency changes in this diff, so no reinstall needed). Also flipped `CAP_EXCEL_LITE_GRID=true` in the box's `.env` (was OFF) so the colleague can QA the new Data-editor grid — same flag already on locally.
+- **Verified live:** `pm2 restart` clean (no errors in `receipt-analyser-error.log` beyond routine bot-scan `auth_fail` 401s), `/health` → `{"ok":true}`, `/ready` → `{"ok":true,"deps":{"db":"up"}}`.
+- **Why not git-based deploy:** `/opt/receipt-analyser` on the box is a plain file copy, not a git clone (see `docs/ops/2026-07-08-new-vps-deploy-record.md`) — tar+extract is the established path there.
+- **Next:** colleague can now QA the business account + Data-editor grid directly on `https://31.97.70.50` (self-signed cert). Pending items unchanged from the deploy record (Telegram bot token, real TLS cert, admin password rotation).
+
+---
+
 ## 2026-07-09 · Claude-J (for Jeevan) · feat/jeevan-m2-business-frontend (5th push) — security fix: Agent branch-isolation bypass (critical) + HQ-owned template/category authorization + true categories-only save + legacy-category preservation
 
 - **Context.** Owner requested an independent second opinion on PR #154 from GPT-5.5 Codex, run out-of-session; its findings landed at `docs/reviews/2026-07-09-pr154-independent-review.md` (also added `AGENTS.md`, Codex's own guide file mirroring `CLAUDE.md`). Per fable-mode discipline, every claimed finding was independently re-traced against the actual code (not taken on faith) before any fix — see verification notes per finding below. Four confirmed findings were fixed this push; the rest (concurrency CAS, statement branch-selector, config-endpoint exposure, Manage retry, CSV-guard hardening) are deferred, listed at the end.
