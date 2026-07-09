@@ -1,8 +1,12 @@
 'use strict';
 // components/nav.js Phase 6 (ADR-021): sectionsFor picks the nav for the mode. Personal ->
-// exactly the classic six (byte-identical to SECTIONS). Business -> + Payments and Ledger
-// (the excel-lite grid), both roles (clerk gets read-only/own-branch behaviour inside the
-// views; the server enforces regardless). Pure, node-testable, no DOM.
+// exactly the classic six (byte-identical to SECTIONS). Business -> + Team + Payments, both
+// roles (clerk gets read-only/own-branch behaviour inside the views; the server enforces
+// regardless). Pure, node-testable, no DOM.
+// NB (2026-07-09): the excel-lite grid is NO LONGER a top-level "Ledger" section — it moved
+// into the Manage sub-page (components/manage.js). So the nav no longer includes 'ledger' and
+// the excelLiteGrid flag no longer affects sectionsFor (see manage.test.js for the sub-page
+// gating).
 const test = require('node:test');
 const assert = require('node:assert');
 const { sectionsFor, SECTIONS } = require('../../public/js/components/nav');
@@ -13,17 +17,16 @@ test('personal mode -> exactly the classic sections (same reference semantics)',
   assert.deepStrictEqual(sectionsFor({}), SECTIONS);
 });
 
-test('business mode -> Team + Payments + Ledger appear, classic sections all kept, Settings stays last', () => {
+test('business mode -> Team + Payments appear, classic sections all kept, Settings stays last', () => {
   const ids = sectionsFor({ business: true, role: 'admin' }).map((s) => s.id);
   assert.ok(ids.includes('team'));
   assert.ok(ids.includes('payments'));
-  assert.ok(ids.includes('ledger'));
   for (const s of SECTIONS) assert.ok(ids.includes(s.id), s.id + ' kept');
   assert.strictEqual(ids[ids.length - 1], 'settings');
 });
 
-test('Team is unaffected by the excelLiteGrid flag (only Ledger is gated by it)', () => {
-  assert.ok(sectionsFor({ business: true, excelLiteGrid: false }).map((s) => s.id).includes('team'));
+test('no standalone "ledger" section any more (it lives under Manage now)', () => {
+  assert.ok(!sectionsFor({ business: true, role: 'admin' }).map((s) => s.id).includes('ledger'));
 });
 
 test('business clerk gets the same sections (views themselves render role-aware)', () => {
@@ -39,19 +42,12 @@ test('every returned section has an id and a label', () => {
   }
 });
 
-// --- ADR-022 Phase 7: the excelLiteGrid profile flag ---
-
-test('excelLiteGrid:false (Premala profile) -> Ledger dropped, Payments kept, Settings still last', () => {
-  const ids = sectionsFor({ business: true, excelLiteGrid: false }).map((s) => s.id);
-  assert.ok(!ids.includes('ledger'), 'no Ledger when the grid is off');
-  assert.ok(ids.includes('payments'), 'Payments is independent of the grid flag');
-  for (const s of SECTIONS) assert.ok(ids.includes(s.id), s.id + ' kept');
-  assert.strictEqual(ids[ids.length - 1], 'settings');
-});
-
-test('excelLiteGrid omitted or true -> Ledger present (general product default)', () => {
-  assert.ok(sectionsFor({ business: true }).map((s) => s.id).includes('ledger'));
-  assert.ok(sectionsFor({ business: true, excelLiteGrid: true }).map((s) => s.id).includes('ledger'));
+// The excelLiteGrid flag is now inert at the nav layer (kept accepted for caller back-compat).
+test('excelLiteGrid flag no longer changes the nav (grid moved under Manage)', () => {
+  const off = sectionsFor({ business: true, excelLiteGrid: false }).map((s) => s.id);
+  const on = sectionsFor({ business: true, excelLiteGrid: true }).map((s) => s.id);
+  assert.deepStrictEqual(off, on);
+  assert.ok(off.includes('team') && off.includes('payments'));
 });
 
 test('excelLiteGrid flag is irrelevant in personal mode (classic sections regardless)', () => {

@@ -48,6 +48,7 @@
         if (name === 'Payments') return require('./components/payments');
         if (name === 'Grid') return require('./components/grid');
         if (name === 'Team') return require('./components/team');
+        if (name === 'Manage') return require('./components/manage');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -199,13 +200,12 @@
     overview: 'A quick snapshot of your spending: your total, the trend this year, and your top categories.',
     activity: "Every receipt you've captured — search, filter, edit, or review any of them.",
     upload: 'Add a receipt manually from this browser, instead of sending it to the Telegram bot.',
-    manage: "Teaches the app what information to pull off every receipt — like Merchant, Date, and Amount. Upload your own spreadsheet (CSV or Excel) once, and it copies your exact column names, so you never have to type them in by hand.",
+    manage: "Set up how the app reads your receipts and, in business mode, edit your data directly. Use the Section dropdown to switch between the field/category template and the spreadsheet-style Data editor (click any cell to edit it in place).",
     reports: 'Deeper breakdowns of your spending by day, week, month, or year.',
     settings: 'Adjust preferences like theme, categories, and account options.',
     // Business-only (ADR-021 Phase 6/8): only ever shown when Nav.sectionsFor(business) is used.
     team: 'Manage your branches and each branch’s staff directory. Admins can also add branches and companies.',
     payments: 'Track which expenses are pending vs paid. Admins can select several and mark them paid at once.',
-    ledger: 'A spreadsheet-style view of your expenses — click any cell to edit it in place.',
   };
 
   // The "i" button + popup logic itself now lives in Render.buildInfoIcon
@@ -275,14 +275,15 @@
       overview: (deps && deps.Overview) || dep('Overview'),
       activity: (deps && deps.Activity) || dep('Activity'),
       upload: (deps && deps.Upload) || dep('Upload'),
-      manage: (deps && deps.Templates) || dep('Templates'),
+      // Manage is a shell hosting sub-pages (template/category editor + the excel-lite Data
+      // editor) — it mounts Templates and Grid itself, reading deps.Templates/deps.Grid.
+      manage: (deps && deps.Manage) || dep('Manage'),
       reports: (deps && deps.Reports) || dep('Reports'),
       settings: (deps && deps.Settings) || dep('Settings'),
       // Business-only sections (ADR-021 Phase 6/8). Registered unconditionally — they
       // simply never appear in `sections` (buildViews) unless Nav.sectionsFor({business:true}) ran.
       team: (deps && deps.Team) || dep('Team'),
       payments: (deps && deps.Payments) || dep('Payments'),
-      ledger: (deps && deps.Grid) || dep('Grid'),
     };
   }
 
@@ -368,13 +369,11 @@
     // and the mounted view panels (buildViews below). Business mode (deps.session set)
     // inserts Payments/Ledger before Settings; personal mode is the classic SECTIONS,
     // byte-identical. Computed once so the two can never drift apart.
+    // The excel-lite grid is no longer a top-level section — it's a sub-page of Manage
+    // (components/manage.js), which reads config.excel_lite_grid itself. So the nav list no
+    // longer depends on that flag; business mode just adds Team + Payments.
     var sections = Nav && Nav.sectionsFor
-      ? Nav.sectionsFor({
-          business: !!deps.session,
-          // ADR-022 Phase 7 profile flag: /api/config exposes excel_lite_grid; false
-          // (the Premala profile) drops the Ledger. Missing/old config -> default ON.
-          excelLiteGrid: !(deps.config && deps.config.excel_lite_grid === false),
-        })
+      ? Nav.sectionsFor({ business: !!deps.session })
       : (Nav && Nav.SECTIONS) || [];
 
     // Owner request 2026-07-06: two-tier header (big brand block above the
@@ -502,6 +501,8 @@
       Settings: dep('Settings'), Falc: dep('Falc'),
       RateMeter: dep('RateMeter'), Render: dep('Render'), Login: dep('Login'),
       Payments: dep('Payments'), Grid: dep('Grid'), Team: dep('Team'),
+      // Manage shell — hosts the Templates + Grid sub-pages behind a dropdown.
+      Manage: dep('Manage'),
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 

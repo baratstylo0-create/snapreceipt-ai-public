@@ -26,7 +26,7 @@ format **pending client samples**.
 |---|---|---|
 | **Live data** (rows-not-workbooks, ADR-021) | **Unchanged.** Every branch receipt flows into the one shared DB → admin's **reports/analysis are live**. | default M2 data layer |
 | **Live merged master workbook** | **OFF.** No all-branches-into-one live master spreadsheet. Admin's master file = their own Head-Office expenses. | `liveMasterMerge` = false |
-| **In-dashboard live cell editing** ("excel-lite") | **OFF.** | `excelLiteGrid` = false |
+| **In-dashboard live cell editing** ("excel-lite") | **ON** (Owner reversed the earlier OFF, 2026-07-09 — repeatedly requested). Lives as the **"Data editor (spreadsheet)"** sub-page of the **Manage** tab (dropdown), NOT a standalone tab. Read-only by default + an "Edit cells" toggle; search, pagination, category dropdown, CSV export. | `excelLiteGrid` = **true** |
 | **Document hand-off** | **ON** — clerk hits **"Send to Admin"** in the dashboard; their compiled branch export lands in the admin's dashboard (no more WhatsApp). | `branchSubmission` = true |
 | **Per-branch formatted Excel/PDF export** (receipts embedded → PDF, their layout) | **Pending samples** — build deferred. Foundation = Phase 3 receipt-image-in-Excel embed (ADR-018/021). | client-specific export task |
 
@@ -40,9 +40,15 @@ multiUser        = true    # branches + admin/clerk roles (M2)
 companyDimension = true    # Group → Company → Branch → Staff (ADR-023; Premala runs multiple companies)
 pettyCash        = true    # petty-cash floats + claim maths + Monthly Statement (ADR-023)
 liveMasterMerge  = false   # NO live all-branch master workbook
-excelLiteGrid    = false   # NO in-dashboard live cell editing
+excelLiteGrid    = true     # ON (2026-07-09, Owner) — the "Data editor" sub-page under Manage
 branchSubmission = true    # "Send to Admin" in-dashboard hand-off
 ```
+
+> **⚠️ OPS — live instances need the env flip too.** `excelLiteGrid` reads `CAP_EXCEL_LITE_GRID`
+> (`lib/account.js`). The repo's local `.env` was set to `true` on 2026-07-09; **each live instance's
+> `.env` (VPS) must be set `CAP_EXCEL_LITE_GRID=true` and the app restarted** for the Data editor
+> sub-page to appear there. Until that flip, the live dashboard shows only the Template & Categories
+> sub-page under Manage.
 
 Everything else = general product defaults (their template/categories/branding/currency configured at
 provisioning per ADR-020).

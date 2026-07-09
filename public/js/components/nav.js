@@ -27,33 +27,30 @@
     { id: 'settings', label: 'Settings' },
   ];
 
-  // Business-only sections: Team (branches/staff/companies — Phase 2/8 follow-up,
-  // was API-only until this was wired), the payment Pending/Paid tabs (Phase 6),
-  // and the excel-lite "Ledger" grid (Phase 6). Inserted before Settings so
-  // Settings stays last.
+  // Business-only sections: Team (branches/staff/companies — Phase 2/8 follow-up, was
+  // API-only until this was wired) and the payment Pending/Paid tabs (Phase 6). Inserted
+  // before Settings so Settings stays last.
+  // NB: the excel-lite editable grid is NOT a top-level section — it's a sub-page of
+  // "Manage" (components/manage.js), gated there by the excelLiteGrid capability. It used to
+  // be a standalone "Ledger" tab here; the Owner moved it under Manage (2026-07-09).
   var BUSINESS_SECTIONS = [
     { id: 'team', label: 'Team' },
     { id: 'payments', label: 'Payments' },
-    { id: 'ledger', label: 'Ledger' },
   ];
 
-  // sectionsFor({ business, role, excelLiteGrid }) -> the nav list for the mode. Personal
-  // (business falsy) returns SECTIONS untouched — the classic six, byte-identical. Business
-  // adds Payments + Ledger for BOTH roles (the views render role-aware internally; the
-  // server enforces authorization regardless of what the nav shows). Pure, no DOM.
-  // excelLiteGrid (ADR-022 Phase 7, per-client profile): pass false (Premala) to drop the
-  // Ledger grid; omitted/true keeps it — the general product default.
+  // sectionsFor({ business, role }) -> the nav list for the mode. Personal (business falsy)
+  // returns SECTIONS untouched — the classic six, byte-identical. Business adds Team +
+  // Payments for BOTH roles (the views render role-aware internally; the server enforces
+  // authorization regardless of what the nav shows). Pure, no DOM.
+  // NB (2026-07-09): the excelLiteGrid flag no longer affects the nav — the grid moved into
+  // the Manage sub-page (components/manage.js), which reads the flag itself. An `excelLiteGrid`
+  // property on opts is now simply ignored here (kept accepted for caller back-compat).
   function sectionsFor(opts) {
     opts = opts || {};
     if (!opts.business) return SECTIONS;
-    var extras = [];
-    for (var b = 0; b < BUSINESS_SECTIONS.length; b++) {
-      if (BUSINESS_SECTIONS[b].id === 'ledger' && opts.excelLiteGrid === false) continue;
-      extras.push(BUSINESS_SECTIONS[b]);
-    }
     var out = [];
     for (var i = 0; i < SECTIONS.length; i++) {
-      if (SECTIONS[i].id === 'settings') { out = out.concat(extras); }
+      if (SECTIONS[i].id === 'settings') { out = out.concat(BUSINESS_SECTIONS); }
       out.push(SECTIONS[i]);
     }
     return out;

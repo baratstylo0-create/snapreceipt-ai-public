@@ -1316,6 +1316,26 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   background: var(--accent-strong);
 }
 
+/* --- Manage shell: sub-page dropdown + panels (2026-07-09) ----------------
+   The Manage view hosts sub-pages (template/category editor + the excel-lite Data
+   editor) chosen from a dropdown. Reuses the same select idiom as the Payments
+   filters (.pay-filter-*) so the control language stays consistent. */
+.manage-shell { display: flex; flex-direction: column; gap: 18px; }
+.manage-subnav {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.manage-subnav-label {
+  font-size: 12.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.manage-subnav-select {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.manage-panels { display: block; }
+.manage-panel[hidden] { display: none; }
+
 /* --- Manage: field-template import (Task E) ------------------------------- */
 .tp-root { display: flex; flex-direction: column; gap: 20px; }
 .tp-intro { margin: 0; }
