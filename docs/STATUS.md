@@ -57,3 +57,4 @@ Vertical AI Solution. **M1** = personal (done). **M2** = business/multi-branch/m
 
 ## Not doing yet
 Billing/subscriptions, multi-instance fleet management, AI eval gate (P8), Sentry/APM (observability Phase 2, deferred behind an ADR). M2 itself is no longer "deferred" — it is built and in pre-live for the first client.
+**2026-07-09 QA round:** Codex is handling PR-A first on `qa/pr-a-export` (dashboard export guardrails/reference fixes), then will stop after opening the PR for Claude-J review/merge.

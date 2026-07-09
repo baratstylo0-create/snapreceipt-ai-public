@@ -286,7 +286,23 @@
   // Does this row have a viewable receipt image on either surface? True for a durable
   // Storage copy (receipt_url, e.g. dashboard uploads) OR a legacy Telegram file (receipt_file_id).
   function hasReceiptImage(row) {
-    return !!(row && (row.receipt_url || row.receipt_file_id));
+    return receiptKind(row) !== 'none';
+  }
+
+  function receiptKind(row) {
+    if (!row || typeof row !== 'object') return 'none';
+    var path = str(row.receipt_url).split('?')[0].toLowerCase();
+    if (path) {
+      if (/\.pdf$/.test(path)) return 'pdf';
+      if (/\.(png|jpe?g|gif|webp)$/.test(path)) return 'image';
+      return 'unknown';
+    }
+    if (row.receipt_file_id) return 'unknown';
+    return 'none';
+  }
+
+  function receiptLabel(row) {
+    return receiptKind(row) === 'pdf' ? 'Receipt PDF' : 'Receipt image';
   }
 
   var VIEW_MODE_KEY = 'activityViewMode';
@@ -382,7 +398,7 @@
     return wrap;
   }
 
-  // Auth'd receipt-image fetch, shared by the drawer's full-size render and the
+  // Auth'd receipt fetch, shared by the drawer's full-size render and the
   // card view's thumbnail (P6 hardening): /receipt/:fileId requires checkDash, so a
   // plain <img src="/receipt/...">  or <a href> can't carry the bearer token and
   // would 401. Fetch the bytes via Api.fetchBlob (attaches the same Authorization
@@ -399,13 +415,25 @@
     Api.fetchBlob(receiptByIdPath(expenseId)).then(function (blob) {
       var url = URL.createObjectURL(blob);
       clear(imgWrap);
-      var img = el('img', imgClassName);
-      img.src = url;          // browser-generated object URL, not derived from untrusted data
-      img.alt = alt;
-      imgWrap.appendChild(img);
+      var type = blob && blob.type ? String(blob.type).toLowerCase() : '';
+      var isPdf = type.indexOf('pdf') !== -1 || opts.kind === 'pdf';
+      if (isPdf) {
+        var link = el('a', 'act-receipt-pdf');
+        link.href = url;      // browser-generated object URL, not derived from untrusted data
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.download = 'receipt.pdf';
+        Escape.setText(link, 'Open receipt PDF');
+        imgWrap.appendChild(link);
+      } else {
+        var img = el('img', imgClassName);
+        img.src = url;        // browser-generated object URL, not derived from untrusted data
+        img.alt = alt;
+        imgWrap.appendChild(img);
+      }
     }).catch(function () {
       clear(imgWrap);
-      imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt image.'));
+      imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt.'));
     });
   }
 
@@ -588,7 +616,7 @@
       var thumbWrap = el('div', 'act-card-thumb');
       thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
       card.appendChild(thumbWrap);
-      loadReceiptImage(r.id, thumbWrap, { imgClassName: 'act-card-thumb-image', alt: 'Receipt thumbnail' });
+      loadReceiptImage(r.id, thumbWrap, { imgClassName: 'act-card-thumb-image', alt: 'Receipt thumbnail', kind: receiptKind(r) });
     }
 
     var body = el('div', 'act-card-body');
@@ -771,15 +799,15 @@
     // user asks to see any of them.
     var receipt = el('div', 'act-receipt');
     if (hasReceiptImage(rowObj)) {
-      receipt.appendChild(textCell('span', 'act-receipt-label muted', 'Receipt image'));
+      receipt.appendChild(textCell('span', 'act-receipt-label muted', receiptLabel(rowObj)));
       var imgWrap = el('div', 'act-receipt-image-wrap');
       var status2 = el('p', 'act-receipt-msg muted');
       Escape.setText(status2, 'Loading receipt image…');
       imgWrap.appendChild(status2);
       receipt.appendChild(imgWrap);
-      loadReceiptImage(rowObj.id, imgWrap, { imgClassName: 'act-receipt-image', alt: 'Receipt image' });
+      loadReceiptImage(rowObj.id, imgWrap, { imgClassName: 'act-receipt-image', alt: 'Receipt image', kind: receiptKind(rowObj) });
     } else {
-      receipt.appendChild(textCell('span', 'act-receipt-label muted', 'No receipt image on file'));
+      receipt.appendChild(textCell('span', 'act-receipt-label muted', 'No receipt on file'));
     }
     drawer.appendChild(receipt);
 
@@ -1080,6 +1108,8 @@
     receiptPath: receiptPath,
     receiptByIdPath: receiptByIdPath,
     hasReceiptImage: hasReceiptImage,
+    receiptKind: receiptKind,
+    receiptLabel: receiptLabel,
     normaliseViewMode: normaliseViewMode,
     // render (browser)
     mount: mount,

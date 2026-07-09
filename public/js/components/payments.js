@@ -10,9 +10,9 @@
 // Same conventions as every other view: pure DOM (createElement/textContent — never innerHTML
 // with a dynamic value), UMD shim, the pure logic (filterRows/selectionSummary) node-testable.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.Payments = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../exportGuards'));
+  else root.Payments = factory(root.ExportGuards);
+})(typeof self !== 'undefined' ? self : this, function (ExportGuards) {
   'use strict';
 
   // ---- pure logic (node-tested) ----------------------------------------------
@@ -94,6 +94,32 @@
     var params = ['period=' + encodeURIComponent(opts.month), 'format=' + encodeURIComponent(format)];
     if (isAdmin) params.push('branch=' + encodeURIComponent(opts.branch));
     return '/api/statement?' + params.join('&');
+  }
+
+  // Rows the statement export would actually cover from the client-side cache. Admin exports
+  // a selected branch/month; clerk rows are already branch-scoped by /api/expenses, so month is
+  // enough. This deliberately ignores the Pending/Paid tab: a petty-cash statement is a branch
+  // x month evidence pack, not just the currently visible payment-status slice.
+  function statementExportRows(rows, opts, isAdmin) {
+    opts = opts || {};
+    var month = String(opts.month || '');
+    if (!month) return [];
+    var branch = opts.branch == null ? '' : String(opts.branch);
+    var out = [];
+    var list = Array.isArray(rows) ? rows : [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r) continue;
+      if (r.deleted_at) continue;
+      if (String(r.status || '') === 'rejected') continue;
+      if (String(r.expense_date || '').slice(0, 7) !== month) continue;
+      if (isAdmin) {
+        var b = r.branch_id == null || r.branch_id === '' ? 'unassigned' : String(r.branch_id);
+        if (b !== branch) continue;
+      }
+      out.push(r);
+    }
+    return out;
   }
 
   // selectionSummary(rows, selectedIds) -> { count, total } for the sticky bar. Non-finite
@@ -423,6 +449,14 @@
     function doStatementExport(format) {
       var ready = statementReady({ month: state.month, branch: state.branch }, isAdmin);
       if (!ready.ok) { Escape.setText(stmtMsg, ready.reason); return; }
+      var gate = ExportGuards.exportGate({ data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin), confirmed: false });
+      if (!gate.ok && !gate.needsConfirm) { Escape.setText(stmtMsg, gate.message); return; }
+      ExportGuards.requestReviewedConfirmation(function () {
+        startStatementExport(format);
+      }, { confirmLabel: 'Confirm and export' });
+    }
+
+    function startStatementExport(format) {
       xlsxBtn.disabled = true;
       pdfBtn.disabled = true;
       Escape.setText(stmtMsg, 'Preparing ' + format.toUpperCase() + '…');
@@ -466,6 +500,6 @@
   return {
     mount: mount, filterRows: filterRows, selectionSummary: selectionSummary,
     submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
-    statementReady: statementReady, statementUrl: statementUrl,
+    statementReady: statementReady, statementUrl: statementUrl, statementExportRows: statementExportRows,
   };
 });
