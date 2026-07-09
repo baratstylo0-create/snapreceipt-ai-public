@@ -13,12 +13,17 @@ test('personal mode -> exactly the classic sections (same reference semantics)',
   assert.deepStrictEqual(sectionsFor({}), SECTIONS);
 });
 
-test('business mode -> Payments + Ledger appear, classic sections all kept, Settings stays last', () => {
+test('business mode -> Team + Payments + Ledger appear, classic sections all kept, Settings stays last', () => {
   const ids = sectionsFor({ business: true, role: 'admin' }).map((s) => s.id);
+  assert.ok(ids.includes('team'));
   assert.ok(ids.includes('payments'));
   assert.ok(ids.includes('ledger'));
   for (const s of SECTIONS) assert.ok(ids.includes(s.id), s.id + ' kept');
   assert.strictEqual(ids[ids.length - 1], 'settings');
+});
+
+test('Team is unaffected by the excelLiteGrid flag (only Ledger is gated by it)', () => {
+  assert.ok(sectionsFor({ business: true, excelLiteGrid: false }).map((s) => s.id).includes('team'));
 });
 
 test('business clerk gets the same sections (views themselves render role-aware)', () => {

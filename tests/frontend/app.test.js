@@ -16,7 +16,7 @@ const assert = require('node:assert');
 if (typeof global.self === 'undefined') global.self = {};
 
 const App = require('../../public/js/app');
-const { storedAutoMode, setAutoMode, toggleTheme, setTheme } = App;
+const { storedAutoMode, setAutoMode, toggleTheme, setTheme, storedDefaultView, setDefaultView } = App;
 
 function fakeStorage() {
   var store = {};
@@ -165,6 +165,46 @@ test('toggleTheme: an unrecognised stored value is treated like "light" before a
   } finally { delete global.self.sessionStorage; }
 });
 
+// --- storedDefaultView / setDefaultView (Settings' "Default page" picker) ---
+// Same ss()-guarded, try/catch-safe sessionStorage pattern as theme/auto-mode.
+// The picker's OPTIONS are validated against the current section list in
+// app.js's enterApp() (business vs personal) — these two helpers are pure
+// storage plumbing and never validate the id themselves, mirroring
+// storedTheme/setTheme's own division of labor (setTheme normalizes against
+// THEME_CYCLE; storedTheme does not).
+
+test('storedDefaultView: defaults to null with no sessionStorage', () => {
+  delete global.self.sessionStorage;
+  assert.strictEqual(storedDefaultView(), null);
+});
+
+test('storedDefaultView: missing key -> null', () => {
+  global.self.sessionStorage = fakeStorage();
+  try {
+    assert.strictEqual(storedDefaultView(), null);
+  } finally { delete global.self.sessionStorage; }
+});
+
+test('setDefaultView: persists the given id, storedDefaultView reads it back', () => {
+  const s = fakeStorage();
+  global.self.sessionStorage = s;
+  try {
+    setDefaultView('team');
+    assert.strictEqual(storedDefaultView(), 'team');
+  } finally { delete global.self.sessionStorage; }
+});
+
+test('setDefaultView: a sessionStorage write failure never throws', () => {
+  global.self.sessionStorage = {
+    getItem: () => { throw new Error('broken'); },
+    setItem: () => { throw new Error('broken'); },
+  };
+  try {
+    assert.doesNotThrow(() => setDefaultView('overview'));
+    assert.doesNotThrow(() => storedDefaultView());
+  } finally { delete global.self.sessionStorage; }
+});
+
 // --- module surface ----------------------------------------------------------
 
 test('App exposes storedAutoMode and setAutoMode', () => {
@@ -176,4 +216,9 @@ test('App exposes toggleTheme, applyTheme, and setTheme', () => {
   assert.strictEqual(typeof App.toggleTheme, 'function');
   assert.strictEqual(typeof App.applyTheme, 'function');
   assert.strictEqual(typeof App.setTheme, 'function');
+});
+
+test('App exposes storedDefaultView and setDefaultView', () => {
+  assert.strictEqual(typeof App.storedDefaultView, 'function');
+  assert.strictEqual(typeof App.setDefaultView, 'function');
 });
