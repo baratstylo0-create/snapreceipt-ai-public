@@ -305,6 +305,22 @@
     return receiptKind(row) === 'pdf' ? 'Receipt PDF' : 'Receipt image';
   }
 
+  // Review-queue card meta (Owner 2026-07-10): the ordered, displayable key fields shown under a
+  // flagged receipt so it can be reviewed in place — [date, category, ref]. Blanks and the
+  // internal '__pending__' category sentinel are dropped so the UI never shows an empty or
+  // sentinel value. Pure, never throws.
+  function reviewMetaParts(row) {
+    if (!row || typeof row !== 'object') return [];
+    var parts = [];
+    var d = str(row.expense_date).trim();
+    if (d) parts.push(d);
+    var c = str(row.category).trim();
+    if (c && c !== '__pending__') parts.push(c);
+    var ref = str(row.voucher_no).trim();
+    if (ref) parts.push(ref);
+    return parts;
+  }
+
   var VIEW_MODE_KEY = 'activityViewMode';
   var VIEW_MODES = { table: 'table', cards: 'cards' };
 
@@ -818,13 +834,48 @@
 
   function buildReviewItem(rowObj, handlers) {
     var card = el('div', 'act-review-item');
-    card.appendChild(textCell('span', 'act-review-merchant', rowObj.merchant));
+
+    // Owner request 2026-07-10: show the receipt itself on the card so a decision can be made in
+    // place. A thumbnail (image or a PDF link), loaded via the same auth'd fetch the table/cards
+    // use. Clicking it opens the full detail drawer (handlers.onOpen) for a closer look.
+    if (hasReceiptImage(rowObj)) {
+      var thumbWrap = el('div', 'act-review-thumb');
+      if (typeof handlers.onOpen === 'function') {
+        thumbWrap.setAttribute('role', 'button');
+        thumbWrap.setAttribute('tabindex', '0');
+        thumbWrap.setAttribute('title', 'Open full receipt');
+        thumbWrap.addEventListener('click', function () { handlers.onOpen(rowObj); });
+        thumbWrap.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); handlers.onOpen(rowObj); }
+        });
+      }
+      thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
+      card.appendChild(thumbWrap);
+      loadReceiptImage(rowObj.id, thumbWrap, { imgClassName: 'act-review-thumb-image', alt: 'Receipt image', kind: receiptKind(rowObj) });
+    }
+
+    var main = el('div', 'act-review-main');
+
+    var mCell = textCell('span', 'act-review-merchant', rowObj.merchant);
+    main.appendChild(mCell);
     var amt = el('span', 'act-review-amount');
     Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
-    card.appendChild(amt);
+    main.appendChild(amt);
+
+    // Key fields (date · category · ref) so the receipt is identifiable at a glance.
+    var parts = reviewMetaParts(rowObj);
+    if (parts.length) main.appendChild(textCell('p', 'act-review-meta muted', parts.join(' · ')));
+
+    // The staff/OCR remark often explains the expense — helpful context for the decision.
+    if (rowObj.remark) {
+      var remark = el('p', 'act-review-remark');
+      Escape.setText(remark, rowObj.remark);                              // untrusted -> textContent
+      remark.setAttribute('title', Escape.stripControls(str(rowObj.remark)));
+      main.appendChild(remark);
+    }
 
     var reason = anomalyReasonText(rowObj.anomaly);
-    card.appendChild(textCell('p', 'act-review-reason', reason));  // untrusted reason -> escaped
+    main.appendChild(textCell('p', 'act-review-reason', reason));  // untrusted reason -> escaped
 
     var actions = el('div', 'act-review-actions');
     var approve = el('button', 'act-review-approve'); approve.type = 'button'; Escape.setText(approve, 'Approve');
@@ -833,7 +884,9 @@
     approve.addEventListener('click', function () { handlers.onDecide(rowObj, 'approve', card, st); });
     reject.addEventListener('click', function () { handlers.onDecide(rowObj, 'reject', card, st); });
     actions.appendChild(approve); actions.appendChild(reject); actions.appendChild(st);
-    card.appendChild(actions);
+    main.appendChild(actions);
+
+    card.appendChild(main);
     return card;
   }
 
@@ -1037,6 +1090,7 @@
       if (!reviewState.rows.length) { reviewArea.appendChild(msg('act-empty muted', 'Nothing to review. 🎉')); return; }
       reviewState.rows.forEach(function (r) {
         reviewArea.appendChild(buildReviewItem(r, {
+          onOpen: openDrawer, // clicking the receipt thumbnail opens the full detail drawer
           onDecide: function (rowObj, decision, card, st) {
             Escape.setText(st, decision === 'approve' ? 'Approving…' : 'Rejecting…');
             apiFetch('/api/review/' + encodeURIComponent(rowObj.id), { method: 'POST', body: { decision: decision } })
@@ -1110,6 +1164,7 @@
     hasReceiptImage: hasReceiptImage,
     receiptKind: receiptKind,
     receiptLabel: receiptLabel,
+    reviewMetaParts: reviewMetaParts,
     normaliseViewMode: normaliseViewMode,
     // render (browser)
     mount: mount,
