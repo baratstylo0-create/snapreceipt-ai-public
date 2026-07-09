@@ -3,7 +3,7 @@
 // 2026-07-03). No network — buildCategoryKeyboard/categoryPromptText are hermetic.
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCategoryKeyboard, categoryPromptText, editCategoryKeyboard, datePromptText, PENDING_CATEGORY } = require('../lib/ocr');
+const { buildCategoryKeyboard, categoryPromptText, editCategoryKeyboard, datePromptText, duplicateRejectedText, buildDuplicateKeyboard, PENDING_CATEGORY } = require('../lib/ocr');
 const { CATEGORIES } = require('../lib/categorize');
 
 test('buildCategoryKeyboard: every real category gets a button, Others is always last on its own row', () => {
@@ -87,4 +87,36 @@ test('datePromptText: mentions the merchant and amount, and asks for DD/MM/YYYY'
 
 test('datePromptText: does not throw on a missing merchant', () => {
   assert.doesNotThrow(() => datePromptText({ amount: 10, currency: 'USD' }));
+});
+
+// --- duplicateRejectedText / buildDuplicateKeyboard (issue #162 D13): the "rejected —
+// duplicate" reply, referencing the EXISTING receipt, not a fresh one. ---
+
+test('duplicateRejectedText: mentions the EXISTING receipt\'s merchant/amount/date', () => {
+  const text = duplicateRejectedText({ id: 'exp-1', merchant: 'Bonda KL', amount: 183.65, currency: 'MYR', expense_date: '2026-07-01' });
+  assert.match(text, /Bonda KL/);
+  assert.match(text, /183\.65|183\.7|184/);
+  assert.match(text, /2026-07-01/);
+  assert.match(text, /duplicate/i);
+});
+
+test('duplicateRejectedText: does not throw when the existing row is missing a date', () => {
+  assert.doesNotThrow(() => duplicateRejectedText({ merchant: 'X', amount: 10, currency: 'USD' }));
+});
+
+test('buildDuplicateKeyboard: View and Edit buttons, callback_data references the EXISTING id', () => {
+  const kb = buildDuplicateKeyboard('exp-existing-1');
+  const flat = kb.inline_keyboard.flat();
+  assert.strictEqual(flat.length, 2);
+  assert.strictEqual(flat[0].callback_data, 'dupview:exp-existing-1');
+  assert.strictEqual(flat[1].callback_data, 'dupedit:exp-existing-1');
+  assert.match(flat[0].text, /View/i);
+  assert.match(flat[1].text, /Edit/i);
+});
+
+test('buildDuplicateKeyboard: callback_data stays well under Telegram\'s 64-byte limit for a real UUID', () => {
+  const kb = buildDuplicateKeyboard('a'.repeat(36));
+  for (const btn of kb.inline_keyboard.flat()) {
+    assert.ok(Buffer.byteLength(btn.callback_data, 'utf8') <= 64);
+  }
 });
