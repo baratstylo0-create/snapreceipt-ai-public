@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-10 · Codex (for Jeevan) · qa/pr-e-payments-fix — QA PR-E Payments fixes
+
+- **Files:** `public/js/components/payments.js`, `tests/frontend/payments.test.js`, `tests/statementPdf.test.js`.
+- **What changed:** Started QA round 2 with **PR-E only** (`qa/pr-e-payments-fix`, off latest `main` after PR-A merge). Confirmed the real Payments/Team wiring first: branch labels already came from `/api/branches`, while staff filter options were built from `staff_user_id` values and rendered with no name map. Payments now builds a best-effort `staffNames` map via the same branch staff directory source Team uses (`GET /api/branches/:id/staff`) and labels the staff dropdown with display names while keeping option values as stable staff IDs. Admin statement export no longer gives a generic/dead-feeling branch prompt when "All branches"/unassigned is selected; it clearly says statements are per-branch and points all-branches export work to Manage.
+- **QA IDs:** Closes E1/E2. Adds E3 regression coverage that `lib/statementPdf.js` still embeds receipt image evidence pages in statement PDFs. Evidence-pack/data-export image bundling remains an Owner decision for the PR body, per QA round 2.
+- **Tests:** TDD red first in `tests/frontend/payments.test.js` (old statement copy + missing staff option/name helpers), then green. Targeted Payments/PDF tests **24/24**. Full suite **1638/1638** with `.env` moved aside/restored (+3 tests over the 1635 baseline).
+- **What's next:** push branch and open PR against `main`; stop for Claude-J review/merge before starting PR-F (`qa/pr-f-ia`).
+- **Assumptions:** Payments can best-effort fetch staff names for branch IDs present in the already-scoped expense rows (plus the current session branch when present); if the staff directory call fails, the dropdown safely falls back to raw IDs as before.
+
+---
+
 ## 2026-07-09 · Codex (for Jeevan) · qa/pr-a-export — QA PR-A export guardrails + PDF receipt references
 
 - **Files:** `public/js/exportGuards.js` (new shared extract guard), `public/index.html`, `public/js/components/reports.js`, `public/js/components/payments.js`, `public/js/components/activity.js`, `public/css/app.css`, `tests/frontend/exportGuards.test.js` (new), `tests/frontend/payments.test.js`, `tests/frontend/activity.ref.test.js`.
