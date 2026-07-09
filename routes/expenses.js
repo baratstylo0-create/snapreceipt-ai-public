@@ -230,6 +230,10 @@ module.exports = function mountExpenses(app) {
       multi_user: !!caps.multiUser,
       excel_lite_grid: !!caps.excelLiteGrid,
       branch_submission: !!caps.branchSubmission,
+      // Public @handle, not a secret (BOT_TOKEN itself is never exposed here) — lets the
+      // Team view render a clickable t.me/<bot>?start=<code> bot-binding link. Empty when
+      // unset; the frontend falls back to showing the raw code.
+      bot_username: cfg.BOT_USERNAME || '',
     });
   });
 };

@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches,
+  isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches, botDeepLink,
 } = require('../../public/js/components/team');
 
 test('isAdmin: true only for role admin, false for clerk/staff/missing/garbage', () => {
@@ -69,4 +69,30 @@ test('sortedBranches: active branches first, then alphabetical by office within 
 test('sortedBranches: garbage input never throws', () => {
   assert.deepStrictEqual(sortedBranches(null), []);
   assert.deepStrictEqual(sortedBranches(undefined), []);
+});
+
+// --- botDeepLink: the clickable t.me bot-binding link (mirrors setup/provision.js's
+// CLI bindingLink() optional/degrade contract, just returning a URL instead of a line) ---
+
+test('botDeepLink: builds a t.me deep link when both a bot username and a bind token are given', () => {
+  assert.strictEqual(botDeepLink('ReceiptBot', 'tok-abc123'), 'https://t.me/ReceiptBot?start=tok-abc123');
+});
+
+test('botDeepLink: strips a leading @ from the username', () => {
+  assert.strictEqual(botDeepLink('@ReceiptBot', 'tok-abc123'), 'https://t.me/ReceiptBot?start=tok-abc123');
+});
+
+test('botDeepLink: URL-encodes the token', () => {
+  assert.strictEqual(botDeepLink('ReceiptBot', 'a+b/c'), 'https://t.me/ReceiptBot?start=a%2Bb%2Fc');
+});
+
+test('botDeepLink: null when the bot username is unset (frontend falls back to the raw code)', () => {
+  assert.strictEqual(botDeepLink('', 'tok-abc123'), null);
+  assert.strictEqual(botDeepLink(null, 'tok-abc123'), null);
+  assert.strictEqual(botDeepLink(undefined, 'tok-abc123'), null);
+});
+
+test('botDeepLink: null when the bind token is missing, even with a configured bot', () => {
+  assert.strictEqual(botDeepLink('ReceiptBot', ''), null);
+  assert.strictEqual(botDeepLink('ReceiptBot', null), null);
 });

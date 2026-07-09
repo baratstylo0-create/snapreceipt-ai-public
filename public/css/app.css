@@ -1946,6 +1946,11 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .team-cred-value { font-family: var(--font-mono, ui-monospace, monospace); color: var(--txt); word-break: break-all; }
 .team-cred-value--mono { font-size: 12px; }
 .team-cred-hint { font-size: 12px; color: var(--txt-soft); }
+.team-cred-link {
+  align-self: flex-start; font-size: 13px; font-weight: 700; color: var(--accent);
+  text-decoration: none; padding: 6px 0;
+}
+.team-cred-link:hover { text-decoration: underline; }
 
 .team-add-row, .team-companies { display: flex; flex-direction: column; gap: 8px; }
 .team-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
@@ -1994,6 +1999,70 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .team-btn--ghost { background: var(--panel); color: var(--muted); }
 .team-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
 .team-btn--sm { padding: 5px 12px; font-size: 12px; }
+
+/* --- Payments: Pending/Paid tabs + bulk mark-paid (M2 business layer) ---
+   Pre-existing view (ADR-021 Phase 6) whose JS classes were never styled —
+   filters/table/tabs rendered as raw browser-default controls. Reuses the
+   EXACT SAME idioms already established elsewhere (no new visual language):
+   .pay-tabs/.pay-tab = .act-view-toggle/.act-view-btn's pill-toggle language;
+   filter inputs = .team-input; the table = .act-table's border/radius/panel
+   language (descendant th/td selectors since payments.js's cells carry no
+   per-element class); buttons = .team-btn/.set-btn. */
+.payments { display: flex; flex-direction: column; gap: 14px; }
+
+.pay-tabs {
+  display: inline-flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px; width: fit-content;
+}
+.pay-tab {
+  background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 999px;
+  padding: 6px 16px; font: inherit; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.pay-tab:hover { color: var(--txt); }
+.pay-tab.is-active { color: var(--accent-contrast); background: var(--txt); border-color: var(--txt); }
+body.theme-dark .pay-tab.is-active { color: var(--bg); }
+
+.pay-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.pay-filter-month, .pay-filter-branch, .pay-filter-staff {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+
+.pay-submission { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.pay-submission-msg { font-size: 13px; }
+.pay-send-btn, .pay-withdraw-btn {
+  padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line);
+}
+.pay-send-btn { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.pay-send-btn:disabled { opacity: 0.5; cursor: default; }
+.pay-withdraw-btn { background: var(--panel); color: var(--muted); }
+.pay-withdraw-btn:hover { color: var(--clay); border-color: var(--clay); }
+
+.pay-msg { font-size: 13px; }
+
+.pay-table-host { overflow-x: auto; border-radius: var(--radius-sm); }
+.pay-table {
+  width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.pay-table th, .pay-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.pay-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pay-table tbody tr:last-child td { border-bottom: none; }
+.pay-table tbody tr:hover { background: rgba(91, 157, 255, 0.06); }
+.pay-row-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+
+.pay-selection-bar {
+  position: sticky; bottom: 12px; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; background: var(--txt); color: var(--bg); border-radius: var(--radius-sm);
+  padding: 12px 18px; box-shadow: var(--shadow);
+}
+.pay-selection-label { font-weight: 600; font-size: 13.5px; }
+.pay-action-btn {
+  padding: 8px 18px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-contrast);
+}
+.pay-action-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* --- Falc: floating assistant --- */
 .sora-perch { position: fixed; right: clamp(16px, 3vw, 30px); bottom: 24px; z-index: 96; }

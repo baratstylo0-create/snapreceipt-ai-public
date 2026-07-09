@@ -63,6 +63,17 @@
     };
   }
 
+  // botDeepLink(botUsername, bindToken) -> a clickable https://t.me/<bot>?start=<token> URL,
+  // or null when botUsername isn't configured (the frontend then falls back to showing the
+  // raw code for copy-paste). Mirrors setup/provision.js's CLI bindingLink() — same
+  // optional/degrade contract, just returning a URL instead of a printed line.
+  function botDeepLink(botUsername, bindToken) {
+    var bot = String(botUsername || '').replace(/^@/, '').trim();
+    var token = String(bindToken || '').trim();
+    if (!bot || !token) return null;
+    return 'https://t.me/' + bot + '?start=' + encodeURIComponent(token);
+  }
+
   // sortedBranches(branches) -> active branches first, alphabetical by office within each group.
   function sortedBranches(branches) {
     var list = (Array.isArray(branches) ? branches : []).slice();
@@ -129,7 +140,23 @@
         bindRow.appendChild(textEl('span', 'team-cred-label', 'Bot binding code'));
         bindRow.appendChild(textEl('span', 'team-cred-value team-cred-value--mono', c.bindToken));
         panel.appendChild(bindRow);
-        panel.appendChild(textEl('div', 'team-cred-hint', 'The clerk sends /start ' + c.bindToken + ' to the Telegram bot once to link their account.'));
+
+        var botUsername = deps.config && deps.config.bot_username;
+        var link = botDeepLink(botUsername, c.bindToken);
+        if (link) {
+          // A real, clickable deep link — the clerk taps it on their own phone and the
+          // bot binding completes with no typing. Opens in a new tab; rel=noopener per
+          // the usual target=_blank hardening.
+          var a = el('a', 'team-cred-link');
+          a.href = link;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          Escape.setText(a, 'Open in Telegram →');
+          panel.appendChild(a);
+          panel.appendChild(textEl('div', 'team-cred-hint', 'Send this link to the ' + c.office + ' clerk — tapping it links their Telegram account instantly. Or they can send /start ' + c.bindToken + ' to the bot manually.'));
+        } else {
+          panel.appendChild(textEl('div', 'team-cred-hint', 'The clerk sends /start ' + c.bindToken + ' to the Telegram bot once to link their account.'));
+        }
       }
 
       var dismiss = ghostBtn('I’ve saved this — dismiss');
@@ -430,6 +457,7 @@
     normalizeCompany: normalizeCompany,
     credentialPanel: credentialPanel,
     sortedBranches: sortedBranches,
+    botDeepLink: botDeepLink,
     // render (browser)
     mount: mount,
   };

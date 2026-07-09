@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const express = require('express');
 const mountExpenses = require('../routes/expenses');
 const { CATEGORIES } = require('../lib/categorize');
+const { cfg } = require('../lib/config');
 
 function get(app, path) {
   return new Promise((resolve, reject) => {
@@ -80,4 +81,14 @@ test('GET /api/config exposes the ADR-022 profile flags — defaults: grid ON, s
       else process.env[k] = saved[k];
     }
   }
+});
+
+test('GET /api/config exposes bot_username (Team view deep-link) — fixed at process start like BOT_TOKEN, always a string, matches cfg', async () => {
+  const app = express();
+  mountExpenses(app);
+  const { json } = await get(app, '/api/config');
+  assert.strictEqual(typeof json.bot_username, 'string');
+  assert.strictEqual(json.bot_username, cfg.BOT_USERNAME);
+  // Never the raw token — only the public @handle is ever exposed here.
+  assert.strictEqual(json.bot_username.includes(cfg.BOT_TOKEN || ' no-token '), false);
 });
