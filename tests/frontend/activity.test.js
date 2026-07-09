@@ -15,6 +15,7 @@ const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
+  isRejected, recategorizeBody, permanentDeletePath,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -624,4 +625,36 @@ test('hostile card remark/merchant render INERT via Escape.safeText (same bar as
   const remarkOut = Escape.safeText(hostile.remark);
   assert.ok(remarkOut.indexOf('<script>') === -1);
   assert.ok(remarkOut.indexOf('&lt;script&gt;') !== -1);
+});
+
+// --- isRejected / recategorizeBody / permanentDeletePath (QA B8/B9) --------
+// docs/qa/2026-07-09-qa-round.md PR-B: a rejected bill gets a recategorise chevron
+// (B9) and a one-click permanent-delete icon (B8), both gated on isRejected(row).
+
+test('isRejected: true only for status "rejected"', () => {
+  assert.strictEqual(isRejected(row({ status: 'rejected' })), true);
+  assert.strictEqual(isRejected(row({ status: 'saved' })), false);
+  assert.strictEqual(isRejected(row({ status: 'approved' })), false);
+  assert.strictEqual(isRejected(row({ status: 'needs_review' })), false);
+});
+
+test('isRejected: never throws on null/garbage rows', () => {
+  assert.strictEqual(isRejected(null), false);
+  assert.strictEqual(isRejected(undefined), false);
+  assert.strictEqual(isRejected({}), false);
+  assert.strictEqual(isRejected('nope'), false);
+});
+
+test('recategorizeBody: builds a category + status:"saved" patch (mirrors the awaiting-category picker)', () => {
+  assert.deepStrictEqual(recategorizeBody('Groceries'), { category: 'Groceries', status: 'saved' });
+});
+
+test('permanentDeletePath: builds /api/expenses/<id>/permanent, encoding the id', () => {
+  assert.strictEqual(permanentDeletePath('abc-123'), '/api/expenses/abc-123/permanent');
+  assert.strictEqual(permanentDeletePath('a/b c'), '/api/expenses/a%2Fb%20c/permanent');
+});
+
+test('permanentDeletePath: null/undefined id does not throw', () => {
+  assert.strictEqual(permanentDeletePath(null), '/api/expenses//permanent');
+  assert.strictEqual(permanentDeletePath(undefined), '/api/expenses//permanent');
 });

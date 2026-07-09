@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const { cfg } = require('../lib/config');
-const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
+const { sbSelect, sbUpdate, sbSoftDelete, sbHardDelete } = require('../lib/supabase');
 const { hreq } = require('../lib/http'); // Phase 4 bulk-pay: chunked id=in.(…) PATCH (multi-row, unlike sbUpdate)
 const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
 const { getFieldSpec } = require('../lib/templates'); // read-only: the account's own chart of accounts
@@ -212,6 +212,30 @@ module.exports = function mountExpenses(app) {
       await sbSoftDelete('expenses', { id: req.params.id, scope: req.scope });
       res.json({ ok: true });
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
+  });
+
+  // DELETE /api/expenses/:id/permanent — QA B8 (docs/qa/2026-07-09-qa-round.md PR-B): the
+  // dashboard's "Rejected" view gets a one-click, NO-CONFIRMATION hard delete (Owner explicit —
+  // do not add a confirm step here, unlike the soft-delete drawer above). Registered as a
+  // distinct path (not a query flag on the existing DELETE) so the soft-delete route above stays
+  // byte-for-byte unchanged. Scoped exactly like every other write here: canTouchExpense gates a
+  // clerk to their own branch BEFORE anything is read or written. Restricted to status='rejected'
+  // rows only — an admin/clerk can't hard-delete a live 'saved'/'needs_review'/'approved' row
+  // through this door; that would defeat the whole point of a reviewable soft-delete elsewhere.
+  app.delete('/api/expenses/:id/permanent', checkDash, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    try {
+      const touch = await canTouchExpense(req, req.params.id);
+      if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
+      const rows = await sbSelect('expenses', { eq: { id: req.params.id }, scope: req.scope });
+      const cur = rows[0];
+      if (!cur) return res.status(404).json({ error: 'expense not found' });
+      if (cur.status !== 'rejected') {
+        return res.status(409).json({ error: 'only a rejected bill can be permanently deleted (status=' + cur.status + ')' });
+      }
+      await sbHardDelete('expenses', { id: req.params.id, scope: req.scope });
+      res.json({ ok: true });
+    } catch (e) { console.error('[permanent delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });
 
   // `categories` — the frontend's filter/edit dropdowns + pill colours. Prefers the

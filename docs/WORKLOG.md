@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-07-10 · Claude (for Jeevan) · qa/pr-g-rejected — QA PR-G: rejected-bill recategorise + permanent delete
+
+- **Files:** `lib/supabase.js` (new `sbHardDelete`), `routes/expenses.js` (new `DELETE /api/expenses/:id/permanent`), `public/js/components/activity.js` (Status-cell chevron + delete icon), `public/css/app.css`, `tests/expenses.harddelete.test.js` (new), `tests/frontend/activity.test.js`.
+- **QA IDs closed:** B9 (rejected → recategorise inline via a (v) chevron on the Status column, reusing the exact PATCH shape the awaiting-category picker already used: `{category, status:'saved'}`) and B8 (permanent delete on rejected bills — **ONE CLICK, explicitly NO confirmation dialog per Owner spec**, unlike every other delete in this app which uses a two-step confirm).
+- **B9:** clicking the chevron on a rejected row's Status cell opens an inline category picker (same categories list as everywhere else); picking one PATCHes `category` + `status:'saved'`, which moves the bill out of the Rejected filter into ordinary saved state. Wired in both the table and card views via a single shared `buildStatusCell()` builder so neither view drifts from the other.
+- **B8:** new backend contract — `DELETE /api/expenses/:id/permanent` hard-deletes (via new `sbHardDelete`) **iff** the row's current `status === 'rejected'`; anything else (saved/needs_review/approved/not-found/wrong-branch-for-a-clerk) refuses (409/404/403) with nothing written. Frontend fires this immediately on the delete-icon click — no confirm step, matching the Owner's explicit instruction not to "fix" this into consistency with the rest of the app.
+- **Both actions `stopPropagation()`** inside the Status cell so they never also trigger the row/card's open-drawer click.
+- **Tests:** TDD red-first for the backend (`tests/expenses.harddelete.test.js`: admin hard-delete, non-rejected row refused, not-found, clerk-cross-branch refused, clerk-own-branch allowed — 5/5) and for the frontend pure helpers (`isRejected`, `recategorizeBody`, `permanentDeletePath` — added to `tests/frontend/activity.test.js`). Full suite **1654/1654** green (`.env` moved aside/restored), up from 1644.
+- **Live-verified** (no jsdom in this repo, so DOM behaviour is checked via `window.Activity.mount()` stub-mounted in the real browser preview with a fake `apiFetch`, per this repo's existing verification convention): chevron toggles the picker without opening the drawer; selecting a category and clicking Apply issues exactly `PATCH /api/expenses/rej-1 {category:"Software", status:"saved"}` and the row leaves the Rejected bucket; clicking the delete icon issues exactly one `DELETE /api/expenses/rej-2/permanent` with **no intermediate confirmation UI**, no drawer opens, and the row is removed from view immediately.
+- **What's next:** PR-H (B7 recently-deleted bin), PR-I (B4 bulk select), PR-J (C2 multi-branch clerk — data-model check first), PR-K (D10–D13 Telegram bot). Not merging this PR myself — Owner/reviewer to merge.
+
+---
+
 ## 2026-07-10 · Codex + Claude-J (for Jeevan) · qa/pr-f-ia — QA PR-F: Reports→Overview fold + Manage export trio
 
 - **Authored by GPT-5.5/Codex, finished + verified by Claude-J** (Owner-directed takeover; Codex rate-limited mid-PR). Codex's uncommitted WIP was preserved as commit `da3ea05` before Claude finished it.
