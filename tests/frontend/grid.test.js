@@ -5,7 +5,7 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV } = require('../../public/js/components/grid');
 
 const ROW = { id: 'e1', merchant: 'Cafe', amount: 10, expense_date: '2026-07-01', category: 'Meals & Entertainment', remark: '', updated_at: '2026-07-07T10:00:00+00:00' };
 
@@ -46,4 +46,97 @@ test('a row without updated_at still edits (guard simply omitted — pre-migrati
   const r = buildCellPatch({ id: 'e2', merchant: 'Old' }, 'merchant', 'New');
   assert.strictEqual(r.ok, true);
   assert.ok(!('expected_updated_at' in r.patch));
+});
+
+// --- filterRows: the search box (read-only-by-default redesign) ---
+
+const ROWS = [
+  { id: 'a', merchant: '99 Speed Mart', category: 'Groceries', remark: '' },
+  { id: 'b', merchant: 'Petronas', category: 'Fuel & Auto', remark: 'weekly fill-up' },
+  { id: 'c', merchant: 'Touch n Go top-up', category: 'Touch n Go', remark: '' },
+];
+
+test('filterRows: case-insensitive substring match across every EDITABLE field', () => {
+  assert.deepStrictEqual(filterRows(ROWS, 'petronas').map((r) => r.id), ['b']);
+  assert.deepStrictEqual(filterRows(ROWS, 'TOUCH N GO').map((r) => r.id), ['c']); // matches merchant AND category, no dupes
+  assert.deepStrictEqual(filterRows(ROWS, 'weekly').map((r) => r.id), ['b']); // matches remark
+});
+
+test('filterRows: empty/whitespace term returns every row unchanged', () => {
+  assert.deepStrictEqual(filterRows(ROWS, ''), ROWS);
+  assert.deepStrictEqual(filterRows(ROWS, '   '), ROWS);
+  assert.deepStrictEqual(filterRows(ROWS, undefined), ROWS);
+});
+
+test('filterRows: no match -> empty array; garbage input never throws', () => {
+  assert.deepStrictEqual(filterRows(ROWS, 'nonexistent-xyz'), []);
+  assert.deepStrictEqual(filterRows(null, 'x'), []);
+  assert.deepStrictEqual(filterRows([null, undefined], 'x'), []);
+});
+
+// --- paginate: client-side pagination ---
+
+test('paginate: slices into pages of the given size', () => {
+  const r = paginate([1, 2, 3, 4, 5], 1, 2);
+  assert.deepStrictEqual(r, { pageRows: [1, 2], page: 1, totalPages: 3, total: 5 });
+  assert.deepStrictEqual(paginate([1, 2, 3, 4, 5], 3, 2).pageRows, [5]);
+});
+
+test('paginate: an out-of-range page clamps into [1, totalPages], never throws or returns garbage', () => {
+  assert.strictEqual(paginate([1, 2, 3], 99, 2).page, 2); // totalPages = 2
+  assert.strictEqual(paginate([1, 2, 3], 0, 2).page, 1);
+  assert.strictEqual(paginate([1, 2, 3], -5, 2).page, 1);
+});
+
+test('paginate: empty input -> page 1 of 1, zero rows, never throws', () => {
+  assert.deepStrictEqual(paginate([], 1, 25), { pageRows: [], page: 1, totalPages: 1, total: 0 });
+  assert.deepStrictEqual(paginate(null, 1, 25).pageRows, []);
+});
+
+// --- escapeCSVValue: formula-injection guard + RFC 4180 quoting ---
+
+test('escapeCSVValue: a leading = + - @ is prefixed with a literal quote (formula-injection guard)', () => {
+  assert.strictEqual(escapeCSVValue('=SUM(A1:A9)'), "'=SUM(A1:A9)");
+  assert.strictEqual(escapeCSVValue('+1234'), "'+1234");
+  assert.strictEqual(escapeCSVValue('-1234'), "'-1234");
+  assert.strictEqual(escapeCSVValue('@mention'), "'@mention");
+});
+
+test('escapeCSVValue: commas/quotes/newlines trigger RFC 4180 quoting with doubled internal quotes', () => {
+  assert.strictEqual(escapeCSVValue('a, b'), '"a, b"');
+  assert.strictEqual(escapeCSVValue('say "hi"'), '"say ""hi"""');
+  assert.strictEqual(escapeCSVValue('line1\nline2'), '"line1\nline2"');
+});
+
+test('escapeCSVValue: a plain value passes through unquoted; null/undefined -> empty string', () => {
+  assert.strictEqual(escapeCSVValue('Groceries'), 'Groceries');
+  assert.strictEqual(escapeCSVValue(12.5), '12.5');
+  assert.strictEqual(escapeCSVValue(null), '');
+  assert.strictEqual(escapeCSVValue(undefined), '');
+});
+
+// --- rowsToCSV / blankTemplateCSV: export ---
+
+test('rowsToCSV: header row + one CSV line per expense, EDITABLE fields in display order', () => {
+  const csv = rowsToCSV([
+    { expense_date: '2026-07-08', merchant: 'Cafe, KL', category: 'Meals & Entertainment', amount: 12.5, remark: '' },
+  ]);
+  const lines = csv.split('\r\n');
+  assert.strictEqual(lines[0], 'Date,Merchant,Category,Amount,Remark');
+  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",Meals & Entertainment,12.5,');
+});
+
+test('rowsToCSV: a formula-like merchant name is neutralised (defense in depth for a re-imported export)', () => {
+  const csv = rowsToCSV([{ expense_date: '2026-07-08', merchant: '=cmd|/c calc', category: '', amount: 1, remark: '' }]);
+  assert.ok(csv.includes("'=cmd|/c calc"));
+});
+
+test('rowsToCSV: empty input -> header row only; garbage input never throws', () => {
+  assert.strictEqual(rowsToCSV([]), 'Date,Merchant,Category,Amount,Remark');
+  assert.strictEqual(rowsToCSV(null), 'Date,Merchant,Category,Amount,Remark');
+});
+
+test('blankTemplateCSV: exactly the header row, matching rowsToCSV\'s own header', () => {
+  assert.strictEqual(blankTemplateCSV(), 'Date,Merchant,Category,Amount,Remark');
+  assert.strictEqual(blankTemplateCSV(), rowsToCSV([]));
 });

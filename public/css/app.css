@@ -2039,6 +2039,16 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 .pay-withdraw-btn { background: var(--panel); color: var(--muted); }
 .pay-withdraw-btn:hover { color: var(--clay); border-color: var(--clay); }
 
+.pay-statement { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 0; }
+.pay-statement-label { font-size: 12.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.pay-statement-btn {
+  padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--panel); color: var(--accent);
+}
+.pay-statement-btn:hover { background: var(--accent); color: var(--accent-contrast); }
+.pay-statement-btn:disabled { opacity: 0.5; cursor: default; background: var(--panel); color: var(--accent); }
+.pay-statement-msg { font-size: 13px; }
+
 .pay-msg { font-size: 13px; }
 
 .pay-table-host { overflow-x: auto; border-radius: var(--radius-sm); }
@@ -2063,6 +2073,61 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
   border: 1px solid var(--accent); background: var(--accent); color: var(--accent-contrast);
 }
 .pay-action-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* --- Ledger: the excel-lite grid, read-only-by-default with an Edit-cells toggle
+   (M2 business layer). Never had any CSS either (same pre-existing gap as Payments) —
+   built alongside the redesign this time. Reuses the exact same idioms already
+   established: toolbar buttons = .team-btn/.set-btn, badge = .concept-tag's pill
+   language, search input = .team-input, table = .pay-table/.act-table's border/
+   radius/panel language, pager = a slim variant of .pay-selection-bar. */
+.ledger { display: flex; flex-direction: column; gap: 12px; }
+
+.ledger-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ledger-badge {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); background: var(--line); border-radius: 999px; padding: 4px 12px;
+}
+.ledger-badge--edit { color: var(--moss); background: var(--moss-bg); }
+
+.ledger-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.ledger-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.ledger-btn--ghost { background: var(--panel); color: var(--muted); }
+.ledger-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+
+.ledger-search-row { display: flex; }
+.ledger-search {
+  width: 100%; max-width: 360px; padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+
+.ledger-msg { font-size: 13px; }
+
+.ledger-host { overflow-x: auto; border-radius: var(--radius-sm); }
+.ledger-table {
+  width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.ledger-table th, .ledger-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.ledger-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ledger-table tbody tr:last-child td { border-bottom: none; }
+.ledger-cell.is-editable { cursor: pointer; }
+.ledger-cell.is-editable:hover { background: rgba(91, 157, 255, 0.08); }
+.ledger-cell.is-editing { padding: 4px 8px; }
+.ledger-cell-input {
+  width: 100%; padding: 6px 8px; font: inherit; font-size: 13.5px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--accent); border-radius: 6px;
+}
+
+.ledger-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ledger-pager-info { font-size: 12px; color: var(--muted); }
+.ledger-pager-nav { display: flex; align-items: center; gap: 10px; }
+.ledger-pager-page { font-size: 12.5px; font-weight: 600; color: var(--txt); font-variant-numeric: tabular-nums; }
+.ledger-pager-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel);
+  color: var(--txt); cursor: pointer; font-size: 14px; line-height: 1;
+}
+.ledger-pager-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ledger-pager-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* --- Falc: floating assistant --- */
 .sora-perch { position: fixed; right: clamp(16px, 3vw, 30px); bottom: 24px; z-index: 96; }

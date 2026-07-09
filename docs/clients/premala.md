@@ -82,6 +82,16 @@ month) with **receipt snapshots appended**, exported as **both Excel and PDF**. 
   template import #109; floats per branch). We already learned the needed *shape* from the sample files.
   (Optional: we could pre-seed their instance at handoff for a smoother start, but it's not required and
   not a blocker.)
+- [x] **Categories imported (2026-07-09, Owner-directed).** The live instance's account-wide category set is
+  now the **Construction co.** 9-category chart of accounts (Petrol/Diesel, Touch-n-Go, Entertainment,
+  Printing & Stationery, Sundry, Travelling, Accommodation, Hardware & Loose Tools, Parking — `+Others`
+  auto-appended), applied via `saveTemplate()` (`lib/templates.js`), existing template columns left untouched.
+  **Known limitation, explicitly deferred (not a blocker):** the runtime only supports ONE account-wide
+  category set today — `companies.template_id` exists in schema (references `field_templates.id`) but
+  `getFieldSpec()` doesn't use it yet, so the **Trading co.** 5-category set (Tickets, Hotel, Food, Others,
+  Hardware(PPE) & Touch-n-Go) from the same sample batch is NOT wired in. Per-company category-set
+  resolution is a small, contained follow-up (`lib/templates.js` + the OCR-categorization + statement-export
+  call sites) whenever Trading co. is actually provisioned — not needed for the current customisation pass.
 - [ ] **Operational pre-live only** (not build blockers): provision Premala's isolated instance (own
   Supabase project + Telegram bot token + Groq keys, ADR-015), enable **Groq ZDR**, apply migrations,
   hosting + HTTPS, run `setup-admin` (Phase 2 bootstrap) to mint the first admin.
