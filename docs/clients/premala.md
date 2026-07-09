@@ -92,6 +92,10 @@ month) with **receipt snapshots appended**, exported as **both Excel and PDF**. 
   Hardware(PPE) & Touch-n-Go) from the same sample batch is NOT wired in. Per-company category-set
   resolution is a small, contained follow-up (`lib/templates.js` + the OCR-categorization + statement-export
   call sites) whenever Trading co. is actually provisioned — not needed for the current customisation pass.
+- [x] **Category editor UI (2026-07-09).** The gap noted above (categories could only be changed via a
+  script) is closed — the **Manage** tab (`public/js/components/templates.js`) now has a "Category list
+  (chart of accounts)" section: add/remove/reorder rows, Save. Reuses the existing visual field builder's
+  exact CSS/interaction idioms; order matters (the Statement export numbers categories in this order).
 - [ ] **Operational pre-live only** (not build blockers): provision Premala's isolated instance (own
   Supabase project + Telegram bot token + Groq keys, ADR-015), enable **Groq ZDR**, apply migrations,
   hosting + HTTPS, run `setup-admin` (Phase 2 bootstrap) to mint the first admin.
