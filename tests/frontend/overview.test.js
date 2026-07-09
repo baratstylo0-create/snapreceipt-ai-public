@@ -8,8 +8,15 @@ const {
   chartModel, kpiModel, topCategory, overviewReportsPath,
   monthlySeries, categoryPercentBreakdown, categoryColor, formatPercent, allTimeReportsPath,
   smoothPathD, donutSlicePath, normaliseCategoryKey, resolveCategoryOverride, COLOR_PRESETS,
-  categoryCountBreakdown, formatDateRange, yearlyBreakdown,
+  categoryCountBreakdown, formatDateRange, yearlyBreakdown, overviewSegments,
 } = require('../../public/js/components/overview');
+
+test('overviewSegments: Reports is folded under Overview as Summary | Trends', () => {
+  assert.deepStrictEqual(overviewSegments(), [
+    { id: 'summary', label: 'Summary' },
+    { id: 'trends', label: 'Trends' },
+  ]);
+});
 
 // Overview scopes its report to the current year (fixes the all-years-mixed chart bug).
 test('overviewReportsPath scopes to the given clock year (Jan1–Dec31, month buckets)', () => {

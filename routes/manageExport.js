@@ -1,0 +1,195 @@
+'use strict';
+// routes/manageExport.js — QA PR-F Manage/Data-editor exports.
+// POST /api/manage-export?format=csv|xlsx|pdf { ids:[expense ids in current filtered order] }
+// The frontend owns the current search/filter state; the server re-fetches scoped expenses and
+// intersects by id so a tampered request cannot export rows outside the caller's scope. CSV gets
+// receipt references, Excel gets receipt hyperlinks, PDF reuses lib/statementPdf.js's evidence-pack
+// engine (summary table + one appended receipt page per line item).
+const express = require('express');
+const supabase = require('../lib/supabase');
+const templates = require('../lib/templates');
+const storage = require('../lib/storage');
+const { cfg } = require('../lib/config');
+const { CATEGORIES } = require('../lib/categorize');
+const { buildWorkbook } = require('../lib/excel');
+const { buildStatementModel } = require('../lib/statement');
+const { statementToPdf } = require('../lib/statementPdf');
+const { checkDash, dashOrigin } = require('./expenses');
+
+const EXPORT_ROW_LIMIT = 10000;
+const EXPORT_COLUMNS = [
+  { key: 'expense_date', label: 'Date' },
+  { key: 'merchant', label: 'Merchant' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'category', label: 'Category' },
+  { key: 'branch', label: 'Branch' },
+  { key: 'staff', label: 'Staff' },
+  { key: 'payment_status', label: 'Status' },
+  { key: 'receipt_url', label: 'Receipt URL' },
+];
+
+function receiptLink(row) {
+  if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
+  return '/receipt/by-id/' + encodeURIComponent(row.id);
+}
+
+function csvValue(value) {
+  const raw = value == null ? '' : String(value);
+  const safe = /^[\s\u0000-\u001f]*[=+\-@]/.test(raw) ? "'" + raw : raw;
+  if (/[",\n\r]/.test(safe)) return '"' + safe.replace(/"/g, '""') + '"';
+  return safe;
+}
+
+function rowValue(row, key, maps) {
+  if (!row) return '';
+  if (key === 'branch') {
+    const id = row.branch_id;
+    return id == null || id === '' ? '' : (maps.branchNames[id] || String(id));
+  }
+  if (key === 'staff') {
+    const id = row.staff_user_id;
+    return id == null || id === '' ? '' : (maps.staffNames[id] || String(id));
+  }
+  if (key === 'receipt_url') return receiptLink(row);
+  return row[key];
+}
+
+function rowsToCsv(rows, maps) {
+  const header = EXPORT_COLUMNS.map((c) => csvValue(c.label)).join(',');
+  const lines = (Array.isArray(rows) ? rows : []).map((row) => (
+    EXPORT_COLUMNS.map((c) => csvValue(rowValue(row, c.key, maps))).join(',')
+  ));
+  return [header].concat(lines).join('\r\n');
+}
+
+function dateSpan(rows) {
+  let first = null, last = null;
+  for (const row of rows || []) {
+    const d = String((row && row.expense_date) || '');
+    if (!/^\d{4}-\d{2}-\d{2}/.test(d)) continue;
+    if (first === null || d < first) first = d;
+    if (last === null || d > last) last = d;
+  }
+  if (first && last && first !== last) return first + ' to ' + last;
+  return first || 'Filtered data';
+}
+
+async function lookupNames() {
+  const [branches, users] = await Promise.all([
+    supabase.sbSelect('branches', {}),
+    supabase.sbSelect('users', {}),
+  ]);
+  const branchNames = {};
+  for (const b of (branches || [])) branchNames[b.id] = b.office || String(b.id);
+  const staffNames = {};
+  for (const u of (users || [])) staffNames[u.id] = u.display_name || u.username || String(u.id);
+  return { branchNames, staffNames };
+}
+
+async function scopedRowsForIds(ids, scope) {
+  const all = await supabase.sbSelect('expenses', {
+    extra: 'deleted_at=is.null&status=neq.rejected',
+    order: 'created_at.desc',
+    limit: EXPORT_ROW_LIMIT,
+    scope,
+  });
+  const byId = new Map();
+  for (const row of (all || [])) if (row && row.id != null) byId.set(String(row.id), row);
+  return ids.map((id) => byId.get(String(id))).filter(Boolean);
+}
+
+function branchLabel(rows, maps) {
+  const names = new Set();
+  for (const row of rows || []) {
+    const id = row && row.branch_id;
+    if (id != null && id !== '') names.add(maps.branchNames[id] || String(id));
+  }
+  if (names.size === 1) return Array.from(names)[0];
+  if (names.size > 1) return 'All branches';
+  return 'Filtered rows';
+}
+
+module.exports = function mountManageExport(app) {
+  app.post('/api/manage-export', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    const format = String(req.query.format || '').toLowerCase();
+    if (format !== 'csv' && format !== 'xlsx' && format !== 'pdf') return res.status(400).json({ error: 'format must be csv, xlsx, or pdf' });
+    const ids = req.body && req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => typeof v !== 'string' || !v)) {
+      return res.status(400).json({ error: 'ids must be a non-empty array' });
+    }
+    if (ids.length > EXPORT_ROW_LIMIT) return res.status(413).json({ error: 'too many rows' });
+
+    try {
+      const rows = await scopedRowsForIds(ids, req.scope);
+      if (!rows.length) return res.status(400).json({ error: 'no exportable rows' });
+      const [fieldSpec, maps] = await Promise.all([templates.getFieldSpec(), lookupNames()]);
+      const rangeLabel = dateSpan(rows);
+      const receiptLinks = {};
+      for (const row of rows) {
+        const link = receiptLink(row);
+        if (link) receiptLinks[row.id] = link;
+      }
+
+      if (format === 'csv') {
+        const csv = rowsToCsv(rows, maps);
+        res.set('Content-Type', 'text/csv; charset=utf-8');
+        res.set('Content-Disposition', 'attachment; filename="ledger-export.csv"');
+        return res.send(csv);
+      }
+
+      if (format === 'xlsx') {
+        const wb = buildWorkbook(rows, fieldSpec, {
+          rangeLabel,
+          generatedAt: new Date().toISOString(),
+          currency: cfg.DEFAULT_CURRENCY,
+          branchStaff: true,
+          branchNames: maps.branchNames,
+          staffNames: maps.staffNames,
+          receiptLinks,
+          embedReceipts: false,
+        });
+        const buf = await wb.xlsx.writeBuffer();
+        res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.set('Content-Disposition', 'attachment; filename="ledger-export.xlsx"');
+        return res.send(Buffer.from(buf));
+      }
+
+      const categories = (fieldSpec && Array.isArray(fieldSpec.categories) && fieldSpec.categories.length)
+        ? fieldSpec.categories : CATEGORIES;
+      const model = buildStatementModel({
+        companyName: process.env.STATEMENT_COMPANY_NAME || 'Expense Evidence Pack',
+        branchLabel: branchLabel(rows, maps),
+        preparedBy: '',
+        period: rangeLabel,
+        categories,
+        currency: cfg.DEFAULT_CURRENCY,
+        showStaffColumn: true,
+        balanceBf: 0,
+        cashIn: [],
+        expenses: rows,
+        staffNames: maps.staffNames,
+        signoff: { prepared: false, checked: false, approved: false },
+        padRows: 0,
+      });
+      const receipts = {};
+      await Promise.all(rows.filter((e) => e && e.receipt_url).map(async (e) => {
+        const buf = await storage.fetchReceiptObject(e.receipt_url);
+        if (buf) receipts[e.id] = { buffer: buf, ext: storage.extOf(buf) };
+      }));
+      const { buffer } = await statementToPdf(model, { receipts });
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', 'attachment; filename="ledger-evidence-pack.pdf"');
+      return res.send(buffer);
+    } catch (e) {
+      console.error('[api/manage-export]', e.message);
+      return res.status(502).json({ error: 'export failed' });
+    }
+  });
+};
+
+module.exports.rowsToCsv = rowsToCsv;
+module.exports.receiptLink = receiptLink;
+module.exports.EXPORT_COLUMNS = EXPORT_COLUMNS;
+module.exports.EXPORT_ROW_LIMIT = EXPORT_ROW_LIMIT;

@@ -23,7 +23,6 @@
     { id: 'activity', label: 'Activity' },
     { id: 'upload', label: 'Upload' },
     { id: 'manage', label: 'Manage' },
-    { id: 'reports', label: 'Reports' },
     { id: 'settings', label: 'Settings' },
   ];
 

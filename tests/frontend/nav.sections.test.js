@@ -1,6 +1,6 @@
 'use strict';
 // components/nav.js Phase 6 (ADR-021): sectionsFor picks the nav for the mode. Personal ->
-// exactly the classic six (byte-identical to SECTIONS). Business -> + Team + Payments, both
+// exactly the classic sections (byte-identical to SECTIONS). Business -> + Team + Payments, both
 // roles (clerk gets read-only/own-branch behaviour inside the views; the server enforces
 // regardless). Pure, node-testable, no DOM.
 // NB (2026-07-09): the excel-lite grid is NO LONGER a top-level "Ledger" section — it moved
@@ -27,6 +27,13 @@ test('business mode -> Team + Payments appear, classic sections all kept, Settin
 
 test('no standalone "ledger" section any more (it lives under Manage now)', () => {
   assert.ok(!sectionsFor({ business: true, role: 'admin' }).map((s) => s.id).includes('ledger'));
+});
+
+test('no standalone "reports" section any more (Reports lives under Overview -> Trends)', () => {
+  const personal = sectionsFor({ business: false }).map((s) => s.id);
+  const business = sectionsFor({ business: true, role: 'admin' }).map((s) => s.id);
+  assert.ok(!personal.includes('reports'));
+  assert.ok(!business.includes('reports'));
 });
 
 test('business clerk gets the same sections (views themselves render role-aware)', () => {

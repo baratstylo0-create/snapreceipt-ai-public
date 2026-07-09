@@ -10,7 +10,8 @@ const Nav = require('../../public/js/components/nav');
 
 test('SECTIONS: ids are the expected Phase-2 set, in order', () => {
   const ids = Nav.SECTIONS.map((s) => s.id);
-  assert.deepStrictEqual(ids, ['overview', 'activity', 'upload', 'manage', 'reports', 'settings']);
+  // QA PR-F: Reports folded into Overview (Summary | Trends segment), so 'reports' is no longer a tab.
+  assert.deepStrictEqual(ids, ['overview', 'activity', 'upload', 'manage', 'settings']);
 });
 
 test('SECTIONS: Agent is no longer a nav tab (it lives in Falc)', () => {
