@@ -469,6 +469,32 @@ body.theme-warm {
   align-items: stretch;
 }
 
+.ov-shell { display: flex; flex-direction: column; gap: 16px; }
+.ov-segments {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
+.ov-segment-btn {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ov-segment-btn:hover { color: var(--txt); }
+.ov-segment-btn.is-active { color: var(--accent-contrast); background: var(--txt); }
+body.theme-dark .ov-segment-btn.is-active { color: var(--bg); }
+.ov-segment-panel[hidden] { display: none; }
+
 .ov-cell-spend   { grid-area: spend; }
 .ov-cell-count   { grid-area: count; }
 .ov-cell-alltime { grid-area: alltime; }

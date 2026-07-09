@@ -15,9 +15,9 @@
 //
 // Conventions: pure DOM (createElement/textContent), UMD shim, pure helpers node-tested.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.Grid = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../exportGuards'));
+  else root.Grid = factory(root.ExportGuards);
+})(typeof self !== 'undefined' ? self : this, function (ExportGuards) {
   'use strict';
 
   var PAGE_SIZE = 25;
@@ -27,6 +27,17 @@
   // never be rejected server-side for the field itself.
   var EDITABLE = ['expense_date', 'merchant', 'category', 'amount', 'remark'];
   var LABELS = { expense_date: 'Date', merchant: 'Merchant', category: 'Category', amount: 'Amount', remark: 'Remark' };
+  var EXPORT_COLUMNS = [
+    { key: 'expense_date', label: 'Date' },
+    { key: 'merchant', label: 'Merchant' },
+    { key: 'amount', label: 'Amount' },
+    { key: 'currency', label: 'Currency' },
+    { key: 'category', label: 'Category' },
+    { key: 'branch_id', label: 'Branch' },
+    { key: 'staff_user_id', label: 'Staff' },
+    { key: 'payment_status', label: 'Status' },
+    { key: 'receipt_url', label: 'Receipt URL' },
+  ];
 
   // ---- pure logic (node-tested) ------------------------------------------------
 
@@ -99,13 +110,24 @@
     return safe;
   }
 
+  function receiptLink(row) {
+    if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
+    return '/receipt/by-id/' + encodeURIComponent(row.id);
+  }
+
+  function exportValue(row, key) {
+    if (!row) return '';
+    if (key === 'receipt_url') return receiptLink(row);
+    return row[key];
+  }
+
   // rowsToCSV(rows) -> a full CSV string (header + one row per expense), EDITABLE fields
   // only, in display order — the same shape a spreadsheet user would expect to reopen.
   function rowsToCSV(rows) {
     var list = Array.isArray(rows) ? rows : [];
-    var header = EDITABLE.map(function (f) { return escapeCSVValue(LABELS[f]); }).join(',');
+    var header = EXPORT_COLUMNS.map(function (c) { return escapeCSVValue(c.label); }).join(',');
     var lines = list.map(function (row) {
-      return EDITABLE.map(function (f) { return escapeCSVValue(row && row[f]); }).join(',');
+      return EXPORT_COLUMNS.map(function (c) { return escapeCSVValue(exportValue(row, c.key)); }).join(',');
     });
     return [header].concat(lines).join('\r\n');
   }
@@ -136,6 +158,20 @@
       document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     } catch (e) { /* best-effort — a failed export never breaks the view */ }
+  }
+
+  function downloadBlob(blob, filename) {
+    try {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (e) { /* best-effort */ }
   }
 
   function mount(section, deps) {
@@ -172,11 +208,20 @@
     var exportBtn = el('button', 'ledger-btn ledger-btn--ghost');
     Escape.setText(exportBtn, 'Export CSV');
     exportBtn.type = 'button';
-    exportBtn.addEventListener('click', function () {
-      var filtered = filterRows(state.rows, state.search);
-      downloadText(rowsToCSV(filtered), 'ledger-export.csv');
-    });
+    exportBtn.addEventListener('click', function () { doManagedExport('csv'); });
     toolbar.appendChild(exportBtn);
+
+    var excelBtn = el('button', 'ledger-btn ledger-btn--ghost');
+    Escape.setText(excelBtn, 'Export Excel');
+    excelBtn.type = 'button';
+    excelBtn.addEventListener('click', function () { doManagedExport('xlsx'); });
+    toolbar.appendChild(excelBtn);
+
+    var pdfBtn = el('button', 'ledger-btn ledger-btn--ghost');
+    Escape.setText(pdfBtn, 'Export PDF (with receipts)');
+    pdfBtn.type = 'button';
+    pdfBtn.addEventListener('click', function () { doManagedExport('pdf'); });
+    toolbar.appendChild(pdfBtn);
 
     var templateBtn = el('button', 'ledger-btn ledger-btn--ghost');
     Escape.setText(templateBtn, 'Export template');
@@ -211,6 +256,43 @@
     wrap.appendChild(pager);
 
     function note(text) { Escape.setText(msg, text || ''); }
+
+    function currentFilteredIds() {
+      return filterRows(state.rows, state.search)
+        .map(function (r) { return r && r.id ? String(r.id) : ''; })
+        .filter(Boolean);
+    }
+
+    function setExportBusy(busy) {
+      exportBtn.disabled = !!busy;
+      excelBtn.disabled = !!busy;
+      pdfBtn.disabled = !!busy;
+    }
+
+    function doManagedExport(format) {
+      var ids = currentFilteredIds();
+      var guard = ExportGuards.exportGate({ data: ids, confirmed: false });
+      if (!guard.ok && !guard.needsConfirm) {
+        note(guard.message);
+        return;
+      }
+      ExportGuards.requestReviewedConfirmation(function () {
+        setExportBusy(true);
+        note('Preparing ' + String(format).toUpperCase() + ' export...');
+        Api.fetchBlob('/api/manage-export?format=' + encodeURIComponent(format), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids }),
+        }).then(function (blob) {
+          downloadBlob(blob, 'ledger-export.' + (format === 'xlsx' ? 'xlsx' : format));
+          note(String(format).toUpperCase() + ' downloaded.');
+        }).catch(function () {
+          note('Export failed. Please try again.');
+        }).then(function () {
+          setExportBusy(false);
+        });
+      }, { confirmLabel: 'Confirm and export' });
+    }
 
     // Save one cell. On 409 (someone else edited the row) we re-fetch everything —
     // simplest correct v1: the user re-applies their change on fresh data.
@@ -396,6 +478,6 @@
     // pure
     mount: mount, buildCellPatch: buildCellPatch, EDITABLE: EDITABLE,
     filterRows: filterRows, paginate: paginate, escapeCSVValue: escapeCSVValue,
-    rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV,
+    rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
   };
 });

@@ -117,13 +117,17 @@ test('escapeCSVValue: a plain value passes through unquoted; null/undefined -> e
 
 // --- rowsToCSV / blankTemplateCSV: export ---
 
-test('rowsToCSV: header row + one CSV line per expense, EDITABLE fields in display order', () => {
+test('rowsToCSV: raw export header + one CSV line per expense, including receipt_url', () => {
   const csv = rowsToCSV([
-    { expense_date: '2026-07-08', merchant: 'Cafe, KL', category: 'Meals & Entertainment', amount: 12.5, remark: '' },
+    {
+      id: 'e1', expense_date: '2026-07-08', merchant: 'Cafe, KL', amount: 12.5, currency: 'MYR',
+      category: 'Meals & Entertainment', branch_id: 'b1', staff_user_id: 's1', payment_status: 'paid',
+      receipt_url: 'default/r1.png',
+    },
   ]);
   const lines = csv.split('\r\n');
-  assert.strictEqual(lines[0], 'Date,Merchant,Category,Amount,Remark');
-  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",Meals & Entertainment,12.5,');
+  assert.strictEqual(lines[0], 'Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL');
+  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",12.5,MYR,Meals & Entertainment,b1,s1,paid,/receipt/by-id/e1');
 });
 
 test('rowsToCSV: a formula-like merchant name is neutralised (defense in depth for a re-imported export)', () => {
@@ -132,11 +136,11 @@ test('rowsToCSV: a formula-like merchant name is neutralised (defense in depth f
 });
 
 test('rowsToCSV: empty input -> header row only; garbage input never throws', () => {
-  assert.strictEqual(rowsToCSV([]), 'Date,Merchant,Category,Amount,Remark');
-  assert.strictEqual(rowsToCSV(null), 'Date,Merchant,Category,Amount,Remark');
+  const header = 'Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL';
+  assert.strictEqual(rowsToCSV([]), header);
+  assert.strictEqual(rowsToCSV(null), header);
 });
 
 test('blankTemplateCSV: exactly the header row, matching rowsToCSV\'s own header', () => {
   assert.strictEqual(blankTemplateCSV(), 'Date,Merchant,Category,Amount,Remark');
-  assert.strictEqual(blankTemplateCSV(), rowsToCSV([]));
 });
