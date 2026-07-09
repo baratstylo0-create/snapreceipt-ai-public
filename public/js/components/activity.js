@@ -269,6 +269,11 @@
     return body;
   }
 
+  // QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin + Recover action.
+  // Pure path builders, unit-testable without a DOM — mirrors the receiptPath pattern below.
+  function deletedRowsPath() { return '/api/expenses/deleted'; }
+  function restorePath(id) { return '/api/expenses/' + encodeURIComponent(str(id)) + '/restore'; }
+
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
@@ -892,8 +897,14 @@
     // Sub-mounts: table area, drawer host, awaiting-category picker, review area.
     var tableArea = el('div', 'act-table-area');
     var drawerHost = el('div', 'act-drawer-host');
+    // QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin. Reuses the exact
+    // same modal-overlay CSS as drawerHost (class act-drawer-host) — same backdrop, same
+    // centered-card mechanics — just a different host element so opening one never clobbers
+    // the other's content.
+    var deletedHost = el('div', 'act-drawer-host');
     rootEl.appendChild(tableArea);
     rootEl.appendChild(drawerHost);
+    rootEl.appendChild(deletedHost);
     // Awaiting-category picker (dashboard parity of the bot #74 picker). Heading + area are
     // hidden entirely when nothing is pending (an exception state, not a standing queue).
     var awaitHead = textCell('h3', 'act-await-title', 'Needs a category');
@@ -929,7 +940,9 @@
       clear(tableArea);
       if (state.loading) { tableArea.appendChild(msg('act-loading muted', 'Loading expenses…')); return; }
       if (state.error) { tableArea.appendChild(msg('act-error', 'Could not load your expenses. Please try again shortly.')); return; }
-      tableArea.appendChild(buildToolbar(state, onChange));
+      var toolbarEl = buildToolbar(state, onChange);
+      toolbarEl.appendChild(buildBinButton());
+      tableArea.appendChild(toolbarEl);
       restoreFocus(tableArea, focused); // must run right after the toolbar exists, before any early return below
       tableArea.appendChild(buildViewToggle(state, onChange));
       renderAwaiting(); // independent of table filters/pagination — reflects ALL pending rows
@@ -1001,6 +1014,104 @@
     // dialog) closes the modal — the standard "click outside to dismiss" affordance.
     drawerHost.addEventListener('click', function (ev) {
       if (ev.target === drawerHost) closeDrawer();
+    });
+
+    // ---- "Recently deleted" bin + Recover (QA B7) ---------------------------
+    var deletedState = { loading: false, loaded: false, rows: [], error: false };
+    var deletedListArea = null;
+
+    function buildBinButton() {
+      var btn = el('button', 'act-bin-btn');
+      btn.type = 'button';
+      btn.title = 'Recently deleted';
+      btn.setAttribute('aria-label', 'View recently deleted bills');
+      Escape.setText(btn, '🗑 Recently deleted'); // trash-can + label
+      btn.addEventListener('click', openDeletedPanel);
+      return btn;
+    }
+
+    function buildDeletedItem(rowObj, handlers) {
+      var item = el('div', 'act-deleted-item');
+      item.appendChild(textCell('span', 'act-deleted-merchant', rowObj.merchant));
+      var amt = el('span', 'act-deleted-amount');
+      Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
+      item.appendChild(amt);
+      item.appendChild(textCell('span', 'act-deleted-date muted', rowObj.expense_date));
+      var recover = el('button', 'act-deleted-recover'); recover.type = 'button'; Escape.setText(recover, 'Recover');
+      var st = el('span', 'act-deleted-msg muted');
+      recover.addEventListener('click', function () { handlers.onRecover(rowObj, st, recover); });
+      item.appendChild(recover);
+      item.appendChild(st);
+      return item;
+    }
+
+    function renderDeletedList() {
+      if (!deletedListArea) return;
+      clear(deletedListArea);
+      if (deletedState.loading) { deletedListArea.appendChild(msg('act-loading muted', 'Loading…')); return; }
+      if (deletedState.error) { deletedListArea.appendChild(msg('act-error', 'Could not load recently deleted bills.')); return; }
+      if (!deletedState.rows.length) {
+        deletedListArea.appendChild(msg('act-empty muted', 'Nothing here — bills you delete show up in this list and can be recovered.'));
+        return;
+      }
+      deletedState.rows.forEach(function (r) {
+        deletedListArea.appendChild(buildDeletedItem(r, {
+          onRecover: function (rowObj, st, btn) {
+            btn.disabled = true;
+            Escape.setText(st, 'Restoring…');
+            apiFetch(restorePath(rowObj.id), { method: 'POST' })
+              .then(function () {
+                deletedState.rows = deletedState.rows.filter(function (x) { return x.id !== rowObj.id; });
+                renderDeletedList();
+                load(true); // refresh the main table so the recovered bill reappears there
+              })
+              .catch(function () { btn.disabled = false; Escape.setText(st, 'Restore failed. Please try again.'); });
+          },
+        }));
+      });
+    }
+
+    function loadDeleted() {
+      if (deletedState.loading || !apiFetch) return;
+      deletedState.loading = true; deletedState.error = false; renderDeletedList();
+      apiFetch(deletedRowsPath()).then(function (rows) {
+        deletedState.loading = false; deletedState.loaded = true;
+        deletedState.rows = Array.isArray(rows) ? rows : [];
+        renderDeletedList();
+      }).catch(function () { deletedState.loading = false; deletedState.error = true; renderDeletedList(); });
+    }
+
+    function closeDeletedPanel() {
+      clear(deletedHost);
+      deletedListArea = null;
+      document.removeEventListener('keydown', onDeletedKeydown);
+    }
+
+    function onDeletedKeydown(ev) { if (ev.key === 'Escape') closeDeletedPanel(); }
+
+    function openDeletedPanel() {
+      clear(deletedHost);
+      var wrap = el('div', 'act-drawer');
+      var head = el('div', 'act-drawer-head');
+      head.appendChild(textCell('h3', 'act-drawer-title', 'Recently deleted'));
+      var close = el('button', 'act-drawer-close');
+      close.type = 'button';
+      close.setAttribute('aria-label', 'Close');
+      Escape.setText(close, '×'); // ×
+      close.addEventListener('click', closeDeletedPanel);
+      head.appendChild(close);
+      wrap.appendChild(head);
+      wrap.appendChild(msg('act-await-note muted', 'Bills deleted from Activity land here and can be recovered.'));
+      deletedListArea = el('div', 'act-deleted-list');
+      wrap.appendChild(deletedListArea);
+      deletedHost.appendChild(wrap);
+      document.addEventListener('keydown', onDeletedKeydown);
+      renderDeletedList(); // show loading state immediately, even before the fetch resolves
+      loadDeleted();
+    }
+
+    deletedHost.addEventListener('click', function (ev) {
+      if (ev.target === deletedHost) closeDeletedPanel();
     });
 
     // Awaiting-category picker: derived live from the loaded expenses (no extra fetch).
@@ -1105,6 +1216,8 @@
     refDisplay: refDisplay,
     anomalyReasonText: anomalyReasonText,
     patchBody: patchBody,
+    deletedRowsPath: deletedRowsPath,
+    restorePath: restorePath,
     receiptPath: receiptPath,
     receiptByIdPath: receiptByIdPath,
     hasReceiptImage: hasReceiptImage,

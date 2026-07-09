@@ -1174,6 +1174,39 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .act-review-msg { font-size: 13px; }
 
+/* QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin button (top-right of
+   the toolbar, pushed there via margin-left:auto) and its Recover-list items. Reuses
+   .act-drawer-host/.act-drawer for the overlay itself — see activity.js openDeletedPanel. */
+.act-bin-btn {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.act-bin-btn:hover { border-color: var(--accent); }
+.act-deleted-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.act-deleted-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.act-deleted-merchant { font-weight: 600; }
+.act-deleted-amount { font-variant-numeric: tabular-nums; }
+.act-deleted-date { font-size: 12px; }
+.act-deleted-recover { padding: 5px 12px; background: var(--moss); color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.act-deleted-recover:disabled { opacity: .6; cursor: default; }
+.act-deleted-msg { font-size: 11px; }
+
 /* ---- Mass Upload (Task D) ------------------------------------------------ */
 .up-root { display: flex; flex-direction: column; gap: 14px; }
 .up-intro { margin: 0; }

@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-07-10 · Claude (for Jeevan) · qa/pr-h-recently-deleted — QA PR-H: Recently-deleted bin + Recover
+
+- **Files:** `routes/expenses.js` (new `GET /api/expenses/deleted` + `POST /api/expenses/:id/restore`), `public/js/components/activity.js` (bin button + "Recently deleted" overlay panel), `public/css/app.css`, `tests/expenses.recentlydeleted.test.js` (new), `tests/frontend/activity.test.js`.
+- **QA ID closed:** B7 — bin icon top-right of the Activity toolbar opens a "Recently deleted" page listing soft-deleted bills, with a Recover action per row.
+- **Confirmed first** (per the plan): `expenses.deleted_at` already exists (`schema.sql` line 32, "soft-delete: non-null = hidden from dashboard (recoverable)") — this is a **view + restore on existing data, no schema change**, as anticipated.
+- **Backend:** `GET /api/expenses/deleted` mirrors `GET /api/expenses`'s scope/visibility contract exactly (clerk own-branch, admin all) but with `deleted_at=not.is.null` instead of `is.null`, ordered newest-deleted-first. `POST /api/expenses/:id/restore` clears `deleted_at` via the same scoped `sbUpdate` every other write uses (clerk own-branch only, admin anywhere via `canTouchExpense`); refuses 409 on a row that isn't currently deleted so Recover can't double as a silent no-op PATCH.
+- **Frontend:** a "🗑 Recently deleted" button (pushed to the right end of the toolbar via `margin-left:auto`) opens an overlay panel — reuses the exact same `.act-drawer-host`/`.act-drawer` modal CSS as the existing edit drawer (separate host element so the two never clobber each other). Each deleted row shows merchant/amount/date + a Recover button; clicking Recover POSTs the restore, removes the row from the panel, and reloads the main table so the recovered bill reappears there immediately.
+- **Tests:** TDD red-first for the backend (`tests/expenses.recentlydeleted.test.js`: list filters to deleted-only, clerk branch-scoped list, admin restore, non-deleted-row refused 409, not-found 404, clerk cross-branch refused 403, clerk own-branch allowed — 7/7) and frontend pure path-builders (`deletedRowsPath`, `restorePath`) added to `tests/frontend/activity.test.js`. Full suite **1654/1654** green (`.env` moved aside/restored).
+- **Live-verified** via `window.Activity.mount()` stub-mounting in the browser preview (no jsdom in this repo): bin button renders and opens the panel; panel fetches and lists the deleted row; clicking Recover issues exactly `POST /api/expenses/del-1/restore`, the panel item is removed (empty-state message shown), and the main table refetches and now includes the recovered merchant alongside the still-live row.
+- **What's next:** PR-I (B4 bulk select), PR-J (C2 multi-branch clerk — data-model check first), PR-K (D10–D13 Telegram bot). Not merging this PR myself — Owner/reviewer to merge.
+
+---
+
 ## 2026-07-10 · Codex + Claude-J (for Jeevan) · qa/pr-f-ia — QA PR-F: Reports→Overview fold + Manage export trio
 
 - **Authored by GPT-5.5/Codex, finished + verified by Claude-J** (Owner-directed takeover; Codex rate-limited mid-PR). Codex's uncommitted WIP was preserved as commit `da3ea05` before Claude finished it.
