@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-10 · Claude-J (for Jeevan) · ops (VPS deploy, not a push) — PR #156 + #157 deployed to Premala VPS
+
+- **What.** `main` at `6297dee` (PR #156 export guards + PR #157 payments staff-name fix/statement message) deployed to the Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 `receipt-analyser`). Built the tarball from a clean isolated `git worktree` on `origin/main` (not the shared working directory) to avoid disturbing GPT-5.5/Codex's in-progress, uncommitted PR-F work (`qa/pr-f-ia`: nav/overview restructure + new `routes/manageExport.js`) sitting in that same local clone. No dependency changes since the last deploy, so no reinstall.
+- **Verified live:** `pm2 restart` clean, `/health` → `{"ok":true}`, `/ready` → `{"ok":true,"deps":{"db":"up"}}`.
+- **Why now:** GPT-5.5/Codex hit its rate limit mid-PR-F (resets ~4am); Owner directed shipping what's already fixed rather than waiting.
+- **Next:** PR-F (Reports→Overview fold, Manage export trio incl. evidence-pack PDF) resumes once Codex's limit resets. Colleague can QA PR-A + PR-E's fixes live now.
+
+---
+
 ## 2026-07-10 · Codex (for Jeevan) · qa/pr-e-payments-fix — QA PR-E Payments fixes
 
 - **Files:** `public/js/components/payments.js`, `tests/frontend/payments.test.js`, `tests/statementPdf.test.js`.
