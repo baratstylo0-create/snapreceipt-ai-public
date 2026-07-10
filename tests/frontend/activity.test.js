@@ -15,6 +15,8 @@ const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
+  bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
+  deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -100,6 +102,36 @@ test('hasReceiptImage is true when EITHER receipt_url or receipt_file_id is pres
   assert.strictEqual(hasReceiptImage({ receipt_url: null, receipt_file_id: null }), false);
   assert.strictEqual(hasReceiptImage({}), false);
   assert.strictEqual(hasReceiptImage(null), false);
+});
+
+// --- reviewMetaParts (review-queue card: receipt details, Owner 2026-07-10) --
+// The review card now shows the receipt's key fields inline so an admin/clerk can decide
+// approve/reject without opening it separately. reviewMetaParts is the pure builder of the
+// muted meta line: [date, category, ref], skipping blanks and the '__pending__' sentinel.
+
+test('reviewMetaParts: returns date, category and ref in order, skipping blanks', () => {
+  assert.deepStrictEqual(
+    reviewMetaParts({ expense_date: '2026-07-01', category: 'Food', voucher_no: 'RC-2026-0041' }),
+    ['2026-07-01', 'Food', 'RC-2026-0041'],
+  );
+  assert.deepStrictEqual(
+    reviewMetaParts({ expense_date: '2026-07-01', category: '', voucher_no: '' }),
+    ['2026-07-01'],
+  );
+});
+
+test('reviewMetaParts: skips the __pending__ category sentinel (never leaks it to the UI)', () => {
+  assert.deepStrictEqual(
+    reviewMetaParts({ expense_date: '2026-07-02', category: '__pending__' }),
+    ['2026-07-02'],
+  );
+});
+
+test('reviewMetaParts: tolerates null / non-object / missing fields, never throws', () => {
+  assert.deepStrictEqual(reviewMetaParts(null), []);
+  assert.deepStrictEqual(reviewMetaParts(undefined), []);
+  assert.deepStrictEqual(reviewMetaParts({}), []);
+  assert.deepStrictEqual(reviewMetaParts('nope'), []);
 });
 
 // --- awaitingCategoryRows (dashboard category-picker) ---------------------
@@ -624,4 +656,112 @@ test('hostile card remark/merchant render INERT via Escape.safeText (same bar as
   const remarkOut = Escape.safeText(hostile.remark);
   assert.ok(remarkOut.indexOf('<script>') === -1);
   assert.ok(remarkOut.indexOf('&lt;script&gt;') !== -1);
+});
+
+// --- bulkApprovePath / bulkDeletePath / allSelected / toggleAllSelected / summarizeBulkResult
+// --- (QA B4: bulk select -> Approve/Delete) --------------------------------
+
+test('bulkApprovePath / bulkDeletePath: fixed endpoints', () => {
+  assert.strictEqual(bulkApprovePath(), '/api/review/bulk');
+  assert.strictEqual(bulkDeletePath(), '/api/expenses/bulk-delete');
+});
+
+test('allSelected: true iff every id on the current page is in the selected set', () => {
+  assert.strictEqual(allSelected(['a', 'b'], new Set(['a', 'b'])), true);
+  assert.strictEqual(allSelected(['a', 'b'], new Set(['a'])), false);
+  assert.strictEqual(allSelected(['a', 'b'], new Set(['a', 'b', 'c'])), true, 'extra selections outside the page are fine');
+});
+
+test('allSelected: empty page is never "all selected" (nothing to tick)', () => {
+  assert.strictEqual(allSelected([], new Set(['a'])), false);
+  assert.strictEqual(allSelected([], new Set()), false);
+});
+
+test('allSelected: tolerates null/non-array/non-Set input, never throws', () => {
+  assert.strictEqual(allSelected(null, null), false);
+  assert.strictEqual(allSelected(undefined, undefined), false);
+  assert.doesNotThrow(() => allSelected('nope', 'nope'));
+});
+
+test('toggleAllSelected: checked=true adds every page id; checked=false removes every page id', () => {
+  const on = toggleAllSelected(['a', 'b'], new Set(), true);
+  assert.deepStrictEqual(Array.from(on).sort(), ['a', 'b']);
+  const off = toggleAllSelected(['a', 'b'], new Set(['a', 'b', 'c']), false);
+  assert.deepStrictEqual(Array.from(off).sort(), ['c']);
+});
+
+test('toggleAllSelected: never mutates the input Set (returns a new one)', () => {
+  const input = new Set(['x']);
+  const out = toggleAllSelected(['a'], input, true);
+  assert.deepStrictEqual(Array.from(input).sort(), ['x'], 'input Set must be untouched');
+  assert.deepStrictEqual(Array.from(out).sort(), ['a', 'x']);
+});
+
+test('toggleAllSelected: tolerates null/non-array/non-Set input, never throws', () => {
+  assert.doesNotThrow(() => toggleAllSelected(null, null, true));
+  assert.deepStrictEqual(Array.from(toggleAllSelected(null, null, true)), []);
+});
+
+test('summarizeBulkResult: all succeeded', () => {
+  assert.strictEqual(summarizeBulkResult({ requested: 3, updated: 3 }, 'approved'), 'All 3 approved.');
+  assert.strictEqual(summarizeBulkResult({ requested: 2, deleted: 2 }, 'deleted'), 'All 2 deleted.');
+});
+
+test('summarizeBulkResult: partial success reports the failure count', () => {
+  assert.strictEqual(summarizeBulkResult({ requested: 4, updated: 3 }, 'approved'), '3 of 4 approved — 1 failed.');
+});
+
+test('summarizeBulkResult: zero requested / malformed input never throws', () => {
+  assert.strictEqual(summarizeBulkResult({ requested: 0, updated: 0 }, 'approved'), 'Nothing to approved.');
+  assert.doesNotThrow(() => summarizeBulkResult(null, 'approved'));
+  assert.doesNotThrow(() => summarizeBulkResult(undefined, 'approved'));
+  assert.strictEqual(summarizeBulkResult(null, 'approved'), 'Something went wrong. Please try again.');
+});
+
+// --- deletedRowsPath / restorePath (QA B7: Recently-deleted bin + Recover) ------
+
+test('deletedRowsPath: the fixed "recently deleted" list endpoint', () => {
+  assert.strictEqual(deletedRowsPath(), '/api/expenses/deleted');
+});
+
+test('restorePath: builds /api/expenses/<id>/restore, encoding the id', () => {
+  assert.strictEqual(restorePath('abc-123'), '/api/expenses/abc-123/restore');
+  assert.strictEqual(restorePath('a/b c'), '/api/expenses/a%2Fb%20c/restore');
+});
+
+test('restorePath: null/undefined id does not throw', () => {
+  assert.strictEqual(restorePath(null), '/api/expenses//restore');
+  assert.strictEqual(restorePath(undefined), '/api/expenses//restore');
+});
+
+// --- isRejected / recategorizeBody / permanentDeletePath (QA B8/B9) --------
+// docs/qa/2026-07-09-qa-round.md PR-B: a rejected bill gets a recategorise chevron
+// (B9) and a one-click permanent-delete icon (B8), both gated on isRejected(row).
+
+test('isRejected: true only for status "rejected"', () => {
+  assert.strictEqual(isRejected(row({ status: 'rejected' })), true);
+  assert.strictEqual(isRejected(row({ status: 'saved' })), false);
+  assert.strictEqual(isRejected(row({ status: 'approved' })), false);
+  assert.strictEqual(isRejected(row({ status: 'needs_review' })), false);
+});
+
+test('isRejected: never throws on null/garbage rows', () => {
+  assert.strictEqual(isRejected(null), false);
+  assert.strictEqual(isRejected(undefined), false);
+  assert.strictEqual(isRejected({}), false);
+  assert.strictEqual(isRejected('nope'), false);
+});
+
+test('recategorizeBody: builds a category + status:"saved" patch (mirrors the awaiting-category picker)', () => {
+  assert.deepStrictEqual(recategorizeBody('Groceries'), { category: 'Groceries', status: 'saved' });
+});
+
+test('permanentDeletePath: builds /api/expenses/<id>/permanent, encoding the id', () => {
+  assert.strictEqual(permanentDeletePath('abc-123'), '/api/expenses/abc-123/permanent');
+  assert.strictEqual(permanentDeletePath('a/b c'), '/api/expenses/a%2Fb%20c/permanent');
+});
+
+test('permanentDeletePath: null/undefined id does not throw', () => {
+  assert.strictEqual(permanentDeletePath(null), '/api/expenses//permanent');
+  assert.strictEqual(permanentDeletePath(undefined), '/api/expenses//permanent');
 });

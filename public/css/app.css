@@ -937,6 +937,7 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   gap: 14px;
 }
 .act-card {
+  position: relative; /* anchors .act-card-select (QA B4 bulk-select tickbox) */
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -1140,11 +1141,12 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 
 .act-review-title { margin: 28px 0 10px; font-size: 16px; }
 .act-review-note { margin: -6px 0 12px; font-size: 12.5px; }
+/* Owner 2026-07-10: the review card now carries a receipt thumbnail on the left and the
+   details/actions on the right, so a flagged receipt can be reviewed in place. */
 .act-review-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px 12px;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
   padding: 12px;
   margin-bottom: 10px;
   background: var(--panel);
@@ -1152,8 +1154,32 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   border-left: 3px solid var(--clay);
   border-radius: var(--radius);
 }
+.act-review-thumb {
+  flex: 0 0 auto;
+  width: 96px;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.act-review-thumb-image { width: 100%; height: auto; max-height: 120px; object-fit: cover; display: block; }
+.act-review-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+}
 .act-review-merchant { font-weight: 600; }
 .act-review-amount { font-variant-numeric: tabular-nums; text-align: right; }
+.act-review-meta { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.act-review-remark { grid-column: 1 / -1; margin: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
 .act-review-reason { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 13px; }
 .act-review-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
 .act-review-approve {
@@ -1173,6 +1199,111 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   cursor: pointer;
 }
 .act-review-msg { font-size: 13px; }
+
+/* QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Approve/Delete. The select bar
+   sits between the toolbar and the table/cards; the confirm dialog reuses .tp-confirm-* (see
+   templates.js's showConfirmDialog) — activity.js's showBulkConfirm mirrors that exact markup. */
+.act-select-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.act-select-toggle {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 13px;
+}
+.act-select-toggle:hover { border-color: var(--accent); }
+.act-select-tickall { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.act-select-approve, .act-select-delete, .act-select-cancel {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.act-select-approve { background: var(--moss); color: #fff; }
+.act-select-delete { background: var(--clay); color: #fff; }
+.act-select-cancel { background: transparent; border: 1px solid var(--line); color: var(--txt); font-weight: 400; }
+.act-select-approve:disabled, .act-select-delete:disabled { opacity: .5; cursor: default; }
+.act-select-status { font-size: 12px; margin: 0; }
+.act-th--select, .act-td--select { width: 32px; text-align: center; }
+.act-row-select, .act-select-tickall-input { cursor: pointer; }
+.act-card-select { position: absolute; top: 10px; left: 10px; z-index: 1; cursor: pointer; }
+
+/* QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin button (top-right of
+   the toolbar, pushed there via margin-left:auto) and its Recover-list items. Reuses
+   .act-drawer-host/.act-drawer for the overlay itself — see activity.js openDeletedPanel. */
+.act-bin-btn {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.act-bin-btn:hover { border-color: var(--accent); }
+.act-deleted-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.act-deleted-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.act-deleted-merchant { font-weight: 600; }
+.act-deleted-amount { font-variant-numeric: tabular-nums; }
+.act-deleted-date { font-size: 12px; }
+.act-deleted-recover { padding: 5px 12px; background: var(--moss); color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.act-deleted-recover:disabled { opacity: .6; cursor: default; }
+.act-deleted-msg { font-size: 11px; }
+
+/* QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill Status-cell controls — the
+   recategorise chevron + its popover picker, and the one-click permanent-delete icon. */
+.act-td--status { position: relative; }
+.act-status-text { text-transform: capitalize; }
+.act-status-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; position: relative; }
+.act-status-chevron, .act-status-delete {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.act-status-chevron:hover, .act-status-delete:hover { border-color: var(--accent); }
+.act-status-delete { color: var(--clay); border-color: var(--clay); }
+.act-status-delete:disabled { opacity: .5; cursor: default; }
+.act-status-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  white-space: nowrap;
+}
+.act-status-picker-select { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--txt); }
+.act-status-picker-apply { padding: 4px 10px; background: var(--honey); color: #1c1300; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.act-status-picker-apply:disabled { opacity: .6; cursor: default; }
+.act-status-picker-msg { font-size: 11px; }
 
 /* ---- Mass Upload (Task D) ------------------------------------------------ */
 .up-root { display: flex; flex-direction: column; gap: 14px; }
@@ -1330,6 +1461,63 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .up-result--flagged { border-left-color: var(--honey); }
 .up-result--failed { border-left-color: var(--clay); }
 .up-result--saved { border-left-color: var(--moss); }
+
+.up-staff-msg { margin: -4px 0 0; font-size: 13px; color: var(--muted); }
+.up-staff-host {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.up-staff-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.up-staff-bulk-label { font-size: 13px; color: var(--muted); }
+.up-staff-bulk-select,
+.up-staff-select {
+  min-width: 150px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--txt);
+}
+.up-staff-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.up-staff-table th,
+.up-staff-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+  font-size: 13px;
+}
+.up-staff-table tr:last-child td { border-bottom: none; }
+.up-staff-current { margin-left: 8px; font-size: 12px; }
+.up-flag-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 10px;
+}
+.up-flag-action {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--txt);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.up-flag-action--discard { color: var(--clay); }
 
 .up-view-activity {
   align-self: flex-start;
@@ -1625,8 +1813,12 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   box-shadow: var(--shadow);
   padding: 20px;
 }
-.rp-confirm-title { margin: 0 0 14px; color: var(--txt); font-size: 15px; font-weight: 700; }
-.rp-confirm-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.rp-confirm-title { margin: 0 0 10px; color: var(--txt); font-size: 15px; font-weight: 700; }
+/* Owner follow-up (2026-07-10): the actual list of which receipts are unreviewed. */
+.rp-confirm-items { margin: 0 0 4px; padding-left: 18px; color: var(--txt); font-size: 13px; }
+.rp-confirm-items li { margin-bottom: 2px; }
+.rp-confirm-more { margin: 0 0 10px; font-size: 12px; }
+.rp-confirm-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; margin-top: 10px; }
 .rp-confirm-choice {
   padding: 10px 14px;
   background: var(--bg-2);
