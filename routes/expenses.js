@@ -26,6 +26,11 @@ const BULK_PAY_MAX_IDS = Number(process.env.BULK_PAY_MAX_IDS) || 1000;
 const STAFF_ASSIGN_MAX_IDS = Number(process.env.STAFF_ASSIGN_MAX_IDS) || 200;
 const paymentsLimiter = createRateLimiter({ max: Number(process.env.PAYMENTS_RATE_MAX) || 60 });
 
+// QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Delete on the Activity list.
+// Each id needs its OWN clerk/branch check (unlike bulk-pay's single blanket id=in.(…) PATCH),
+// so this is a per-row loop, not a single query — the id cap bounds one request's total work.
+const BULK_DELETE_MAX_IDS = Number(process.env.BULK_DELETE_MAX_IDS) || 200;
+
 // Constant-time token comparison (Task J security-QA F1): a plain `===` short-circuits on
 // the first mismatched byte, which is theoretically timing-observable. timingSafeEqual needs
 // equal-length buffers, so we length-check first (token length is not secret) and only compare
@@ -154,6 +159,33 @@ module.exports = function mountExpenses(app) {
       const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000, scope: req.scope });
       res.json(clerkVisible(rows, req.scope));
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
+  });
+
+  // POST /api/expenses/bulk-delete { ids } — QA B4: the Activity list's bulk Select -> Delete
+  // action. Applies the EXACT same per-row canTouchExpense + sbSoftDelete path the single
+  // DELETE /api/expenses/:id route below uses, just looped over a batch — no new business rule,
+  // only orchestration. A clerk's wrong-branch id fails individually (403) without aborting the
+  // rest of the batch; the response carries a per-id result for the frontend to reconcile.
+  app.post('/api/expenses/bulk-delete', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => typeof v !== 'string' || !v)) {
+      return res.status(400).json({ error: 'ids must be a non-empty array of expense ids' });
+    }
+    if (ids.length > BULK_DELETE_MAX_IDS) return res.status(413).json({ error: 'too many ids (max ' + BULK_DELETE_MAX_IDS + ')' });
+    const results = [];
+    for (const id of ids) {
+      try {
+        const touch = await canTouchExpense(req, id);
+        if (!touch.ok) { results.push({ id, ok: false, error: touch.error }); continue; }
+        await sbSoftDelete('expenses', { id, scope: req.scope });
+        results.push({ id, ok: true });
+      } catch (e) {
+        results.push({ id, ok: false, error: 'delete failed' });
+      }
+    }
+    const deleted = results.filter((r) => r.ok).length;
+    res.json({ ok: true, requested: ids.length, deleted, results });
   });
 
   // GET /api/expenses/deleted — QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently
