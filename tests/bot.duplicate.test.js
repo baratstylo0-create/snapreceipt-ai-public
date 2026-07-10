@@ -71,6 +71,7 @@ test('dupstaff: reopens the SAME staff picker (sendStaffPicker) keyed to the exi
   const pickerCalls = [];
   const { deps } = baseDeps({
     sbSelect: async () => [EXISTING],
+    listStaff: async () => [{ id: 's-ali', display_name: 'Ali' }],
     sendStaffPicker: async (chatId, expense, branchId) => { pickerCalls.push({ chatId, expense, branchId }); },
   });
   await handleCallbackQuery({ id: 'cb6', data: 'dupstaff:exp-existing-1', message: { chat: { id: 100 } } }, deps);
@@ -111,4 +112,22 @@ test('dupstaff: real sendStaffPicker actually sends the picker for the existing 
   await handleCallbackQuery({ id: 'cb9', data: 'dupstaff:exp-existing-1', message: { chat: { id: 100 } } }, deps);
   const pickerMsg = sent.find(s => /Who is this receipt for/.test(s.text));
   assert.ok(pickerMsg, 'the real staff picker must have been sent');
+});
+
+// Owner-reported (live QA, 2026-07-10): tapping "Edit staff" on a branch with no staff
+// directory yet silently did nothing — sendStaffPicker's no-op-when-empty contract is
+// correct for the AUTOMATIC post-save ask (no spam on every receipt), but this is an
+// EXPLICIT button tap, so silence reads as broken. dupstaff: must tell the user why.
+test('dupstaff: a branch with no staff directory gets a clear message, not silence', async () => {
+  const pickerCalls = [];
+  const { deps, sent, answered } = baseDeps({
+    sbSelect: async () => [EXISTING],
+    listStaff: async () => [],
+    sendStaffPicker: async (...a) => { pickerCalls.push(a); },
+  });
+  await handleCallbackQuery({ id: 'cb10', data: 'dupstaff:exp-existing-1', message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(pickerCalls.length, 0, 'the empty picker must never be opened');
+  assert.match(sent[0].text, /no staff/i);
+  assert.match(sent[0].text, /team/i);
+  assert.ok(answered.length, 'the tap must still be acknowledged (no infinite spinner)');
 });
