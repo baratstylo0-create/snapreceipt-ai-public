@@ -412,3 +412,43 @@ test('#162 D13: rejectDuplicates:true but NO duplicate match -> saved normally',
   assert.ok(!result.duplicate);
   assert.strictEqual(inserted.length, 1);
 });
+
+// Issue #152: exact re-send of the SAME Telegram photo (file_unique_id -- stable across
+// resends, unlike file_id). Always rejected -- unconditional, no rejectDuplicates opt-in
+// needed, since resending the literal same photo bytes is unambiguous either way.
+const EXISTING_EXACT = { id: 'exp-exact-1', merchant: 'Acme', amount: 100, currency: 'EUR', receipt_file_unique_id: 'AQAD-exact-xyz' };
+
+test('#152: an exact file_unique_id match is rejected even WITHOUT rejectDuplicates', async () => {
+  const inserted = [];
+  const d = deps({ loadHistory: async () => [EXISTING_EXACT], insertExpense: async (row) => { inserted.push(row); } });
+  const result = await assembleExpense({ ...goodInput(), receipt_file_unique_id: 'AQAD-exact-xyz' }, d);
+  assert.strictEqual(result.duplicate, true);
+  assert.deepStrictEqual(result.duplicateOf, EXISTING_EXACT);
+  assert.strictEqual(inserted.length, 0);
+});
+
+test('#152: a different file_unique_id (no exact match) does not trigger the exact-reject path', async () => {
+  const inserted = [];
+  const d = deps({ loadHistory: async () => [EXISTING_EXACT], insertExpense: async (row) => { inserted.push(row); } });
+  const result = await assembleExpense({ ...goodInput(), receipt_file_unique_id: 'some-other-id' }, d);
+  assert.ok(!result.duplicate);
+  assert.strictEqual(inserted.length, 1);
+});
+
+test('#152: no receipt_file_unique_id supplied (e.g. dashboard upload) -> exact-check is a no-op', async () => {
+  const inserted = [];
+  const d = deps({ loadHistory: async () => [EXISTING_EXACT], insertExpense: async (row) => { inserted.push(row); } });
+  const result = await assembleExpense(goodInput(), d); // no receipt_file_unique_id key at all
+  assert.ok(!result.duplicate);
+  assert.strictEqual(inserted.length, 1);
+});
+
+test('#152: a saved row stamps receipt_file_unique_id when supplied, absent when not', async () => {
+  const inserted = [];
+  await assembleExpense({ ...goodInput(), receipt_file_unique_id: 'AQAD-fresh-1' }, deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.strictEqual(inserted[0].receipt_file_unique_id, 'AQAD-fresh-1');
+
+  const inserted2 = [];
+  await assembleExpense(goodInput(), deps({ insertExpense: async (row) => { inserted2.push(row); } }));
+  assert.ok(!('receipt_file_unique_id' in inserted2[0]), 'must not fabricate the column when not supplied');
+});
