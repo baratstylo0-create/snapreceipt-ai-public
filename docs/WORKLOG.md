@@ -15,6 +15,15 @@
 
 ---
 
+## 2026-07-09 · Claude-J (for Jeevan) · ops (VPS deploy, not a push) — PR #154 merged to main, deployed to Premala VPS
+
+- **What.** PR #154 (5th push above) merged to `main` (Owner-directed). Deployed to the live Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 process `receipt-analyser`): working tree tarred (excl. `.git`/`node_modules`/`.env`), uploaded, extracted over the existing deployment (`.env` and `node_modules` untouched — no dependency changes in this diff, so no reinstall needed). Also flipped `CAP_EXCEL_LITE_GRID=true` in the box's `.env` (was OFF) so the colleague can QA the new Data-editor grid — same flag already on locally.
+- **Verified live:** `pm2 restart` clean (no errors in `receipt-analyser-error.log` beyond routine bot-scan `auth_fail` 401s), `/health` → `{"ok":true}`, `/ready` → `{"ok":true,"deps":{"db":"up"}}`.
+- **Why not git-based deploy:** `/opt/receipt-analyser` on the box is a plain file copy, not a git clone (see `docs/ops/2026-07-08-new-vps-deploy-record.md`) — tar+extract is the established path there.
+- **Next:** colleague can now QA the business account + Data-editor grid directly on `https://31.97.70.50` (self-signed cert). Pending items unchanged from the deploy record (Telegram bot token, real TLS cert, admin password rotation).
+
+---
+
 ## 2026-07-10 · Claude (Sonnet, for Barat) · qa/pr-l-batch-album (stacked on qa/pr-k-telegram) — Batch/album capture: staff attribution + per-photo failure feedback + duplicate handling (#152)
 - **Files:** `lib/massupload.js` (`skippedDetails`, `duplicates`/`duplicateDetails` — additive to `runBatch`'s summary), `lib/telegram.js` (`tgSendPhoto`), `lib/ocr.js` (`receipt_file_unique_id` param + unconditional exact-resend reject, reusing #162's `duplicate`/`duplicateOf` shape), `lib/bot.js` (batch staff wizard, per-photo resend, batch duplicate replies, index-aligned downloads, `rejectDuplicates` extended to the batch path), `schema.sql` (+`receipt_file_unique_id` column/index). Tests: `tests/massupload.test.js` (+4), `tests/telegram.test.js` (+3), `tests/ingest.test.js` (+4), `tests/bot.business.staffscope.test.js` (5 assertions updated for the new `file_unique_id` meta field), `tests/bot.batch.dupfeedback.test.js` (**new**, 7), `tests/bot.batch.wizard.test.js` (**new**, 11).
 - **What — TDD, RED→GREEN. Design signed off by Jeevan/Owner; branched on TOP of `qa/pr-k-telegram` (#162, unmerged) since this genuinely extends that PR's `duplicateRejectedText`/`buildDuplicateKeyboard`/`dupview:`/`dupedit:` infra — reused, not rebuilt.**
