@@ -1,7 +1,9 @@
 // components/payments.js — the payment Pending/Paid tabs (ADR-021 Phase 6).
 //
 // Business mode only (the section only exists in business nav). Shows the expense list split
-// into Pending / Paid tabs with month + branch + staff filters. The ADMIN gets a checkbox per
+// into Pending / Paid tabs with month + branch filters (the "All Staff" filter was removed —
+// QA round, redundant/confusing; use the branch filter, or leave it on "All branches").
+// The ADMIN gets a checkbox per
 // row + a sticky "N selected · total" bar with a Mark paid / Mark pending action that calls
 // the Phase-4 bulk endpoint (PATCH /api/expenses/payments — reversible). A CLERK sees their
 // own branch's rows read-only (the server scopes both the list and the write anyway; hiding
@@ -21,9 +23,10 @@
   // migration have no value, and 'pending' is that migration's default — never hide money.
   function statusOf(row) { return row && row.payment_status === 'paid' ? 'paid' : 'pending'; }
 
-  // filterRows(rows, { tab, month, branch, staff }) -> rows matching the tab + filters.
-  // month matches the expense_date 'YYYY-MM' prefix; branch/staff accept an id or the
+  // filterRows(rows, { tab, month, branch }) -> rows matching the tab + filters.
+  // month matches the expense_date 'YYYY-MM' prefix; branch accepts an id or the
   // literal 'unassigned' (matches rows with no value). Garbage input -> [] (never throws).
+  // (A `staff` option is silently ignored — the All Staff filter was removed.)
   function filterRows(rows, opts) {
     opts = opts || {};
     var tab = opts.tab === 'paid' ? 'paid' : 'pending';
@@ -37,10 +40,6 @@
       if (opts.branch) {
         var b = r.branch_id == null || r.branch_id === '' ? 'unassigned' : String(r.branch_id);
         if (b !== String(opts.branch)) continue;
-      }
-      if (opts.staff) {
-        var s = r.staff_user_id == null || r.staff_user_id === '' ? 'unassigned' : String(r.staff_user_id);
-        if (s !== String(opts.staff)) continue;
       }
       out.push(r);
     }
@@ -136,39 +135,6 @@
     return out;
   }
 
-  // staffNameMapFromResponses([{ staff: [...] }]) -> { staff_user_id: display_name }.
-  // Mirrors Team's /api/branches/:id/staff source without coupling this view to team.js.
-  function staffNameMapFromResponses(responses) {
-    var names = {};
-    var list = Array.isArray(responses) ? responses : [];
-    for (var i = 0; i < list.length; i++) {
-      var staff = (list[i] && list[i].staff) || [];
-      for (var j = 0; j < staff.length; j++) {
-        var s = staff[j];
-        if (!s || s.id == null) continue;
-        var id = String(s.id);
-        names[id] = s.display_name || s.name || s.email || id;
-      }
-    }
-    return names;
-  }
-
-  function staffLookupBranchIds(rows, session) {
-    var seen = {};
-    var out = [];
-    function add(id) {
-      if (id == null || id === '' || id === 'unassigned') return;
-      id = String(id);
-      if (seen[id]) return;
-      seen[id] = true;
-      out.push(id);
-    }
-    var list = Array.isArray(rows) ? rows : [];
-    for (var i = 0; i < list.length; i++) if (list[i]) add(list[i].branch_id);
-    if (session) add(session.branch_id);
-    return out;
-  }
-
   // selectionSummary(rows, selectedIds) -> { count, total } for the sticky bar. Non-finite
   // amounts count toward `count` but contribute 0 to the money total (never a fake number).
   function selectionSummary(rows, selectedIds) {
@@ -197,7 +163,7 @@
     // Activity — same shared switcher Upload's "View in Activity" button already uses.
     var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
 
-    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, staffNames: {}, loaded: false, mySubmission: null };
+    var state = { rows: [], tab: 'pending', month: '', branch: '', selected: {}, branchNames: {}, loaded: false, mySubmission: null };
 
     var wrap = document.createElement('div');
     wrap.className = 'payments';
@@ -232,11 +198,6 @@
     branchSel.setAttribute('aria-label', 'Filter by branch');
     branchSel.addEventListener('change', function () { state.branch = branchSel.value; state.selected = {}; render(); });
     filters.appendChild(branchSel);
-    var staffSel = document.createElement('select');
-    staffSel.className = 'pay-filter-staff';
-    staffSel.setAttribute('aria-label', 'Filter by staff');
-    staffSel.addEventListener('change', function () { state.staff = staffSel.value; state.selected = {}; render(); });
-    filters.appendChild(staffSel);
     wrap.appendChild(filters);
 
     // -- Send to Admin (ADR-022 Phase 7, flag branch_submission) --
@@ -324,7 +285,7 @@
 
     function rebuildFilterOptions() {
       // Branch options: names when the admin could fetch them, else the raw ids present
-      // in the data; 'unassigned' groups untagged rows. Staff: distinct ids in the data.
+      // in the data; 'unassigned' groups untagged rows.
       function fill(sel, label, values, names) {
         sel.textContent = '';
         optionModels(label, values, names).forEach(function (opt) {
@@ -334,23 +295,20 @@
           sel.appendChild(o);
         });
       }
-      var branches = {}, staff = {};
+      var branches = {};
       state.rows.forEach(function (r) {
         if (!r) return;
         branches[r.branch_id == null || r.branch_id === '' ? 'unassigned' : String(r.branch_id)] = true;
-        staff[r.staff_user_id == null || r.staff_user_id === '' ? 'unassigned' : String(r.staff_user_id)] = true;
       });
       fill(branchSel, 'All branches', Object.keys(branches).sort(), state.branchNames);
-      fill(staffSel, 'All staff', Object.keys(staff).sort(), state.staffNames);
       branchSel.value = state.branch;
-      staffSel.value = state.staff;
     }
 
     function render() {
       tabBtns.pending.classList.toggle('is-active', state.tab === 'pending');
       tabBtns.paid.classList.toggle('is-active', state.tab === 'paid');
 
-      var rows = filterRows(state.rows, { tab: state.tab, month: state.month, branch: state.branch, staff: state.staff });
+      var rows = filterRows(state.rows, { tab: state.tab, month: state.month, branch: state.branch });
       tableHost.textContent = '';
 
       if (!rows.length) {
@@ -538,19 +496,6 @@
           }).catch(function () { /* names stay ids */ });
         });
       }
-      chain = chain.then(function () {
-        var branchIds = staffLookupBranchIds(state.rows, deps.session);
-        if (!branchIds.length) {
-          state.staffNames = {};
-          return null;
-        }
-        return Promise.all(branchIds.map(function (id) {
-          return Api.apiFetch('/api/branches/' + encodeURIComponent(id) + '/staff')
-            .catch(function () { return { staff: [] }; });
-        })).then(function (responses) {
-          state.staffNames = staffNameMapFromResponses(responses);
-        });
-      });
       return chain.then(function () { rebuildFilterOptions(); render(); refreshSubmissions(); })
         .catch(function () { Escape.setText(msg, 'Could not load expenses. Please try again shortly.'); });
     }
@@ -565,6 +510,6 @@
     submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
     statementReady: statementReady, statementUrl: statementUrl, statementExportRows: statementExportRows,
     statementBranchRequiredMessage: statementBranchRequiredMessage,
-    optionModels: optionModels, staffNameMapFromResponses: staffNameMapFromResponses,
+    optionModels: optionModels,
   };
 });

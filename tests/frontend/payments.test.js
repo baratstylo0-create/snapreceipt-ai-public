@@ -1,6 +1,8 @@
 'use strict';
 // components/payments.js Phase 6 (ADR-021): the payment Pending/Paid tabs' pure logic —
-// tab/month/branch/staff filtering and the sticky selection summary (count + money total).
+// tab/month/branch filtering and the sticky selection summary (count + money total).
+// The "All Staff" filter was removed (QA round, redundant/confusing) — filterRows still
+// tolerates a stray `staff` option as a harmless no-op for callers on an older cached build.
 // Phase 7 (ADR-022) adds the Send-to-Admin pure logic: the admin's submissions status line
 // and the clerk's send-button state. Node-testable, no DOM.
 const test = require('node:test');
@@ -14,7 +16,6 @@ const {
   statementUrl,
   statementExportRows,
   optionModels,
-  staffNameMapFromResponses,
   statementBranchRequiredMessage,
 } = require('../../public/js/components/payments');
 
@@ -39,10 +40,13 @@ test('filterRows: month filter matches the expense_date YYYY-MM prefix', () => {
   assert.deepStrictEqual(ids, ['a', 'd']);
 });
 
-test('filterRows: branch + staff filters ("unassigned" matches null)', () => {
+test('filterRows: branch filter ("unassigned" matches null)', () => {
   assert.deepStrictEqual(filterRows(ROWS, { tab: 'pending', branch: 'bA' }).map((r) => r.id), ['a']);
   assert.deepStrictEqual(filterRows(ROWS, { tab: 'pending', branch: 'unassigned' }).map((r) => r.id), ['d']);
-  assert.deepStrictEqual(filterRows(ROWS, { tab: 'pending', staff: 's2' }).map((r) => r.id), ['b']);
+});
+
+test('filterRows: a stray staff option is a no-op (the All Staff filter was removed)', () => {
+  assert.deepStrictEqual(filterRows(ROWS, { tab: 'pending', staff: 's2' }).map((r) => r.id), ['a', 'b', 'd']);
 });
 
 test('filterRows: garbage input never throws', () => {
@@ -125,17 +129,6 @@ test('optionModels: staff dropdown labels ids with staffNames but keeps id value
       { value: 's2', label: 'Ben Tan' },
       { value: 'unassigned', label: 'Unassigned' },
     ]
-  );
-});
-
-test('staffNameMapFromResponses: flattens branch staff responses into id -> display_name', () => {
-  assert.deepStrictEqual(
-    staffNameMapFromResponses([
-      { staff: [{ id: 's1', display_name: 'Aisha Rahman' }] },
-      { staff: [{ id: 's2', display_name: 'Ben Tan' }, { id: 's3', name: 'Legacy Name' }] },
-      null,
-    ]),
-    { s1: 'Aisha Rahman', s2: 'Ben Tan', s3: 'Legacy Name' }
   );
 });
 
