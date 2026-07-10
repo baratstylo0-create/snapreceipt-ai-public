@@ -15,6 +15,29 @@
 
 ---
 
+## 2026-07-10 · Claude (for Jeevan) · qa/pr-a3-review-reminder — A3 popup simplified: real info + working Review button
+
+- **Files:** `public/js/exportGuards.js` (new `unreviewedItemLabel`, `unreviewedSummary`; `requestReviewedConfirmation` renders an item list + fires `opts.onCancel`), `public/js/components/reports.js` + `payments.js` + `grid.js` (wired `onReview` via the existing `deps.switchView`), `public/css/app.css`, `tests/frontend/exportGuards.test.js`.
+- **Why (Owner follow-up, same day):** after seeing the first version, the Owner said it was "too much" and asked for exactly three things in the popup: **info about it**, a **Review button**, and the **Download anyway** button. Simplified to precisely that.
+- **What changed:** the popup message dropped the bare "Download anyway?" tag-on; instead it now lists the **actual unreviewed receipts** ("Coffee Bean — 12.5 MYR", capped at 5 with a "+N more" overflow line) via `unreviewedSummary`. The old "Go review" cancel button — which only ever dismissed the popup — is now a real **"Review" button that navigates to Activity**, reusing the exact same `deps.switchView('activity')` mechanism Upload's "View in Activity" button already uses (`app.js` sets `deps.switchView = select` before any view mounts, so it was already threaded to all three components). "Download anyway" is unchanged.
+- **Tests:** TDD red-first — `unreviewedItemLabel` (format + missing-field tolerance), `unreviewedSummary` (filters to needs_review, caps at 5, overflow count, garbage-tolerant), and `runExportGuard` (items + `cancelLabel:'Review'` + `onCancel` wired to `opts.onReview`, and the no-onReview case doesn't throw). Full suite **1657/1657** green (`.env` moved aside/restored), +5 over the 1652 baseline.
+- **Live-verified** the real modal DOM in the browser preview: popup lists two real unreviewed receipts by name+amount; clicking **Review** fires the navigation callback, closes the popup, and does NOT export; clicking **Download anyway** exports and does NOT fire the navigation callback; 0-unreviewed still exports directly with no popup. No console errors.
+- **What's next:** still not merging myself — same open PR #167 (this is a follow-up push to that branch, not a new PR).
+
+---
+
+## 2026-07-10 · Claude (for Jeevan) · qa/pr-a3-review-reminder — QA A3 refinement: conditional pre-export review reminder
+
+- **Files:** `public/js/exportGuards.js` (new `countUnreviewed`, `reviewReminderMessage`, `runExportGuard`), `public/js/components/reports.js` + `payments.js` + `grid.js` (all three export buttons rewired), `tests/frontend/exportGuards.test.js`.
+- **Why:** Owner clarified A3. Codex's PR-A shipped an **always-on** generic "Confirm you've reviewed this data before exporting?" modal that fired on *every* export regardless of whether anything actually needed reviewing — annoying and uninformative. The Owner wants a **conditional reminder**: only interrupt when there are receipts still in the review queue, say how many, and offer a non-blocking **"Download anyway"** (a reminder, not a hard gate).
+- **What counts as "unreviewed" (Owner decision, 2026-07-10):** the **review queue only** — receipts with `status === 'needs_review'` (the ones sitting in Activity's review queue awaiting Approve/Reject). Blank category/remark do NOT trigger it. Count comes from the already-scoped `GET /api/review` (clerk = own branch, admin = all), so the reminder respects isolation for free.
+- **Behaviour** (`runExportGuard`, the single entry point all three export buttons now share): empty view → "No data to export." (unchanged); **0 unreviewed → export runs immediately, no popup**; **>0 unreviewed → reminder "You still have N receipt(s) waiting for review in Activity. Download anyway?"** with `Download anyway` / `Go review`; **count unknown** (no apiFetch, or the `/api/review` fetch errored) → falls back to the old generic reviewed-confirm so there is always *some* checkpoint and it never blocks or silently skips.
+- **Tests:** TDD red-first — `countUnreviewed` (counts only `needs_review`, garbage-tolerant), `reviewReminderMessage` (singular/plural + count), and `runExportGuard` decision matrix (empty→onEmpty/no-fetch; 0→proceed/no-popup; >0→reminder-with-count/`Download anyway`, proceeds only on confirm; fetch-error and no-apiFetch→generic fallback). The DOM modal is dependency-injected (`opts.confirm`) so the orchestrator is fully testable without a browser. Full suite **1652/1652** green (`.env` moved aside/restored), +8 over the 1644 baseline.
+- **Live-verified** in the browser preview (real modal DOM, not the injected fake): 2 unreviewed → popup reads "You still have **2 receipts** waiting for review in Activity. Download anyway?" with `Download anyway` + `Go review`, no export before clicking; 1 unreviewed → correct singular "**1 receipt**"; clicking `Download anyway` proceeds and closes; **0 unreviewed → no popup at all, export runs directly**. No console errors.
+- **What's next:** not merging myself — Owner/reviewer to merge. This closes the last open item from Codex's PR-A/E/F scope (A3's pre-export confirm). Remaining QA-round work: my PRs #160/#161/#165 + Barat's issues #162/#164 all awaiting review, then VPS deploy.
+
+---
+
 ## 2026-07-09 · Claude (Opus, for Barat) · qa/pr-k-telegram — QA PR-D: Telegram bot fixes D10–D13 (#162)
 - **Files:** `lib/ocr.js` (D10 blurry-reject, D13 duplicate-reject + reply/keyboard), `lib/anomaly.js` (D13 `duplicateOf` additive), `lib/bot.js` (D11 always-ask-staff + prior-status restore, D12 `is_persistent`, D13 `dupview:`/`dupedit:`/`dupstaff:` callback branches). Tests: `tests/ingest.test.js` (+6), `tests/ocr.categorypicker.test.js` (+4), `tests/anomaly.test.js` (+2), `tests/bot.business.staffscope.test.js` (+3, 1 amended), `tests/bot.menu.test.js` (+1), `tests/bot.duplicate.test.js` (**new**, +9). All my lane.
 - **What — TDD, RED→GREEN, closes the four QA items in `docs/qa` PR-D / issue #162:**
