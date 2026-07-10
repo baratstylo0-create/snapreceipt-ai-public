@@ -465,6 +465,19 @@ test('patchBody is defensive against null inputs (never throws, never leaks acco
   assert.ok('merchant' in body && 'amount' in body);
 });
 
+// QA fix (PR #175): the edit-drawer Status field is now a <select> populated with
+// STATUS_OPTIONS (saved/needs_review/approved/rejected). A row can legitimately be in an
+// auto-only sentinel status (awaiting_category/awaiting_remark, set by the OCR pipeline,
+// not user-selectable) when the drawer opens; the drawer seeds its edited copy straight
+// from the row and never forces it onto an in-list value. Opening the drawer and saving
+// without touching Status must therefore never rewrite a sentinel status onto the server.
+test('patchBody: an unmodified sentinel status (awaiting_category) is never sent as a change', () => {
+  const original = row({ status: 'awaiting_category' });
+  const edited = Object.assign({}, original); // drawer opened, Status left untouched
+  const body = patchBody(original, edited);
+  assert.ok(!('status' in body), 'an untouched sentinel status must not be re-sent to the server');
+});
+
 // --- XSS / escape (the load-bearing safety proof) -------------------------
 
 test('hostile merchant/description/anomaly-reason render INERT via Escape.safeText', () => {
