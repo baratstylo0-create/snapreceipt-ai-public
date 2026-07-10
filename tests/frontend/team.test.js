@@ -5,7 +5,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches, botDeepLink,
+  isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches,
+  rootLabel, companyNameById, botDeepLink,
 } = require('../../public/js/components/team');
 
 test('isAdmin: true only for role admin, false for clerk/staff/missing/garbage', () => {
@@ -69,6 +70,37 @@ test('sortedBranches: active branches first, then alphabetical by office within 
 test('sortedBranches: garbage input never throws', () => {
   assert.deepStrictEqual(sortedBranches(null), []);
   assert.deepStrictEqual(sortedBranches(undefined), []);
+});
+
+// --- org-hierarchy tree reshape (2026-07-11): root node title + per-branch company chip ---
+
+test('rootLabel: uses the admin display_name as the org root title', () => {
+  assert.strictEqual(rootLabel({ role: 'admin', display_name: 'Premala HQ' }), 'Premala HQ');
+});
+
+test('rootLabel: trims surrounding whitespace', () => {
+  assert.strictEqual(rootLabel({ display_name: '  Head Office  ' }), 'Head Office');
+});
+
+test('rootLabel: falls back for missing/blank/non-string session (never throws)', () => {
+  assert.strictEqual(rootLabel(null), 'Your organisation');
+  assert.strictEqual(rootLabel({}), 'Your organisation');
+  assert.strictEqual(rootLabel({ display_name: '   ' }), 'Your organisation');
+  assert.strictEqual(rootLabel({ display_name: 42 }), 'Your organisation');
+});
+
+test('companyNameById: resolves a branch\'s company name from its id', () => {
+  const companies = [{ id: 'c1', name: 'Alpha' }, { id: 'c2', name: 'Beta' }];
+  assert.strictEqual(companyNameById(companies, 'c2'), 'Beta');
+});
+
+test('companyNameById: unset/unknown/dangling id or garbage list -> empty string (no chip, no crash)', () => {
+  const companies = [{ id: 'c1', name: 'Alpha' }];
+  assert.strictEqual(companyNameById(companies, null), '');
+  assert.strictEqual(companyNameById(companies, ''), '');
+  assert.strictEqual(companyNameById(companies, 'nope'), '');
+  assert.strictEqual(companyNameById(null, 'c1'), '');
+  assert.strictEqual(companyNameById('not-an-array', 'c1'), '');
 });
 
 // --- botDeepLink: the clickable t.me bot-binding link (mirrors setup/provision.js's
