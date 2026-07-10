@@ -65,12 +65,16 @@ Claude-J has actually been doing all along:
    this; it's the safeguard for exactly that moment.
 5. **Update `docs/WORKLOG.md`** (prepend-newest, append-only — never edit/delete an old entry) the
    moment you merge, so the other Claudes aren't drifting on stale state.
-6. **If the change needs deploying live** (the Premala VPS, `31.97.70.50`): use an isolated
-   `git worktree add --detach` from fresh `origin/main` to build the deploy artifact — never deploy
-   from a working tree that might have someone else's uncommitted changes sitting in it. Tar
-   excluding `.git`/`node_modules`/`.env`, upload, extract over `/opt/receipt-analyser` only,
-   `pm2 restart receipt-analyser`, then verify `/health` + `/ready` + (if it touches the bot) the
-   webhook re-registered in the logs — before telling anyone it's live.
+6. **Deploying live is now automatic.** As of `.github/workflows/deploy.yml`, every push to `main`
+   (i.e. every merge) auto-deploys to the Premala VPS on its own — tests re-run as a gate, then it
+   packages via `git archive` (only git-tracked files, so `.env`/`node_modules` structurally can't
+   leak in), uploads, restarts, and verifies `/health` + `/ready`, all as the unprivileged `deploy`
+   VPS user (its own pm2 daemon, zero sudo, chown'd only to `/opt/receipt-analyser` — see next
+   point). **You don't need VPS access to ship a merge; merging is the whole job.** Just watch the
+   Action run (`gh run watch` or the Actions tab) and confirm it went green before telling anyone
+   it's live. The old manual method (isolated `git worktree` → tar → scp → `pm2 restart`) still
+   works as a fallback if the Action itself is broken or you need to deploy something that isn't on
+   `main` yet, but should no longer be the normal path.
 7. **Read `/opt/README.md` on the VPS first, every time.** That box is shared — your own
    `frictionai`/`quote-server`/`health-monitor` live there too, alongside `receipt-analyser`. Only
    touch the directory/pm2 process you're deploying. Never run a command (`pm2 restart`/`stop`/
