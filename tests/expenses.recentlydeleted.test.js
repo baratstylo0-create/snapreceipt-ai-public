@@ -21,7 +21,7 @@ function withEnv(vars, fn) {
   });
 }
 
-function stubDb({ session, rows = [] } = {}) {
+function stubDb({ session, rows = [], updateRows = [{ id: 'e-any', deleted_at: null }] } = {}) {
   const realFetch = global.fetch;
   const writes = [];
   const gets = [];
@@ -33,7 +33,7 @@ function stubDb({ session, rows = [] } = {}) {
     if (u.includes('/expenses')) {
       if (method === 'PATCH') {
         writes.push({ url: u, method, body: opt.body ? JSON.parse(opt.body) : undefined });
-        return { text: async () => JSON.stringify([{ id: 'e-any', deleted_at: null }]) };
+        return { text: async () => JSON.stringify(updateRows) };
       }
       gets.push(u);
       return { text: async () => JSON.stringify(rows) };
@@ -97,6 +97,7 @@ test('POST /api/expenses/:id/restore: admin restores a deleted row -> 200, delet
       assert.strictEqual(status, 200);
       assert.strictEqual(s.writes.length, 1);
       assert.strictEqual(s.writes[0].body.deleted_at, null);
+      assert.match(s.writes[0].url, /deleted_at=not\.is\.null/);
     } finally { s.restore(); }
   });
 });
@@ -141,6 +142,25 @@ test('POST /api/expenses/:id/restore: clerk restoring OWN-branch deleted row -> 
       const { status } = await call('POST', '/api/expenses/d1/restore', { token: 't' });
       assert.strictEqual(status, 200);
       assert.strictEqual(s.writes.length, 1);
+      assert.match(s.writes[0].url, /deleted_at=not\.is\.null/);
+    } finally { s.restore(); }
+  });
+});
+
+test('POST /api/expenses/:id/restore: deleted predicate is atomic with PATCH', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    // The SELECT sees a deleted row, but the PATCH matches zero rows (e.g. another request
+    // already recovered it between read and write). The route must not report success.
+    const s = stubDb({
+      session: ADMIN,
+      rows: [{ id: 'd1', deleted_at: '2026-07-01T00:00:00Z', branch_id: 'bHQ' }],
+      updateRows: [],
+    });
+    try {
+      const { status } = await call('POST', '/api/expenses/d1/restore', { token: 't' });
+      assert.strictEqual(status, 409);
+      assert.strictEqual(s.writes.length, 1);
+      assert.match(s.writes[0].url, /deleted_at=not\.is\.null/);
     } finally { s.restore(); }
   });
 });

@@ -241,8 +241,9 @@ module.exports = function mountExpenses(app) {
       const cur = rows[0];
       if (!cur) return res.status(404).json({ error: 'expense not found' });
       if (!cur.deleted_at) return res.status(409).json({ error: 'expense is not deleted' });
-      const updated = await sbUpdate('expenses', { id: req.params.id, scope: req.scope }, { deleted_at: null });
-      res.json(updated[0] || { ok: true });
+      const updated = await sbUpdate('expenses', { id: req.params.id, scope: req.scope, extra: 'deleted_at=not.is.null' }, { deleted_at: null });
+      if (!updated.length) return res.status(409).json({ error: 'expense is not deleted' });
+      res.json(updated[0]);
     } catch (e) { console.error('[restore expense]', e.message); res.status(502).json({ error: 'restore failed' }); }
   });
 
