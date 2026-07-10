@@ -1625,8 +1625,12 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   box-shadow: var(--shadow);
   padding: 20px;
 }
-.rp-confirm-title { margin: 0 0 14px; color: var(--txt); font-size: 15px; font-weight: 700; }
-.rp-confirm-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.rp-confirm-title { margin: 0 0 10px; color: var(--txt); font-size: 15px; font-weight: 700; }
+/* Owner follow-up (2026-07-10): the actual list of which receipts are unreviewed. */
+.rp-confirm-items { margin: 0 0 4px; padding-left: 18px; color: var(--txt); font-size: 13px; }
+.rp-confirm-items li { margin-bottom: 2px; }
+.rp-confirm-more { margin: 0 0 10px; font-size: 12px; }
+.rp-confirm-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; margin-top: 10px; }
 .rp-confirm-choice {
   padding: 10px 14px;
   background: var(--bg-2);

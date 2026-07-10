@@ -178,6 +178,9 @@
     if (typeof document === 'undefined' || !section) return null;
     var Api = deps.Api, Escape = deps.Escape;
     var categories = (deps.config && deps.config.categories) || [];
+    // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
+    // Activity — same shared switcher Upload's "View in Activity" button already uses.
+    var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
 
     var state = { rows: [], loaded: false, editMode: false, search: '', page: 1 };
 
@@ -277,6 +280,7 @@
         data: ids,
         apiFetch: Api.apiFetch,
         onEmpty: function (m) { note(m); },
+        onReview: switchView ? function () { switchView('activity'); } : undefined,
         onProceed: function () {
           setExportBusy(true);
           note('Preparing ' + String(format).toUpperCase() + ' export...');

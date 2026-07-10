@@ -603,6 +603,9 @@
     if (!hasDom() || !section) return null;
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
+    // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
+    // Activity — same shared switcher Upload's "View in Activity" button already uses.
+    var switchView = typeof opts.switchView === 'function' ? opts.switchView : null;
 
     var rootEl = el('div', 'rp-root');
     section.appendChild(rootEl);
@@ -734,6 +737,7 @@
         data: state.lastReports,
         apiFetch: apiFetch,
         onEmpty: function (m) { Escape.setText(exportStatus, m); },
+        onReview: switchView ? function () { switchView('activity'); } : undefined,
         onProceed: function () {
           // Owner request 2026-07-06: ask which timeframe every time, instead of
           // silently exporting whatever period/anchor happens to be on screen.

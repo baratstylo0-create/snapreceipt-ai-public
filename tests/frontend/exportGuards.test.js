@@ -125,6 +125,74 @@ test('runExportGuard: data + SOME unreviewed -> reminder popup with count + Down
   assert.strictEqual(proceeded, true, 'Download anyway proceeds with the export');
 });
 
+// --- unreviewedItemLabel / unreviewedSummary (Owner 2026-07-10 follow-up) --------------
+// Simplify the popup per the Owner: show actual info about WHICH receipts are unreviewed
+// (not just a bare count), a real "Review" button that navigates to Activity, and keep
+// "Download anyway". unreviewedSummary builds the (capped) list; unreviewedItemLabel
+// formats one row for display.
+
+test('unreviewedItemLabel: "Merchant — amount currency", tolerant of missing fields', () => {
+  assert.strictEqual(Guards.unreviewedItemLabel({ merchant: 'Acme Corp', amount: 45, currency: 'MYR' }), 'Acme Corp — 45 MYR');
+  assert.strictEqual(Guards.unreviewedItemLabel({ amount: 10 }), 'Receipt — 10');
+  assert.strictEqual(Guards.unreviewedItemLabel({}), 'Receipt');
+  assert.strictEqual(Guards.unreviewedItemLabel(null), 'Receipt');
+});
+
+test('unreviewedSummary: filters to needs_review, caps the list, reports the overflow count', () => {
+  const rows = [
+    { id: 'a', status: 'needs_review', merchant: 'A', amount: 1, currency: 'MYR' },
+    { id: 'b', status: 'approved', merchant: 'B', amount: 2, currency: 'MYR' },
+    { id: 'c', status: 'needs_review', merchant: 'C', amount: 3, currency: 'MYR' },
+    { id: 'd', status: 'needs_review', merchant: 'D', amount: 4, currency: 'MYR' },
+    { id: 'e', status: 'needs_review', merchant: 'E', amount: 5, currency: 'MYR' },
+    { id: 'f', status: 'needs_review', merchant: 'F', amount: 6, currency: 'MYR' },
+    { id: 'g', status: 'needs_review', merchant: 'G', amount: 7, currency: 'MYR' },
+  ];
+  const out = Guards.unreviewedSummary(rows);
+  assert.strictEqual(out.count, 6);
+  assert.deepStrictEqual(out.items, ['A — 1 MYR', 'C — 3 MYR', 'D — 4 MYR', 'E — 5 MYR', 'F — 6 MYR']);
+  assert.strictEqual(out.more, 1);
+});
+
+test('unreviewedSummary: empty/garbage never throws', () => {
+  assert.deepStrictEqual(Guards.unreviewedSummary([]), { count: 0, items: [], more: 0 });
+  assert.deepStrictEqual(Guards.unreviewedSummary(null), { count: 0, items: [], more: 0 });
+  assert.deepStrictEqual(Guards.unreviewedSummary(undefined), { count: 0, items: [], more: 0 });
+});
+
+test('runExportGuard: >0 unreviewed -> popup carries the item list, "Review" label, and onReview wired to cancel', async () => {
+  let proceeded = false; let reviewed = false;
+  const captured = [];
+  Guards.runExportGuard({
+    data: [{ id: 'e1' }],
+    apiFetch: function () { return Promise.resolve([{ status: 'needs_review', merchant: 'Acme', amount: 9, currency: 'MYR' }]); },
+    onProceed: function () { proceeded = true; },
+    onReview: function () { reviewed = true; },
+    confirm: fakeConfirm(captured),
+  });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.strictEqual(captured.length, 1);
+  assert.deepStrictEqual(captured[0].opts.items, ['Acme — 9 MYR']);
+  assert.strictEqual(captured[0].opts.cancelLabel, 'Review');
+  assert.strictEqual(typeof captured[0].opts.onCancel, 'function');
+  captured[0].opts.onCancel();
+  assert.strictEqual(reviewed, true, 'clicking Review calls the caller-supplied navigation');
+  assert.strictEqual(proceeded, false, 'Review does not also export');
+});
+
+test('runExportGuard: no onReview supplied -> popup still works, onCancel just absent/no-op', async () => {
+  const captured = [];
+  Guards.runExportGuard({
+    data: [{ id: 'e1' }],
+    apiFetch: function () { return Promise.resolve([{ status: 'needs_review', merchant: 'Acme', amount: 9, currency: 'MYR' }]); },
+    onProceed: function () {},
+    confirm: fakeConfirm(captured),
+  });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.strictEqual(captured.length, 1);
+  assert.doesNotThrow(() => { if (captured[0].opts.onCancel) captured[0].opts.onCancel(); });
+});
+
 test('runExportGuard: review-count fetch fails -> falls back to the generic reviewed-confirm', async () => {
   let proceeded = false;
   const captured = [];

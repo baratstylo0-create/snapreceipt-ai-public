@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-10 · Claude (for Jeevan) · qa/pr-a3-review-reminder — A3 popup simplified: real info + working Review button
+
+- **Files:** `public/js/exportGuards.js` (new `unreviewedItemLabel`, `unreviewedSummary`; `requestReviewedConfirmation` renders an item list + fires `opts.onCancel`), `public/js/components/reports.js` + `payments.js` + `grid.js` (wired `onReview` via the existing `deps.switchView`), `public/css/app.css`, `tests/frontend/exportGuards.test.js`.
+- **Why (Owner follow-up, same day):** after seeing the first version, the Owner said it was "too much" and asked for exactly three things in the popup: **info about it**, a **Review button**, and the **Download anyway** button. Simplified to precisely that.
+- **What changed:** the popup message dropped the bare "Download anyway?" tag-on; instead it now lists the **actual unreviewed receipts** ("Coffee Bean — 12.5 MYR", capped at 5 with a "+N more" overflow line) via `unreviewedSummary`. The old "Go review" cancel button — which only ever dismissed the popup — is now a real **"Review" button that navigates to Activity**, reusing the exact same `deps.switchView('activity')` mechanism Upload's "View in Activity" button already uses (`app.js` sets `deps.switchView = select` before any view mounts, so it was already threaded to all three components). "Download anyway" is unchanged.
+- **Tests:** TDD red-first — `unreviewedItemLabel` (format + missing-field tolerance), `unreviewedSummary` (filters to needs_review, caps at 5, overflow count, garbage-tolerant), and `runExportGuard` (items + `cancelLabel:'Review'` + `onCancel` wired to `opts.onReview`, and the no-onReview case doesn't throw). Full suite **1657/1657** green (`.env` moved aside/restored), +5 over the 1652 baseline.
+- **Live-verified** the real modal DOM in the browser preview: popup lists two real unreviewed receipts by name+amount; clicking **Review** fires the navigation callback, closes the popup, and does NOT export; clicking **Download anyway** exports and does NOT fire the navigation callback; 0-unreviewed still exports directly with no popup. No console errors.
+- **What's next:** still not merging myself — same open PR #167 (this is a follow-up push to that branch, not a new PR).
+
+---
+
 ## 2026-07-10 · Claude (for Jeevan) · qa/pr-a3-review-reminder — QA A3 refinement: conditional pre-export review reminder
 
 - **Files:** `public/js/exportGuards.js` (new `countUnreviewed`, `reviewReminderMessage`, `runExportGuard`), `public/js/components/reports.js` + `payments.js` + `grid.js` (all three export buttons rewired), `tests/frontend/exportGuards.test.js`.

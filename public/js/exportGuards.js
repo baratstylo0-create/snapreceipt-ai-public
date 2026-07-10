@@ -58,7 +58,36 @@
   function reviewReminderMessage(count) {
     var n = Number(count) || 0;
     var noun = n === 1 ? 'receipt' : 'receipts';
-    return 'You still have ' + n + ' ' + noun + ' waiting for review in Activity. Download anyway?';
+    return 'You still have ' + n + ' ' + noun + ' waiting for review in Activity.';
+  }
+
+  // Owner follow-up (2026-07-10): the popup shows actual info about WHICH receipts are
+  // unreviewed, not just a bare count. One line per row, tolerant of missing fields —
+  // never shows "undefined"/blank.
+  function unreviewedItemLabel(row) {
+    var r = row && typeof row === 'object' ? row : {};
+    var name = (typeof r.merchant === 'string' && r.merchant.trim()) ? r.merchant.trim() : '';
+    var hasAmount = r.amount !== undefined && r.amount !== null && r.amount !== '';
+    var amount = hasAmount ? String(r.amount) + (r.currency ? ' ' + r.currency : '') : '';
+    if (name && amount) return name + ' — ' + amount;
+    if (name) return name;
+    if (amount) return 'Receipt — ' + amount;
+    return 'Receipt';
+  }
+
+  var MAX_LISTED_ITEMS = 5;
+
+  // unreviewedSummary(rows) -> { count, items, more }. items is display-ready labels,
+  // capped at MAX_LISTED_ITEMS so the popup stays short; `more` is the overflow count.
+  // Pure; tolerant of non-arrays/garbage, never throws.
+  function unreviewedSummary(rows) {
+    var list = Array.isArray(rows) ? rows : [];
+    var unreviewed = [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].status === 'needs_review') unreviewed.push(list[i]);
+    }
+    var shown = unreviewed.slice(0, MAX_LISTED_ITEMS).map(unreviewedItemLabel);
+    return { count: unreviewed.length, items: shown, more: Math.max(0, unreviewed.length - shown.length) };
   }
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -86,6 +115,24 @@
     setText(title, opts.message || CONFIRM_REVIEW_MESSAGE);
     card.appendChild(title);
 
+    // Owner follow-up (2026-07-10): actual info about WHICH receipts, not just the count —
+    // a short list under the message. opts.items are pre-formatted display strings
+    // (unreviewedSummary), so this stays format-agnostic. No-op when absent/empty.
+    if (Array.isArray(opts.items) && opts.items.length) {
+      var list = el('ul', opts.itemsClass || 'rp-confirm-items');
+      opts.items.forEach(function (label) {
+        var li = el('li');
+        setText(li, label);
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+      if (opts.more) {
+        var more = el('p', opts.moreClass || 'rp-confirm-more muted');
+        setText(more, '+' + opts.more + ' more');
+        card.appendChild(more);
+      }
+    }
+
     var actions = el('div', opts.actionsClass || 'rp-confirm-choices');
     var confirm = el('button', opts.confirmClass || 'rp-confirm-choice');
     confirm.type = 'button';
@@ -100,14 +147,18 @@
     document.body.appendChild(backdrop);
 
     function onKeydown(ev) { if (ev.key === 'Escape') close(false); }
-    function close(run) {
+    // run: fires onConfirm (Download anyway / Confirm and export). cancelled: the user
+    // explicitly clicked the cancel/"Review" button (not Escape/backdrop) -> also fire
+    // opts.onCancel if the caller supplied one (e.g. navigate to Activity).
+    function close(run, cancelled) {
       if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
       document.removeEventListener('keydown', onKeydown);
       if (run && typeof onConfirm === 'function') onConfirm();
+      if (cancelled && typeof opts.onCancel === 'function') opts.onCancel();
     }
-    confirm.addEventListener('click', function () { close(true); });
-    cancel.addEventListener('click', function () { close(false); });
-    backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) close(false); });
+    confirm.addEventListener('click', function () { close(true, false); });
+    cancel.addEventListener('click', function () { close(false, true); });
+    backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) close(false, false); });
     document.addEventListener('keydown', onKeydown);
     return true;
   }
@@ -138,12 +189,15 @@
     if (!apiFetch) { genericConfirm(); return; }
 
     Promise.resolve(apiFetch(REVIEW_QUEUE_PATH)).then(function (rows) {
-      var n = countUnreviewed(rows);
-      if (n === 0) { onProceed(); return; }
+      var summary = unreviewedSummary(rows);
+      if (summary.count === 0) { onProceed(); return; }
       confirmFn(onProceed, {
-        message: reviewReminderMessage(n),
+        message: reviewReminderMessage(summary.count),
+        items: summary.items,
+        more: summary.more,
         confirmLabel: 'Download anyway',
-        cancelLabel: 'Go review',
+        cancelLabel: 'Review',
+        onCancel: typeof opts.onReview === 'function' ? opts.onReview : undefined,
       });
     }).catch(function () { genericConfirm(); });
   }
@@ -156,6 +210,8 @@
     exportGate: exportGate,
     countUnreviewed: countUnreviewed,
     reviewReminderMessage: reviewReminderMessage,
+    unreviewedItemLabel: unreviewedItemLabel,
+    unreviewedSummary: unreviewedSummary,
     requestReviewedConfirmation: requestReviewedConfirmation,
     runExportGuard: runExportGuard,
   };
