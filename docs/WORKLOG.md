@@ -1,4 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
+
+## 2026-07-10 · Codex (for Jeevan) · qa/upload-staff-assign-153 — dashboard bulk-upload staff assignment + duplicate presentation
+
+- **Files:** `routes/expenses.js`, `routes/upload.js`, `public/js/components/upload.js`, `public/css/app.css`, `tests/expenses.staffassign.test.js` (new), `tests/frontend/upload.staffassign.test.js` (new), `tests/upload.route.test.js`.
+- **What changed:** Implemented the Jeevan-lane/core of issue #153 on a branch off current `main`: dashboard-upload saved rows now return `branch_id`/`staff_user_id`, render as a saved-results grid with per-row staff dropdowns, and support a multi-select **assign selected → staff** flow using one bulk `PATCH /api/expenses` endpoint. The endpoint is business-mode only, validates request bodies, allows clearing with `staff_user_id:null`, and enforces the M2 isolation contract: clerks can assign only own-branch rows to own-branch staff; admins can work across branches but cannot assign a row to staff from another branch. Duplicate flagged upload rows are now enriched from the saved row's anomaly metadata with the new review-row id + parsed existing duplicate id, so the upload result can show "Possible duplicate of existing expense …" with View/Discard actions (Discard routes through the existing review reject endpoint).
+- **Coordination flags:** Did **not** add the image content-hash/dedup schema column; that remains Barat's lane and shared with the bot side (#152). The new bulk staff endpoint is in `routes/expenses.js`, so it may need a trivial merge-order rebase against Claude-J's endpoint PRs (#160/#161/#165). Failed-file thumbnail/re-add remains Mugi-lane per issue #153.
+- **Tests:** TDD added route + frontend helper coverage. Focused upload/staff pack **51/51**. Full suite **1657/1657** with `.env` moved aside/restored.
+- **What's next:** push branch and open PR against `main`; stop for Claude-J review/merge. Do not merge.
+- **Assumptions:** The current duplicate engine exposes the existing row id only inside the anomaly detail string (`matches existing expense <id>`); this PR parses and presents that safely, but the stronger exact-image duplicate identity still depends on Barat's shared content-hash work.
+
+---
 > Append-only ledger of every push. **A push that isn't logged here did not happen** (SOP §4.3, §7).
 > Format: date · who (Claude/human) · branch · files touched · what changed · what's next · new assumptions.
 
