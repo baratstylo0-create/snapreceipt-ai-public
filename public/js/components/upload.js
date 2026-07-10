@@ -107,6 +107,57 @@
     }
   }
 
+  function branchIdsForSavedItems(items) {
+    var set = {};
+    (Array.isArray(items) ? items : []).forEach(function (it) {
+      if (it && it.branch_id) set[String(it.branch_id)] = true;
+    });
+    return Object.keys(set).sort();
+  }
+
+  function selectedBranchId(items, selected) {
+    var branches = {};
+    var count = 0;
+    (Array.isArray(items) ? items : []).forEach(function (it) {
+      if (it && it.id && selected && selected[it.id]) {
+        count += 1;
+        branches[String(it.branch_id || '')] = true;
+      }
+    });
+    if (!count) return '';
+    var ids = Object.keys(branches);
+    return ids.length === 1 ? ids[0] : null;
+  }
+
+  function normalizeStaff(resp) {
+    var rows = resp && Array.isArray(resp.staff) ? resp.staff : [];
+    return rows.filter(function (r) { return r && r.id; }).map(function (r) {
+      return { id: String(r.id), display_name: str(r.display_name || r.name || r.id) };
+    });
+  }
+
+  function applyStaffAssignResult(items, ids, staffId, resp) {
+    var ok = {};
+    var results = resp && Array.isArray(resp.results) ? resp.results : null;
+    if (results) {
+      results.forEach(function (r) { if (r && r.ok && r.id) ok[String(r.id)] = true; });
+    } else {
+      (Array.isArray(ids) ? ids : []).forEach(function (id) { ok[String(id)] = true; });
+    }
+    (Array.isArray(items) ? items : []).forEach(function (it) {
+      if (it && ok[String(it.id)]) it.staff_user_id = staffId == null ? null : String(staffId);
+    });
+  }
+
+  function flaggedDisplay(f) {
+    var m = (f && f.merchant) ? str(f.merchant) : 'Receipt';
+    if (f && f.existing_expense_id) {
+      return { text: m + ' — Possible duplicate of existing expense ' + str(f.existing_expense_id), duplicate: true };
+    }
+    var reason = (f && f.reason) ? str(f.reason) : 'flagged';
+    return { text: m + ' — ' + reason, duplicate: false };
+  }
+
   // ---- DOM / browser helpers (browser only) -------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -212,6 +263,11 @@
     // State: current File objects (not yet encoded) + a busy flag.
     var files = [];
     var busy = false;
+    var staffByBranch = {};
+    var loadingStaff = {};
+    var savedSelected = {};
+    var savedItemsState = [];
+    var staffMsg = null;
 
     function renderList() {
       clear(listArea);
@@ -328,6 +384,8 @@
       }).then(function (resp) {
         setBusy(false);
         Escape.setText(statusEl, 'Done.');
+        savedSelected = {};
+        staffMsg = null;
         renderSummary(summarize(resp));
       }).catch(function (err) {
         setBusy(false);
@@ -339,6 +397,7 @@
 
     function renderSummary(vm) {
       clear(summaryArea);
+      savedItemsState = vm.savedItems || [];
 
       var counts = el('div', 'up-counts');
       counts.appendChild(countChip('saved', 'Saved', vm.saved));
@@ -360,17 +419,11 @@
       // with nothing else read as "maybe it didn't upload" / "did it read this right?".
       if (vm.savedItems.length) {
         summaryArea.appendChild(textHead('up-list-title', 'Saved'));
-        var sv = el('ul', 'up-result-list');
-        vm.savedItems.forEach(function (it) {
-          var li = el('li', 'up-result up-result--saved');
-          var line = str(it && it.merchant) || 'Receipt';
-          if (it && it.amount != null) line += ' — ' + Format.formatMoney(it.amount) + ' ' + str(it.currency);
-          if (it && it.category) line += ' · ' + str(it.category);
-          if (it && it.voucher_no) line += ' · ' + str(it.voucher_no);
-          Escape.setText(li, line);   // merchant/category are untrusted OCR/AI text -> escaped
-          sv.appendChild(li);
-        });
-        summaryArea.appendChild(sv);
+        if (staffMsg) summaryArea.appendChild(msg('up-staff-msg', staffMsg));
+        var staffHost = el('div', 'up-staff-host');
+        summaryArea.appendChild(staffHost);
+        renderStaffGrid(staffHost);
+        loadStaffForSavedItems(staffHost);
         if (switchView) {
           var viewBtn = el('button', 'up-view-activity');
           viewBtn.type = 'button';
@@ -385,9 +438,37 @@
         var fl = el('ul', 'up-result-list');
         vm.flagged.forEach(function (f) {
           var li = el('li', 'up-result up-result--flagged');
-          var m = (f && f.merchant) ? str(f.merchant) : 'Receipt';
-          var reason = (f && f.reason) ? str(f.reason) : 'flagged';
-          Escape.setText(li, m + ' — ' + reason);   // both untrusted -> escaped
+          var display = flaggedDisplay(f);
+          Escape.setText(li, display.text);   // merchant/reason/id are untrusted -> escaped
+          if (display.duplicate && (switchView || (apiFetch && f.expense_id))) {
+            var actions = el('span', 'up-flag-actions');
+            if (switchView) {
+              var viewDup = el('button', 'up-flag-action');
+              viewDup.type = 'button';
+              Escape.setText(viewDup, 'View');
+              viewDup.addEventListener('click', function () { switchView('activity'); });
+              actions.appendChild(viewDup);
+            }
+            if (apiFetch && f.expense_id) {
+              var discard = el('button', 'up-flag-action up-flag-action--discard');
+              discard.type = 'button';
+              Escape.setText(discard, 'Discard');
+              discard.addEventListener('click', function () {
+                discard.disabled = true;
+                apiFetch('/api/review/' + encodeURIComponent(f.expense_id), {
+                  method: 'POST',
+                  body: { decision: 'reject', note: 'discarded from upload duplicate prompt' },
+                }).then(function () {
+                  Escape.setText(discard, 'Discarded');
+                }).catch(function () {
+                  discard.disabled = false;
+                  Escape.setText(discard, 'Try again');
+                });
+              });
+              actions.appendChild(discard);
+            }
+            li.appendChild(actions);
+          }
           fl.appendChild(li);
         });
         summaryArea.appendChild(fl);
@@ -422,6 +503,134 @@
 
     function textHead(className, text) { var h = el('h4', className); Escape.setText(h, text); return h; }
 
+    function loadStaffForSavedItems(host) {
+      if (!apiFetch) return;
+      branchIdsForSavedItems(savedItemsState).forEach(function (branchId) {
+        if (!branchId || staffByBranch[branchId] || loadingStaff[branchId]) return;
+        loadingStaff[branchId] = true;
+        apiFetch('/api/branches/' + encodeURIComponent(branchId) + '/staff').then(function (resp) {
+          staffByBranch[branchId] = normalizeStaff(resp);
+        }).catch(function () {
+          staffByBranch[branchId] = [];
+        }).then(function () {
+          loadingStaff[branchId] = false;
+          renderStaffGrid(host);
+        });
+      });
+    }
+
+    function staffName(branchId, staffId) {
+      var rows = staffByBranch[String(branchId || '')] || [];
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].id) === String(staffId)) return rows[i].display_name;
+      }
+      return staffId ? String(staffId) : 'Unassigned';
+    }
+
+    function fillStaffSelect(sel, branchId, currentId) {
+      var empty = document.createElement('option');
+      empty.value = '';
+      Escape.setText(empty, 'Unassigned');
+      sel.appendChild(empty);
+      (staffByBranch[String(branchId || '')] || []).forEach(function (s) {
+        var opt = document.createElement('option');
+        opt.value = s.id;
+        Escape.setText(opt, s.display_name);
+        sel.appendChild(opt);
+      });
+      sel.value = currentId || '';
+    }
+
+    function savedLine(it) {
+      var line = str(it && it.merchant) || 'Receipt';
+      if (it && it.amount != null) line += ' — ' + (Format ? Format.formatMoney(it.amount) : str(it.amount)) + ' ' + str(it.currency);
+      if (it && it.category) line += ' · ' + str(it.category);
+      if (it && it.voucher_no) line += ' · ' + str(it.voucher_no);
+      return line;
+    }
+
+    function renderStaffGrid(host) {
+      clear(host);
+      if (!savedItemsState.length) return;
+      var selectedIds = Object.keys(savedSelected).filter(function (id) { return savedSelected[id]; });
+      var branchId = selectedBranchId(savedItemsState, savedSelected);
+
+      var bulk = el('div', 'up-staff-bulk');
+      bulk.appendChild(textSpan('up-staff-bulk-label', selectedIds.length + ' selected'));
+      var bulkSelect = el('select', 'up-staff-bulk-select');
+      fillStaffSelect(bulkSelect, branchId || '', '');
+      bulkSelect.disabled = !selectedIds.length || branchId === null || !branchId;
+      if (branchId === null) {
+        clear(bulkSelect);
+        var mixed = document.createElement('option');
+        mixed.value = '';
+        Escape.setText(mixed, 'Pick rows from one branch');
+        bulkSelect.appendChild(mixed);
+      }
+      bulkSelect.addEventListener('change', function () {
+        if (!selectedIds.length || bulkSelect.disabled) return;
+        assignStaff(selectedIds, bulkSelect.value || null, host);
+      });
+      bulk.appendChild(bulkSelect);
+      host.appendChild(bulk);
+
+      var table = el('table', 'up-staff-table');
+      var thead = document.createElement('thead');
+      var hr = document.createElement('tr');
+      ['Select', 'Receipt', 'Staff'].forEach(function (label) {
+        var th = document.createElement('th'); Escape.setText(th, label); hr.appendChild(th);
+      });
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      var tbody = document.createElement('tbody');
+      savedItemsState.forEach(function (it) {
+        var tr = document.createElement('tr');
+        var tdSel = document.createElement('td');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!savedSelected[it.id];
+        cb.addEventListener('change', function () {
+          savedSelected[it.id] = cb.checked;
+          renderStaffGrid(host);
+        });
+        tdSel.appendChild(cb);
+        tr.appendChild(tdSel);
+
+        var tdReceipt = document.createElement('td');
+        Escape.setText(tdReceipt, savedLine(it));
+        tr.appendChild(tdReceipt);
+
+        var tdStaff = document.createElement('td');
+        var sel = el('select', 'up-staff-select');
+        fillStaffSelect(sel, it.branch_id || '', it.staff_user_id || '');
+        sel.disabled = !it.branch_id || loadingStaff[String(it.branch_id || '')];
+        sel.addEventListener('change', function () {
+          assignStaff([it.id], sel.value || null, host);
+        });
+        tdStaff.appendChild(sel);
+        tdStaff.appendChild(textSpan('up-staff-current muted', staffName(it.branch_id, it.staff_user_id)));
+        tr.appendChild(tdStaff);
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      host.appendChild(table);
+    }
+
+    function assignStaff(ids, staffId, host) {
+      if (!apiFetch || !ids.length) return;
+      staffMsg = 'Assigning staff…';
+      renderStaffGrid(host);
+      apiFetch('/api/expenses', { method: 'PATCH', body: { ids: ids, staff_user_id: staffId == null ? null : String(staffId) } }).then(function (resp) {
+        applyStaffAssignResult(savedItemsState, ids, staffId, resp);
+        savedSelected = {};
+        staffMsg = 'Updated ' + (resp && resp.updated != null ? resp.updated : ids.length) + ' receipt(s).';
+        renderStaffGrid(host);
+      }).catch(function () {
+        staffMsg = 'Could not assign staff. Please try again.';
+        renderStaffGrid(host);
+      });
+    }
+
     // initial state
     renderList();
 
@@ -436,6 +645,11 @@
     summarize: summarize,
     errorMessage: errorMessage,
     selectionHints: selectionHints,
+    branchIdsForSavedItems: branchIdsForSavedItems,
+    selectedBranchId: selectedBranchId,
+    normalizeStaff: normalizeStaff,
+    applyStaffAssignResult: applyStaffAssignResult,
+    flaggedDisplay: flaggedDisplay,
     MASS_MAX_IMAGES: MASS_MAX_IMAGES,
     // render (browser)
     mount: mount,

@@ -2,6 +2,8 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 > _Last refreshed 2026-07-08 (Claude, for Barat) — reconciled against `git log` / `gh pr list` / WORKLOG, not the previous stale copy. When in doubt, trust `gh pr list`/WORKLOG over this file._
 
+> 2026-07-10 Codex update: Track 1 review of PRs #160/#161/#165/#167/#169 plus doc #163 is complete (fix commits pushed where needed; no merges). Issue #153 dashboard bulk-upload parity is implemented on `qa/upload-staff-assign-153`: staff assignment grid + branch-scoped bulk `PATCH /api/expenses`, upload saved-row branch/staff payload, duplicate flagged-row View/Discard presentation. Full suite 1657/1657; PR pending Claude-J review/merge.
+
 ## Current phase
 **M1 personal = feature-complete, live-E2E-verified, and stable on `main` (unchanged by M2).**
 **M2 business/multi-tenant layer = BUILT through Phases 1–10 and merged to `main`** (PRs #105–#138), with the **first real client instance ("Premala", `xurnpvesgcybrnilxszf`) provisioned end-to-end** (M2 schema applied + first admin + capability profile — PRs #130/#135). The product is now in **pre-live hardening** for that first business client, not in M1 build.
@@ -19,7 +21,7 @@ Vertical AI Solution. **M1** = personal (done). **M2** = business/multi-branch/m
 ## Who's on what
 | Person | Claude | Current task | State |
 |---|---|---|---|
-| Barat | this Claude | M2 scope-bouncer + business Telegram bot. Merged: #119 (supabase scope hook), #121 (business bot binding/staff/branch flows), #123 (FieldSpec categories + OCR-provider/ZDR knob), #134 (company_id in scope + write-path, closed #133). **In review: #139** (Today's Bills staff+delete). Remaining #107 slice = **Groq ZDR** (ops). | active |
+| Barat | this Claude | M2 scope-bouncer + business Telegram bot. Merged: #119 (supabase scope hook), #121 (business bot binding/staff/branch flows), #123 (FieldSpec categories + OCR-provider/ZDR knob), #134 (company_id in scope + write-path, closed #133). **In review: #139** (Today's Bills staff+delete). Remaining #107 slice = **Groq ZDR** (ops). **2026-07-10: assigned issue #162** — QA round PR-D/PR-K, Telegram bot fixes D10 (reject blurry photos via `lib/confidence.js`), D11 (always ask staff name), D12 (chat/menu button on PC/web), D13 (duplicate-receipt handling) — `lib/bot.js`/`lib/ocr.js`/`routes/webhook.js` is his lane, not built by Claude-J. **Also assigned issue #164** — QA round PR-C/PR-J, C2 multi-branch clerk filter, starting with the data-model check (does `scopeForUser` support one clerk → 2+ branches today?) — his scope-bouncer/isolation domain. | active |
 | Jeevan | J | Route-level isolation wiring #131/#132 (merged) + ops: Premala provisioning (#130/#135), deploy artifacts (#137), observability Phase 1 — structured logs + `/ready` (#138). Owns `lib/massupload.js` (#31), the render-side of #17, and merges. | active |
 | Mugi | M | Production frontend — design/concept → Jeevan's team adapts the reference frontend in `public/`, following the frozen `/api/*` contract. | ongoing |
 
@@ -57,3 +59,4 @@ Vertical AI Solution. **M1** = personal (done). **M2** = business/multi-branch/m
 
 ## Not doing yet
 Billing/subscriptions, multi-instance fleet management, AI eval gate (P8), Sentry/APM (observability Phase 2, deferred behind an ADR). M2 itself is no longer "deferred" — it is built and in pre-live for the first client.
+**2026-07-09 QA round:** PR-A (`qa/pr-a-export`) is merged. Codex is handling round 2 PR-E on `qa/pr-e-payments-fix` (Payments staff labels, all-branches statement guidance, statement-PDF image regression), then must stop after opening the PR for Claude-J review/merge. PR-F (`qa/pr-f-ia`) starts only after that review/merge.

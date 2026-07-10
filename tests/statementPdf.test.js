@@ -49,6 +49,16 @@ test('an image receipt appends exactly one page', async () => {
   assert.strictEqual(skippedReceipts, 0);
 });
 
+test('E3 regression: statement PDF embeds receipt images as evidence pages', async () => {
+  const base = (await statementToPdf(model, {})).pages;
+  const { buffer, pages, skippedReceipts } = await statementToPdf(model, {
+    receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } },
+  });
+  assert.strictEqual(buffer.subarray(0, 5).toString('latin1'), '%PDF-');
+  assert.strictEqual(pages, base + 2);
+  assert.strictEqual(skippedReceipts, 0);
+});
+
 test('a multi-page PDF receipt expands to one page per source page', async () => {
   const base = (await statementToPdf(model, {})).pages;
   const threePage = await makePdf(3);

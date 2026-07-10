@@ -455,3 +455,13 @@ alter table expenses add column if not exists claim_override text
 alter table petty_cash_floats enable row level security;
 alter table cash_in           enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- issue #152: Telegram's file_id is per-bot/per-send and NOT stable across resends of the
+-- same photo — file_unique_id IS stable, so it's the correct key for "did the clerk
+-- literally send this exact photo before?" (distinct from receipt_file_id, which stays a
+-- file_id, used to re-fetch/re-display the image). Null for every existing row and for the
+-- dashboard upload path (no Telegram file at all) — exact-resend detection there uses a
+-- separate content-hash key, #153's lane.
+alter table expenses add column if not exists receipt_file_unique_id text;
+create index if not exists expenses_account_fileuniq_idx on expenses (account_id, receipt_file_unique_id)
+  where receipt_file_unique_id is not null;

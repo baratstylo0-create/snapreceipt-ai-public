@@ -5,7 +5,18 @@
 // and the clerk's send-button state. Node-testable, no DOM.
 const test = require('node:test');
 const assert = require('node:assert');
-const { filterRows, selectionSummary, submissionStatusLine, clerkSendState, statementReady, statementUrl } = require('../../public/js/components/payments');
+const {
+  filterRows,
+  selectionSummary,
+  submissionStatusLine,
+  clerkSendState,
+  statementReady,
+  statementUrl,
+  statementExportRows,
+  optionModels,
+  staffNameMapFromResponses,
+  statementBranchRequiredMessage,
+} = require('../../public/js/components/payments');
 
 const ROWS = [
   { id: 'a', amount: 10, payment_status: 'pending', expense_date: '2026-07-01', branch_id: 'bA', staff_user_id: 's1' },
@@ -100,9 +111,32 @@ test('clerkSendState: month picked, never sent -> Send; already submitted -> Re-
 test('statementReady: clerk only needs a month; admin also needs a real branch', () => {
   assert.deepStrictEqual(statementReady({ month: '' }, false), { ok: false, reason: 'Pick a month first.' });
   assert.deepStrictEqual(statementReady({ month: '2026-07' }, false), { ok: true });
-  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: '' }, true), { ok: false, reason: 'Pick a branch first.' });
-  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'unassigned' }, true), { ok: false, reason: 'Pick a branch first.' });
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: '' }, true), { ok: false, reason: statementBranchRequiredMessage });
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'unassigned' }, true), { ok: false, reason: statementBranchRequiredMessage });
   assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'bA' }, true), { ok: true });
+});
+
+test('optionModels: staff dropdown labels ids with staffNames but keeps id values', () => {
+  assert.deepStrictEqual(
+    optionModels('All staff', ['s1', 's2', 'unassigned'], { s1: 'Aisha Rahman', s2: 'Ben Tan' }),
+    [
+      { value: '', label: 'All staff' },
+      { value: 's1', label: 'Aisha Rahman' },
+      { value: 's2', label: 'Ben Tan' },
+      { value: 'unassigned', label: 'Unassigned' },
+    ]
+  );
+});
+
+test('staffNameMapFromResponses: flattens branch staff responses into id -> display_name', () => {
+  assert.deepStrictEqual(
+    staffNameMapFromResponses([
+      { staff: [{ id: 's1', display_name: 'Aisha Rahman' }] },
+      { staff: [{ id: 's2', display_name: 'Ben Tan' }, { id: 's3', name: 'Legacy Name' }] },
+      null,
+    ]),
+    { s1: 'Aisha Rahman', s2: 'Ben Tan', s3: 'Legacy Name' }
+  );
 });
 
 test('statementUrl: builds period+format for a clerk, adds branch for an admin', () => {
@@ -113,5 +147,23 @@ test('statementUrl: builds period+format for a clerk, adds branch for an admin',
   assert.strictEqual(
     statementUrl({ month: '2026-07', branch: 'bA' }, true, 'xlsx'),
     '/api/statement?period=2026-07&format=xlsx&branch=bA'
+  );
+});
+
+test('statementExportRows: admin export data check follows statement month+branch, not the current paid/pending tab', () => {
+  assert.deepStrictEqual(
+    statementExportRows(ROWS, { month: '2026-07', branch: 'bA' }, true).map((r) => r.id),
+    ['a', 'c']
+  );
+  assert.deepStrictEqual(
+    statementExportRows(ROWS, { month: '2026-07', branch: 'bB' }, true),
+    []
+  );
+});
+
+test('statementExportRows: clerk export data check relies on already-scoped rows and only requires month', () => {
+  assert.deepStrictEqual(
+    statementExportRows(ROWS, { month: '2026-07' }, false).map((r) => r.id),
+    ['a', 'c', 'd']
   );
 });

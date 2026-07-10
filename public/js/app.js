@@ -201,7 +201,6 @@
     activity: "Every receipt you've captured — search, filter, edit, or review any of them.",
     upload: 'Add a receipt manually from this browser, instead of sending it to the Telegram bot.',
     manage: "Set up how the app reads your receipts and, in business mode, edit your data directly. Use the Section dropdown to switch between the field/category template and the spreadsheet-style Data editor (click any cell to edit it in place).",
-    reports: 'Deeper breakdowns of your spending by day, week, month, or year.',
     settings: 'Adjust preferences like theme, categories, and account options.',
     // Business-only (ADR-021 Phase 6/8): only ever shown when Nav.sectionsFor(business) is used.
     team: 'Manage your branches and each branch’s staff directory. Admins can also add branches and companies.',
@@ -278,7 +277,6 @@
       // Manage is a shell hosting sub-pages (template/category editor + the excel-lite Data
       // editor) — it mounts Templates and Grid itself, reading deps.Templates/deps.Grid.
       manage: (deps && deps.Manage) || dep('Manage'),
-      reports: (deps && deps.Reports) || dep('Reports'),
       settings: (deps && deps.Settings) || dep('Settings'),
       // Business-only sections (ADR-021 Phase 6/8). Registered unconditionally — they
       // simply never appear in `sections` (buildViews) unless Nav.sectionsFor({business:true}) ran.

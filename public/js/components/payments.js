@@ -10,9 +10,9 @@
 // Same conventions as every other view: pure DOM (createElement/textContent — never innerHTML
 // with a dynamic value), UMD shim, the pure logic (filterRows/selectionSummary) node-testable.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.Payments = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../exportGuards'));
+  else root.Payments = factory(root.ExportGuards);
+})(typeof self !== 'undefined' ? self : this, function (ExportGuards) {
   'use strict';
 
   // ---- pure logic (node-tested) ----------------------------------------------
@@ -78,13 +78,15 @@
 
   // --- Statement export pure logic (ADR-023/024 Phase 10 UI) -----------------
 
+  var statementBranchRequiredMessage = 'Statements are per-branch - pick a branch, or use Manage -> Export for all branches.';
+
   // statementReady({ month, branch }, isAdmin) -> { ok, reason? }. A clerk only needs a
   // month (the server hard-forces their own branch); an admin also needs a real branch
   // picked — 'All branches'/'unassigned' isn't a valid single-branch statement.
   function statementReady(opts, isAdmin) {
     opts = opts || {};
     if (!opts.month) return { ok: false, reason: 'Pick a month first.' };
-    if (isAdmin && (!opts.branch || opts.branch === 'unassigned')) return { ok: false, reason: 'Pick a branch first.' };
+    if (isAdmin && (!opts.branch || opts.branch === 'unassigned')) return { ok: false, reason: statementBranchRequiredMessage };
     return { ok: true };
   }
 
@@ -94,6 +96,77 @@
     var params = ['period=' + encodeURIComponent(opts.month), 'format=' + encodeURIComponent(format)];
     if (isAdmin) params.push('branch=' + encodeURIComponent(opts.branch));
     return '/api/statement?' + params.join('&');
+  }
+
+  // Rows the statement export would actually cover from the client-side cache. Admin exports
+  // a selected branch/month; clerk rows are already branch-scoped by /api/expenses, so month is
+  // enough. This deliberately ignores the Pending/Paid tab: a petty-cash statement is a branch
+  // x month evidence pack, not just the currently visible payment-status slice.
+  function statementExportRows(rows, opts, isAdmin) {
+    opts = opts || {};
+    var month = String(opts.month || '');
+    if (!month) return [];
+    var branch = opts.branch == null ? '' : String(opts.branch);
+    var out = [];
+    var list = Array.isArray(rows) ? rows : [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r) continue;
+      if (r.deleted_at) continue;
+      if (String(r.status || '') === 'rejected') continue;
+      if (String(r.expense_date || '').slice(0, 7) !== month) continue;
+      if (isAdmin) {
+        var b = r.branch_id == null || r.branch_id === '' ? 'unassigned' : String(r.branch_id);
+        if (b !== branch) continue;
+      }
+      out.push(r);
+    }
+    return out;
+  }
+
+  // optionModels(label, values, names) -> deterministic select options. The option value
+  // remains the stable id used by filters/API calls; names only affect the visible label.
+  function optionModels(label, values, names) {
+    var out = [{ value: '', label: label }];
+    var list = Array.isArray(values) ? values : [];
+    for (var i = 0; i < list.length; i++) {
+      var value = String(list[i]);
+      out.push({ value: value, label: value === 'unassigned' ? 'Unassigned' : (names && names[value]) || value });
+    }
+    return out;
+  }
+
+  // staffNameMapFromResponses([{ staff: [...] }]) -> { staff_user_id: display_name }.
+  // Mirrors Team's /api/branches/:id/staff source without coupling this view to team.js.
+  function staffNameMapFromResponses(responses) {
+    var names = {};
+    var list = Array.isArray(responses) ? responses : [];
+    for (var i = 0; i < list.length; i++) {
+      var staff = (list[i] && list[i].staff) || [];
+      for (var j = 0; j < staff.length; j++) {
+        var s = staff[j];
+        if (!s || s.id == null) continue;
+        var id = String(s.id);
+        names[id] = s.display_name || s.name || s.email || id;
+      }
+    }
+    return names;
+  }
+
+  function staffLookupBranchIds(rows, session) {
+    var seen = {};
+    var out = [];
+    function add(id) {
+      if (id == null || id === '' || id === 'unassigned') return;
+      id = String(id);
+      if (seen[id]) return;
+      seen[id] = true;
+      out.push(id);
+    }
+    var list = Array.isArray(rows) ? rows : [];
+    for (var i = 0; i < list.length; i++) if (list[i]) add(list[i].branch_id);
+    if (session) add(session.branch_id);
+    return out;
   }
 
   // selectionSummary(rows, selectedIds) -> { count, total } for the sticky bar. Non-finite
@@ -120,8 +193,11 @@
     if (typeof document === 'undefined' || !section) return null;
     var Api = deps.Api, Escape = deps.Escape, Format = deps.Format || (typeof root !== 'undefined' && root.Format) || null;
     var isAdmin = !!(deps.session && deps.session.role === 'admin');
+    // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
+    // Activity — same shared switcher Upload's "View in Activity" button already uses.
+    var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
 
-    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, loaded: false, mySubmission: null };
+    var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, staffNames: {}, loaded: false, mySubmission: null };
 
     var wrap = document.createElement('div');
     wrap.className = 'payments';
@@ -251,14 +327,10 @@
       // in the data; 'unassigned' groups untagged rows. Staff: distinct ids in the data.
       function fill(sel, label, values, names) {
         sel.textContent = '';
-        var all = document.createElement('option');
-        all.value = '';
-        all.textContent = label;
-        sel.appendChild(all);
-        values.forEach(function (v) {
+        optionModels(label, values, names).forEach(function (opt) {
           var o = document.createElement('option');
-          o.value = v;
-          o.textContent = v === 'unassigned' ? 'Unassigned' : (names && names[v]) || v;
+          o.value = opt.value;
+          o.textContent = opt.label;
           sel.appendChild(o);
         });
       }
@@ -269,7 +341,7 @@
         staff[r.staff_user_id == null || r.staff_user_id === '' ? 'unassigned' : String(r.staff_user_id)] = true;
       });
       fill(branchSel, 'All branches', Object.keys(branches).sort(), state.branchNames);
-      fill(staffSel, 'All staff', Object.keys(staff).sort(), null);
+      fill(staffSel, 'All staff', Object.keys(staff).sort(), state.staffNames);
       branchSel.value = state.branch;
       staffSel.value = state.staff;
     }
@@ -423,6 +495,18 @@
     function doStatementExport(format) {
       var ready = statementReady({ month: state.month, branch: state.branch }, isAdmin);
       if (!ready.ok) { Escape.setText(stmtMsg, ready.reason); return; }
+      // A3 (Owner 2026-07-10): remind only when receipts still await review; otherwise export
+      // straight through. runExportGuard keeps the empty-data guard + counts the scoped queue.
+      ExportGuards.runExportGuard({
+        data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin),
+        apiFetch: Api.apiFetch,
+        onEmpty: function (m) { Escape.setText(stmtMsg, m); },
+        onReview: switchView ? function () { switchView('activity'); } : undefined,
+        onProceed: function () { startStatementExport(format); },
+      });
+    }
+
+    function startStatementExport(format) {
       xlsxBtn.disabled = true;
       pdfBtn.disabled = true;
       Escape.setText(stmtMsg, 'Preparing ' + format.toUpperCase() + '…');
@@ -454,6 +538,19 @@
           }).catch(function () { /* names stay ids */ });
         });
       }
+      chain = chain.then(function () {
+        var branchIds = staffLookupBranchIds(state.rows, deps.session);
+        if (!branchIds.length) {
+          state.staffNames = {};
+          return null;
+        }
+        return Promise.all(branchIds.map(function (id) {
+          return Api.apiFetch('/api/branches/' + encodeURIComponent(id) + '/staff')
+            .catch(function () { return { staff: [] }; });
+        })).then(function (responses) {
+          state.staffNames = staffNameMapFromResponses(responses);
+        });
+      });
       return chain.then(function () { rebuildFilterOptions(); render(); refreshSubmissions(); })
         .catch(function () { Escape.setText(msg, 'Could not load expenses. Please try again shortly.'); });
     }
@@ -466,6 +563,8 @@
   return {
     mount: mount, filterRows: filterRows, selectionSummary: selectionSummary,
     submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
-    statementReady: statementReady, statementUrl: statementUrl,
+    statementReady: statementReady, statementUrl: statementUrl, statementExportRows: statementExportRows,
+    statementBranchRequiredMessage: statementBranchRequiredMessage,
+    optionModels: optionModels, staffNameMapFromResponses: staffNameMapFromResponses,
   };
 });

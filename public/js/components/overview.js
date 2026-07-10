@@ -30,6 +30,13 @@
 
   // ---- pure helpers: numbers / shapes -------------------------------------
 
+  function overviewSegments() {
+    return [
+      { id: 'summary', label: 'Summary' },
+      { id: 'trends', label: 'Trends' },
+    ];
+  }
+
   function str(v) { return v === null || v === undefined ? '' : String(v); }
 
   function toNum(v) {
@@ -771,9 +778,39 @@
     if (!hasDom() || !section) return null;
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
+    var Reports = opts.Reports || (typeof root !== 'undefined' && root.Reports) || null;
+
+    var shell = el('div', 'ov-shell');
+    section.appendChild(shell);
+
+    var segmentBar = el('div', 'ov-segments');
+    var segmentButtons = {};
+    overviewSegments().forEach(function (seg) {
+      var btn = el('button', 'ov-segment-btn');
+      btn.type = 'button';
+      btn.setAttribute('data-overview-segment', seg.id);
+      Escape.setText(btn, seg.label);
+      segmentBar.appendChild(btn);
+      segmentButtons[seg.id] = btn;
+    });
+    shell.appendChild(segmentBar);
+
+    var summaryPanel = el('div', 'ov-segment-panel');
+    summaryPanel.setAttribute('data-overview-panel', 'summary');
+    var trendsPanel = el('div', 'ov-segment-panel');
+    trendsPanel.setAttribute('data-overview-panel', 'trends');
+    shell.appendChild(summaryPanel);
+    shell.appendChild(trendsPanel);
 
     var container = el('div', 'ov-root');
-    section.appendChild(container);
+    summaryPanel.appendChild(container);
+
+    var reportInst = null;
+    if (Reports && typeof Reports.mount === 'function') {
+      reportInst = Reports.mount(trendsPanel, opts);
+    } else {
+      trendsPanel.appendChild(renderMessage('view-placeholder muted', 'Trends are unavailable in this build.'));
+    }
 
     // Custom category colours are stored server-side (account-scoped, so they
     // follow the user across browsers/devices — owner request 2026-07-05), with
@@ -782,7 +819,24 @@
     // that cache, then reconciled to the server truth once /api/settings loads.
     // It is mutated in place (never reassigned) so the donutOpts object closed
     // over below always sees the latest values.
-    var state = { loaded: false, loading: false, lastReports: null, lastAllTime: null, colorOverrides: loadColorOverrides() };
+    var state = { loaded: false, loading: false, lastReports: null, lastAllTime: null, colorOverrides: loadColorOverrides(), activeSegment: 'summary', trendsLoaded: false };
+
+    function showSegment(id) {
+      if (id !== 'trends') id = 'summary';
+      state.activeSegment = id;
+      summaryPanel.hidden = id !== 'summary';
+      trendsPanel.hidden = id !== 'trends';
+      Object.keys(segmentButtons).forEach(function (key) {
+        segmentButtons[key].classList.toggle('is-active', key === id);
+      });
+      if (id === 'trends' && !state.trendsLoaded) {
+        state.trendsLoaded = true;
+        if (reportInst && typeof reportInst.load === 'function') reportInst.load();
+      }
+    }
+    segmentButtons.summary.addEventListener('click', function () { showSegment('summary'); });
+    segmentButtons.trends.addEventListener('click', function () { showSegment('trends'); });
+    showSegment('summary');
 
     // Best-effort push of the whole colour map to the server. Fire-and-forget:
     // a failure (offline / no token) is non-fatal — the change is already saved
@@ -870,8 +924,11 @@
     }
 
     return {
-      el: container,
-      load: load,
+      el: shell,
+      load: function () {
+        if (state.activeSegment === 'trends') showSegment('trends');
+        else load();
+      },
       renderInto: function (r, allTime) { state.lastReports = r; state.lastAllTime = allTime; renderInto(container, r, allTime, donutOpts); },
     };
   }
@@ -882,6 +939,7 @@
     kpiModel: kpiModel,
     topCategory: topCategory,
     categoryCountBreakdown: categoryCountBreakdown,
+    overviewSegments: overviewSegments,
     yearlyBreakdown: yearlyBreakdown,
     formatDateRange: formatDateRange,
     monthlySeries: monthlySeries,
