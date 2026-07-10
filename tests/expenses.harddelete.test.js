@@ -21,7 +21,7 @@ function withEnv(vars, fn) {
   });
 }
 
-function stubDb({ session, rows = [] } = {}) {
+function stubDb({ session, rows = [], deleteRows = [{ id: 'e-any' }] } = {}) {
   const realFetch = global.fetch;
   const writes = [];
   global.fetch = async (url, opt = {}) => {
@@ -32,7 +32,7 @@ function stubDb({ session, rows = [] } = {}) {
     if (u.includes('/expenses')) {
       if (method === 'DELETE') {
         writes.push({ url: u, method });
-        return { text: async () => JSON.stringify([{ id: 'e-any' }]) };
+        return { text: async () => JSON.stringify(deleteRows) };
       }
       if (method === 'PATCH') {
         writes.push({ url: u, method, body: opt.body ? JSON.parse(opt.body) : undefined });
@@ -72,6 +72,7 @@ test('DELETE /api/expenses/:id/permanent: admin hard-deletes a rejected row -> 2
       assert.strictEqual(json.ok, true);
       assert.strictEqual(s.writes.length, 1);
       assert.strictEqual(s.writes[0].method, 'DELETE');
+      assert.match(s.writes[0].url, /status=eq\.rejected/);
     } finally { s.restore(); }
   });
 });
@@ -116,6 +117,21 @@ test('DELETE /api/expenses/:id/permanent: clerk on OWN branch\'s rejected row ->
       const { status } = await call('DELETE', '/api/expenses/e1/permanent', { token: 't' });
       assert.strictEqual(status, 200);
       assert.strictEqual(s.writes.length, 1);
+      assert.match(s.writes[0].url, /status=eq\.rejected/);
+    } finally { s.restore(); }
+  });
+});
+
+test('DELETE /api/expenses/:id/permanent: rejected status predicate is atomic with DELETE', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    // The SELECT sees a rejected row, but the DELETE returns zero rows (e.g. status changed
+    // between the read and the delete). The route must not report success.
+    const s = stubDb({ session: ADMIN, rows: [{ id: 'e1', status: 'rejected', branch_id: 'bA' }], deleteRows: [] });
+    try {
+      const { status } = await call('DELETE', '/api/expenses/e1/permanent', { token: 't' });
+      assert.strictEqual(status, 409);
+      assert.strictEqual(s.writes.length, 1);
+      assert.match(s.writes[0].url, /status=eq\.rejected/);
     } finally { s.restore(); }
   });
 });

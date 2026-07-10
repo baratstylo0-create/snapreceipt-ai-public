@@ -233,7 +233,8 @@ module.exports = function mountExpenses(app) {
       if (cur.status !== 'rejected') {
         return res.status(409).json({ error: 'only a rejected bill can be permanently deleted (status=' + cur.status + ')' });
       }
-      await sbHardDelete('expenses', { id: req.params.id, scope: req.scope });
+      const deleted = await sbHardDelete('expenses', { id: req.params.id, scope: req.scope, eq: { status: 'rejected' } });
+      if (!deleted.length) return res.status(409).json({ error: 'only a rejected bill can be permanently deleted' });
       res.json({ ok: true });
     } catch (e) { console.error('[permanent delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });
