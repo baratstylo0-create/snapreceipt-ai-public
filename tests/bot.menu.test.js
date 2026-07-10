@@ -191,3 +191,12 @@ test('handleUpdate: /start attaches the persistent menu keyboard', async () => {
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: '/start' } }, deps);
   assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
 });
+
+// Issue #162 D12 (live QA): the menu only showed on mobile, not Telegram Desktop/Web.
+// Without is_persistent:true, non-mobile clients collapse a ReplyKeyboardMarkup behind
+// an icon the user must tap; mobile shows it automatically. is_persistent:true closes
+// that gap by requesting every client keep it visible.
+test('MAIN_MENU_KEYBOARD: is_persistent is set so PC/web clients show it too, not just mobile', () => {
+  assert.strictEqual(MAIN_MENU_KEYBOARD.is_persistent, true);
+  assert.strictEqual(MAIN_MENU_KEYBOARD.resize_keyboard, true, 'unchanged existing behaviour');
+});

@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-07-09 · Claude (Opus, for Barat) · qa/pr-k-telegram — QA PR-D: Telegram bot fixes D10–D13 (#162)
+- **Files:** `lib/ocr.js` (D10 blurry-reject, D13 duplicate-reject + reply/keyboard), `lib/anomaly.js` (D13 `duplicateOf` additive), `lib/bot.js` (D11 always-ask-staff + prior-status restore, D12 `is_persistent`, D13 `dupview:`/`dupedit:`/`dupstaff:` callback branches). Tests: `tests/ingest.test.js` (+6), `tests/ocr.categorypicker.test.js` (+4), `tests/anomaly.test.js` (+2), `tests/bot.business.staffscope.test.js` (+3, 1 amended), `tests/bot.menu.test.js` (+1), `tests/bot.duplicate.test.js` (**new**, +9). All my lane.
+- **What — TDD, RED→GREEN, closes the four QA items in `docs/qa` PR-D / issue #162:**
+  - **D10 (reject blurry):** new `image_unclear` vision-prompt key (single-photo path); `assembleExpense` rejects BEFORE insert when set, reusing the existing `blurry` skip message ("photo not clear, please resend"). Fails open on a garbled signal. Catches the "7/4/2026 → garbled" misread that presence-based confidence structurally can't — root cause was a blurry image, not the date parser (`parseDateLoose` already reads DD/MM/YYYY correctly; #149's date-robustness already on main).
+  - **D11 (always ask staff):** `sendStaffPicker` marks `status:'awaiting_staff'` (remembering prior status); the `sp:` tap restores that prior status on resolve. **Owner-confirmed semantics:** save-then-ask-and-mark-pending (matches the awaiting_date/category/remark idiom), NOT hold-before-insert — nothing lost if the prompt goes unanswered (fixable on dashboard). Scoped to business mode with a populated staff directory (personal/no-directory unchanged).
+  - **D12 (menu on PC/web):** `MAIN_MENU_KEYBOARD` gains `is_persistent:true` so Telegram Desktop/Web keep the reply keyboard visible instead of collapsing it (mobile already auto-shows). Owner-confirmed: reply-keyboard fix only, no native `setMyCommands` menu.
+  - **D13 (duplicates):** `detectAnomalies` returns the matched row as `duplicateOf`; `assembleExpense` gains opt-in `rejectDuplicates` (Telegram single-photo path only — dashboard bulk path keeps flag-and-save, #153's lane) → returns `{duplicate,duplicateOf}` without inserting a 2nd row; reply carries 👀 View / ✏️ Edit → Edit staff (reopens the real staff picker) / 🗑️ Delete (reuses `delask:`). All ownership-checked. **Dedup key = existing findDuplicate heuristic (merchant+amount+date within 3d)** per #162's own suggestion.
+- **Tests: full suite 1669/1669** (hermetic — ran green with NO `.env` present; +25 net new).
+- **What's next:** Owner/reviewer merges (no self-merge). Then live Premala QA: blurry→resend ask, clear→staff prompt every time, same receipt twice→duplicate reject w/ View/Edit/Delete, menu visible on Desktop/Web.
+- **Assumptions:** Premala date locale is DD/MM/YYYY (matches MYT throughout). D13's heuristic dedup should later CONVERGE with #152/#153's exact-image `file_unique_id`/content-hash key into one shared column — flagged, deliberately NOT built here (out of #162's scope). ⚠️ **Local `.env` was lost this session** (my error deleting a `.env.bak.tmp` that was the only surviving copy) — must be repopulated from source secrets before local live-bot QA; the live VPS `.env` and the (hermetic) test suite are unaffected.
+
+---
+
 ## 2026-07-10 · Claude (for Jeevan) · ops (VPS deploy, not a push) — main @ 077fdaa deployed to Premala VPS
 
 - **What.** `main` at `077fdaa` (PR #159 F: Reports→Overview fold + Manage export trio, plus doc-only #163/#170) deployed to the Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 `receipt-analyser`). Built the tarball from an isolated `git worktree --detach` pinned to `origin/main` (not the shared working directory, which was mid-branch-switch on QA-round work) — same isolation pattern as the previous deploy.
