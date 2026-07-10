@@ -1,5 +1,17 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-11 · Claude (Sonnet, for Barat) · qa/pr-m-payments-staff-filter — Admin dashboard QA round, part 1: remove "All Staff" filter + branch-delete confirmation modal
+
+- **Files:** `public/js/components/payments.js` (removed `staffSel`, `state.staff`, `state.staffNames`, `staffNameMapFromResponses`, `staffLookupBranchIds`, and the per-branch staff-name fetch chain in `load()`), `public/js/components/team.js` (new `branchDeleteWarning()` pure function + `openDeleteModal()`, replacing the old inline two-step "Remove branch"/"Confirm remove" button), `public/css/app.css` (`.team-modal-overlay`/`.team-modal`/`.team-btn--danger`, dropped `.pay-filter-staff`). Tests: `tests/frontend/payments.test.js` (removed the staff-filter/`staffNameMapFromResponses` assertions, `filterRows` now tolerates a stray `staff` option as a no-op), `tests/frontend/team.test.js` (+2 for `branchDeleteWarning`).
+- **What — this is the CTO-lane admin-dashboard QA batch (`qa 2 (2).md`, 5 issues); Owner asked me to build it directly this round instead of only handing off a spec.**
+  1. **Issue 3 (Payments "All Staff" filter removed):** the dropdown was redundant per QA — admins already have the branch filter + "All branches". Deleted the select, its state, and the now-dead staff-name-lookup machinery that only existed to label it (confirmed nothing else in the codebase depended on `staffNameMapFromResponses`/`staffLookupBranchIds` before removing).
+  2. **Issue 2 (branch delete confirmation):** replaced the easy-to-miss inline two-tap button with a real modal overlay (pure-DOM, no native `confirm()`, matches the codebase's no-`innerHTML`-with-dynamic-values convention) warning that deletion revokes the clerk's login and unbinds the bot. The warning copy itself is a node-tested pure function (`branchDeleteWarning`) per this codebase's "DOM untested, pure logic tested" split (see `activity.test.js`'s own note on deliberately not using jsdom).
+- **Tests: full suite 1773/1773** (hermetic, no `.env` present).
+- **What's next:** Issue 5 (missing receipt photos — investigation) and Issues 1+4 (view credentials anytime + copy-all icon, the security-sensitive change requiring Owner sign-off on storing passwords in an encrypted-recoverable form) are separate branches, not yet started. PR to be opened against `main`; not self-merged.
+- **Assumptions:** none — both changes are subtractive/additive UI only, no schema or API contract changes.
+
+---
+
 ## 2026-07-10 · Codex (for Jeevan) · qa/upload-staff-assign-153 — dashboard bulk-upload staff assignment + duplicate presentation
 
 - **Files:** `routes/expenses.js`, `routes/upload.js`, `public/js/components/upload.js`, `public/css/app.css`, `tests/expenses.staffassign.test.js` (new), `tests/frontend/upload.staffassign.test.js` (new), `tests/upload.route.test.js`.
