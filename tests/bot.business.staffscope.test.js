@@ -239,7 +239,7 @@ test('Weekly Record: a bound business chat counts the week from SUNDAY; personal
 
 // --- the bound photo path: branch tag + staff picker --------------------------------------
 
-const photoMsg = (chatId) => ({ message: { chat: { id: chatId }, from: { first_name: 'A' }, photo: [{ file_id: 'small' }, { file_id: 'big' }] } });
+const photoMsg = (chatId) => ({ message: { chat: { id: chatId }, from: { first_name: 'A' }, photo: [{ file_id: 'small', file_unique_id: 'fu-small' }, { file_id: 'big', file_unique_id: 'fu-big' }] } });
 const CLERK_BINDING = { id: 'b1', chat_id: '40', branch_id: 'br-A', role: 'clerk', active: true };
 
 test('bound photo: the receipt is tagged with the binding\'s branch, then the staff picker follows', async () => {
@@ -253,7 +253,7 @@ test('bound photo: the receipt is tagged with the binding\'s branch, then the st
   });
   await handleUpdate(photoMsg(40), deps);
   assert.strictEqual(photoCalls[0].fileId, 'big'); // largest photo size, same as personal
-  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A' });
+  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', file_unique_id: 'fu-big' });
   assert.deepStrictEqual(pickerCalls, [{ chatId: 40, expense: savedExpense, branchId: 'br-A' }]);
 });
 
@@ -269,7 +269,7 @@ test('bound photo (multi-company): the receipt meta carries BOTH branch_id and c
     sendStaffPicker: async () => {},
   });
   await handleUpdate(photoMsg(44), deps);
-  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', company_id: 'co-1' });
+  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', company_id: 'co-1', file_unique_id: 'fu-big' });
 });
 
 test('bound photo: a failed/skipped read sends NO staff picker (nothing was saved to tag)', async () => {
@@ -292,7 +292,9 @@ test('personal photo: no branch meta, no staff picker — the old path byte-for-
     sendStaffPicker: async (...a) => { pickerCalls.push(a); },
   });
   await handleUpdate(photoMsg(42), deps);
-  assert.strictEqual(photoCalls[0].meta, undefined);
+  // Issue #152: file_unique_id is now always passed (personal or business) — exact-resend
+  // detection applies to both; branch/company/staff attribution stays absent for personal.
+  assert.deepStrictEqual(photoCalls[0].meta, { file_unique_id: 'fu-big' });
   assert.strictEqual(pickerCalls.length, 0);
 });
 
@@ -304,8 +306,8 @@ test('bound image-document (photo sent as file): same branch tag + picker as a p
     expenseFromPhoto: async (chatId, repName, fileId, meta) => { photoCalls.push({ fileId, meta }); return { ok: true, expense: { id: 'e-doc1' } }; },
     sendStaffPicker: async (...a) => { pickerCalls.push(a); },
   });
-  await handleUpdate({ message: { chat: { id: 43 }, from: { first_name: 'A' }, document: { file_id: 'doc9', mime_type: 'image/jpeg' } } }, deps);
-  assert.deepStrictEqual(photoCalls[0], { fileId: 'doc9', meta: { branch_id: 'br-A' } });
+  await handleUpdate({ message: { chat: { id: 43 }, from: { first_name: 'A' }, document: { file_id: 'doc9', file_unique_id: 'fu-doc9', mime_type: 'image/jpeg' } } }, deps);
+  assert.deepStrictEqual(photoCalls[0], { fileId: 'doc9', meta: { branch_id: 'br-A', file_unique_id: 'fu-doc9' } });
   assert.strictEqual(pickerCalls.length, 1);
 });
 

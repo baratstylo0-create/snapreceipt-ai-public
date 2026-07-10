@@ -14,6 +14,8 @@ function fakes(script) {
   const assembleExpense = async (arg) => {
     assembleCalls.push(arg);
     if (arg.fields && arg.fields.__fail) throw new Error('assemble boom');
+    if (arg.fields && arg.fields.__skip) return { skipped: true, skipReason: arg.fields.__skipReason };
+    if (arg.fields && arg.fields.__duplicate) return { expense: { merchant: arg.fields.merchant }, skipped: false, duplicate: true, duplicateOf: arg.fields.__duplicateOf };
     return { expense: { merchant: arg.fields ? arg.fields.merchant : undefined }, flagged: arg.fields ? arg.fields.__flag : false };
   };
   return { extractReceipts, assembleExpense, assembleCalls };
@@ -73,7 +75,7 @@ test('truncated image index recorded; flagged receipts aggregated', async () => 
 test('empty images -> zeroed summary, never throws', async () => {
   const f = fakes({});
   const s = await runBatch([], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
-  assert.deepEqual(s, { images: 0, receipts: 0, saved: 0, skipped: 0, failed: [], flagged: [], truncated_images: [] });
+  assert.deepEqual(s, { images: 0, receipts: 0, saved: 0, skipped: 0, skippedDetails: [], duplicates: 0, duplicateDetails: [], failed: [], flagged: [], truncated_images: [] });
 });
 
 // 2026-07-03: assembleExpense now returns skipped:true for a receipt it decided is not
@@ -103,6 +105,48 @@ test('back-compat: assembleExpense results with no `skipped` key are all counted
   const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
   assert.equal(s.saved, 2);
   assert.equal(s.skipped, 0);
+});
+
+// Issue #152 (per-photo failure feedback): a caller needs to map a skip back to its EXACT
+// source image (and receipt-within-image), not just know "N were skipped" in aggregate —
+// so lib/bot.js's flushGroup can resend THAT photo with a reason-specific ask instead of a
+// generic count. skippedDetails records { image_index, receipt_index, reason } in order.
+test('skippedDetails: records image_index/receipt_index/reason for each skip, in processing order', async () => {
+  const f = fakes({
+    img0: { receipts: [{ fields: { merchant: 'Shell' }, rawParsed: {} }, { fields: { __skip: true, __skipReason: 'blurry' }, rawParsed: {} }] },
+    img1: { receipts: [{ fields: { __skip: true, __skipReason: 'not_receipt' }, rawParsed: {} }] },
+  });
+  const s = await runBatch(['img0', 'img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.strictEqual(s.skipped, 2);
+  assert.deepStrictEqual(s.skippedDetails, [
+    { image_index: 0, receipt_index: 1, reason: 'blurry' },
+    { image_index: 1, receipt_index: 0, reason: 'not_receipt' },
+  ]);
+});
+
+test('skippedDetails: a missing/garbled skipReason falls back to "unclear", never undefined', async () => {
+  const extractReceipts = async () => ({ receipts: [{ fields: {}, rawParsed: {} }] });
+  const assembleExpense = async () => ({ skipped: true }); // no skipReason at all
+  const s = await runBatch(['img0'], FS, { extractReceipts, assembleExpense });
+  assert.deepStrictEqual(s.skippedDetails, [{ image_index: 0, receipt_index: 0, reason: 'unclear' }]);
+});
+
+// Issue #152 (extends #162 D13 to the batch path): a duplicate:true result still carries
+// a truthy expense (it was built, never inserted) — must be counted separately from
+// `saved`, not miscounted as a real save.
+test('duplicate: counted in `duplicates`/`duplicateDetails`, NOT in `saved`', async () => {
+  const existing = { id: 'exp-existing-1', merchant: 'Shell' };
+  const f = fakes({
+    img0: { receipts: [
+      { fields: { merchant: 'Real Shop' }, rawParsed: {} },
+      { fields: { merchant: 'Shell', __duplicate: true, __duplicateOf: existing }, rawParsed: {} },
+    ] },
+  });
+  const s = await runBatch(['img0'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense });
+  assert.strictEqual(s.receipts, 2);
+  assert.strictEqual(s.saved, 1, 'only the real save counts as saved');
+  assert.strictEqual(s.duplicates, 1);
+  assert.deepStrictEqual(s.duplicateDetails, [{ image_index: 0, receipt_index: 1, duplicateOf: existing }]);
 });
 
 test('extractReceipts throws a plain string: image failed with string reason, others processed', async () => {

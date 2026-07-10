@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { tgSend, tgEditMessage, tgAnswerCallback, registerWebhook } = require('../lib/telegram');
+const { tgSend, tgSendPhoto, tgEditMessage, tgAnswerCallback, registerWebhook } = require('../lib/telegram');
 const { cfg } = require('../lib/config');
 
 // Stub global.fetch (tgSend -> hreq -> fetch). Each call returns the next queued
@@ -68,6 +68,44 @@ test('tgSend never throws on a network error (fetch rejects)', async () => {
 
 // --- tgEditMessage (Owner request 2026-07-04): turn a category-picker prompt into its
 // final "Saved" state in place, instead of leaving stale buttons + sending a new message. ---
+
+// --- tgSendPhoto (issue #152): resend an already-received photo by its own file_id,
+// with a reason-specific caption — no re-download needed. ---
+
+test('tgSendPhoto: posts chat_id/photo(file_id)/caption to sendPhoto', async () => {
+  const s = stubTelegram([{ ok: true, result: { message_id: 9 } }]);
+  try {
+    await tgSendPhoto(42, 'AgAC-abc123', '📷 This one was too blurry to read the total.');
+    assert.strictEqual(s.calls.length, 1);
+    assert.strictEqual(s.calls[0].chat_id, 42);
+    assert.strictEqual(s.calls[0].photo, 'AgAC-abc123');
+    assert.strictEqual(s.calls[0].caption, '📷 This one was too blurry to read the total.');
+    assert.strictEqual(s.calls[0].parse_mode, 'Markdown');
+  } finally { s.restore(); }
+});
+
+test('tgSendPhoto: a Markdown-rejected caption is RETRIED as plain text (same safety net as tgSend)', async () => {
+  const s = stubTelegram([
+    { ok: false, error_code: 400, description: "Bad Request: can't parse entities" },
+    { ok: true, result: { message_id: 9 } },
+  ]);
+  try {
+    await tgSendPhoto(42, 'fid1', 'Cut off: 7*11 & A_B [store]');
+    assert.strictEqual(s.calls.length, 2);
+    assert.strictEqual(s.calls[0].parse_mode, 'Markdown');
+    assert.ok(!('parse_mode' in s.calls[1]));
+    assert.strictEqual(s.calls[1].caption, s.calls[0].caption);
+  } finally { s.restore(); }
+});
+
+test('tgSendPhoto: never throws even if both attempts fail, or on a network error', async () => {
+  const s = stubTelegram([{ ok: false, description: 'bad' }, { ok: false, description: 'still bad' }]);
+  try { await assert.doesNotReject(() => tgSendPhoto(1, 'fid', 'x')); } finally { s.restore(); }
+
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('ECONNRESET'); };
+  try { await assert.doesNotReject(() => tgSendPhoto(1, 'fid', 'x')); } finally { global.fetch = realFetch; }
+});
 
 test('tgEditMessage: posts chat_id/message_id/text to editMessageText and explicitly clears the keyboard', async () => {
   const s = stubTelegram([{ ok: true, result: { message_id: 5 } }]);
