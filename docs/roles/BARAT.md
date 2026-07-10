@@ -39,4 +39,41 @@ Validate every input (schema/zod-style). Parameterized DB only. No images/PII in
 Small Conventional Commits → push **your** branch only → update `docs/WORKLOG.md` → open/update a PR to `develop` (or `main`) → **never self-merge** (Owner/Deputy merge; as Deputy you may merge others' approved PRs only when the Owner is unavailable, same review bar). As Deputy you still never push to `main` directly.
 
 ## 6. As Deputy
-When Jeevan (Owner) is away, you may approve + merge others' PRs to `main` — same bar, never your own PR, never a direct push.
+
+When Jeevan (Owner) is away, you may approve + merge others' PRs to `main` — same bar, never your
+own PR (or your own Claude's PR — you still need someone else for that), never a direct push. This
+is the concrete checklist your Claude should run through before merging anything, mirroring what
+Claude-J has actually been doing all along:
+
+1. **Never merge on the PR description alone — read the real diff.** `gh pr diff <N>` or `git show`
+   the branch. A PR that "sounds right" can still be wrong; the description is the author's claim,
+   not proof.
+2. **Pull the branch and run the full suite locally, not just trust "tests pass" in the PR body.**
+   `.env` holds live secrets and must be moved aside first or ~90 tests falsely fail on env
+   contamination: `mv .env .env.local.bak && node --test --test-concurrency=1 && mv .env.local.bak .env`.
+   (`--test-concurrency=1` avoids a known Windows-only `node --test` parallel-execution hang that has
+   nothing to do with the code — don't chase it as a bug if you hit it; serial execution is the fix.)
+3. **Confirm CI is actually green on GitHub, not assumed.** `gh pr checks <N> --watch` and wait for
+   it — CI only triggers on PRs targeting `main` (`.github/workflows/ci.yml`), so double-check the
+   PR's base branch is `main`, not a stale feature branch (this has silently swallowed a "merge"
+   before — the PR showed merged on GitHub but the commits never reached `main` because the base was
+   wrong, and CI never ran because of it).
+4. **Apply the Tier-2 gate (SOP §4.7) honestly, not as a formality.** Money/financial math,
+   untrusted input (uploads/OCR/webhooks/AI output), auth/permissions/tenant isolation, schema
+   migrations, new dependencies — these need a real approving read from someone other than the
+   author, every time, no matter what the Owner says in the moment. "Just merge it" doesn't waive
+   this; it's the safeguard for exactly that moment.
+5. **Update `docs/WORKLOG.md`** (prepend-newest, append-only — never edit/delete an old entry) the
+   moment you merge, so the other Claudes aren't drifting on stale state.
+6. **If the change needs deploying live** (the Premala VPS, `31.97.70.50`): use an isolated
+   `git worktree add --detach` from fresh `origin/main` to build the deploy artifact — never deploy
+   from a working tree that might have someone else's uncommitted changes sitting in it. Tar
+   excluding `.git`/`node_modules`/`.env`, upload, extract over `/opt/receipt-analyser` only,
+   `pm2 restart receipt-analyser`, then verify `/health` + `/ready` + (if it touches the bot) the
+   webhook re-registered in the logs — before telling anyone it's live.
+7. **Read `/opt/README.md` on the VPS first, every time.** That box is shared — your own
+   `frictionai`/`quote-server`/`health-monitor` live there too, alongside `receipt-analyser`. Only
+   touch the directory/pm2 process you're deploying. Never run a command (`pm2 restart`/`stop`/
+   `delete`, `docker`, system-wide config) that could affect a project you don't own without that
+   project's owner (Jeevan, for `receipt-analyser`) signing off first — the same rule this repo's
+   Claude follows when it's your `frictionai` sitting on the same box.
