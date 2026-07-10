@@ -1199,6 +1199,45 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .act-review-msg { font-size: 13px; }
 
+/* QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill Status-cell controls — the
+   recategorise chevron + its popover picker, and the one-click permanent-delete icon. */
+.act-td--status { position: relative; }
+.act-status-text { text-transform: capitalize; }
+.act-status-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; position: relative; }
+.act-status-chevron, .act-status-delete {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.act-status-chevron:hover, .act-status-delete:hover { border-color: var(--accent); }
+.act-status-delete { color: var(--clay); border-color: var(--clay); }
+.act-status-delete:disabled { opacity: .5; cursor: default; }
+.act-status-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  white-space: nowrap;
+}
+.act-status-picker-select { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--txt); }
+.act-status-picker-apply { padding: 4px 10px; background: var(--honey); color: #1c1300; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.act-status-picker-apply:disabled { opacity: .6; cursor: default; }
+.act-status-picker-msg { font-size: 11px; }
+
 /* ---- Mass Upload (Task D) ------------------------------------------------ */
 .up-root { display: flex; flex-direction: column; gap: 14px; }
 .up-intro { margin: 0; }

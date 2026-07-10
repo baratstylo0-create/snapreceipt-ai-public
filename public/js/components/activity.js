@@ -269,6 +269,17 @@
     return body;
   }
 
+  // QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill actions, pure so they're
+  // unit-testable without a DOM. isRejected gates BOTH the recategorise chevron and the
+  // permanent-delete icon — neither shows on a non-rejected row. recategorizeBody mirrors the
+  // exact PATCH shape the awaiting-category picker already uses (category + status:'saved'),
+  // so a recategorised rejected bill becomes an ordinary saved row, not a new pending state.
+  function isRejected(row) { return !!row && row.status === 'rejected'; }
+  function recategorizeBody(category) { return { category: category, status: 'saved' }; }
+  function permanentDeletePath(id) {
+    return '/api/expenses/' + encodeURIComponent(str(id)) + '/permanent';
+  }
+
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
@@ -567,6 +578,68 @@
     };
   }
 
+  // QA B9/B8 (docs/qa/2026-07-09-qa-round.md PR-B): the Status cell for a REJECTED row grows
+  // two controls a normal row doesn't have: a (v) chevron that reveals a category picker
+  // (reuses the exact PATCH shape the awaiting-category picker already uses — see
+  // recategorizeBody) and a delete icon that permanently removes the bill in ONE CLICK, no
+  // confirmation step (Owner explicit — do not add one here even though the drawer's own
+  // delete uses a two-step confirm; B8 is deliberately different). tag lets the same builder
+  // serve both the table <td> and the card <span> without duplicating the control markup.
+  // Every click inside stops propagation so it never also fires the row/card's onOpen.
+  function buildStatusCell(tag, r, categories, handlers) {
+    var cell = el(tag, tag === 'td' ? 'act-td act-td--status' : 'act-card-status act-td--status');
+    var text = el('span', 'act-status-text');
+    Escape.setText(text, r.status);
+    cell.appendChild(text);
+    if (!isRejected(r)) return cell;
+
+    var actions = el('span', 'act-status-actions');
+
+    var chevron = el('button', 'act-status-chevron');
+    chevron.type = 'button';
+    chevron.title = 'Recategorise';
+    chevron.setAttribute('aria-label', 'Recategorise this rejected bill');
+    Escape.setText(chevron, '▾'); // ▾
+    actions.appendChild(chevron);
+
+    var picker = el('span', 'act-status-picker');
+    picker.style.display = 'none';
+    var select = el('select', 'act-status-picker-select');
+    var cats = Array.isArray(categories) && categories.length ? categories : DEFAULT_CATEGORIES;
+    cats.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); select.appendChild(o); });
+    var apply = el('button', 'act-status-picker-apply'); apply.type = 'button'; Escape.setText(apply, 'Apply');
+    var pst = el('span', 'act-status-picker-msg muted');
+    picker.appendChild(select); picker.appendChild(apply); picker.appendChild(pst);
+    actions.appendChild(picker);
+
+    chevron.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      picker.style.display = picker.style.display === 'none' ? '' : 'none';
+    });
+    picker.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    apply.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      apply.disabled = true;
+      Escape.setText(pst, 'Saving…');
+      handlers.onRecategorize(r, select.value, pst, apply);
+    });
+
+    var del = el('button', 'act-status-delete');
+    del.type = 'button';
+    del.title = 'Delete permanently (no confirmation)';
+    del.setAttribute('aria-label', 'Permanently delete this rejected bill');
+    Escape.setText(del, '✖'); // ✖
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      del.disabled = true;
+      handlers.onPermanentDelete(r, cell);
+    });
+    actions.appendChild(del);
+
+    cell.appendChild(actions);
+    return cell;
+  }
+
   function buildTable(page, state, handlers) {
     var labels = columnLabels(state.fieldSpec);
     var table = el('table', 'act-table');
@@ -606,7 +679,7 @@
       cat.appendChild(categoryCell(r));
       tr.appendChild(cat);
 
-      tr.appendChild(textCell('td', 'act-td act-td--status', r.status));
+      tr.appendChild(buildStatusCell('td', r, state.categories, handlers));
 
       tr.addEventListener('click', function () { handlers.onOpen(r); });
       tr.addEventListener('keydown', function (ev) {
@@ -623,7 +696,7 @@
   // descriptors as the table row — no duplicated badge logic) and the shared
   // loadReceiptImage auth'd-fetch helper for the thumbnail. Clicking a card opens
   // the same detail drawer as clicking a table row (handlers.onOpen).
-  function buildCard(r, handlers) {
+  function buildCard(r, handlers, categories) {
     var card = el('div', 'act-card');
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
@@ -652,7 +725,7 @@
     if (refDisplay(r) !== '—') meta.appendChild(textCell('span', 'act-card-ref muted', refDisplay(r)));
     body.appendChild(meta);
 
-    body.appendChild(textCell('span', 'act-card-status act-td--status', r.status));
+    body.appendChild(buildStatusCell('span', r, categories, handlers));
 
     if (r.remark) {
       var remark = el('p', 'act-card-remark');
@@ -670,9 +743,9 @@
     return card;
   }
 
-  function buildCardGrid(page, handlers) {
+  function buildCardGrid(page, handlers, categories) {
     var grid = el('div', 'act-card-grid');
-    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers)); });
+    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, categories)); });
     return grid;
   }
 
@@ -991,10 +1064,15 @@
         tableArea.appendChild(msg('act-empty muted', state.rows.length ? 'No expenses match your filters.' : 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
         return;
       }
+      var rowHandlers = {
+        onOpen: openDrawer,
+        onRecategorize: onRecategorizeRejected,
+        onPermanentDelete: onPermanentDelete,
+      };
       if (state.viewMode === 'cards') {
-        tableArea.appendChild(buildCardGrid(pageData, { onOpen: openDrawer }));
+        tableArea.appendChild(buildCardGrid(pageData, rowHandlers, state.categories));
       } else {
-        tableArea.appendChild(buildTable(pageData, state, { onChange: onChange, onOpen: openDrawer }));
+        tableArea.appendChild(buildTable(pageData, state, Object.assign({ onChange: onChange }, rowHandlers)));
       }
       tableArea.appendChild(buildPager(pageData, onChange));
     }
@@ -1055,6 +1133,36 @@
     drawerHost.addEventListener('click', function (ev) {
       if (ev.target === drawerHost) closeDrawer();
     });
+
+    // QA B9 (docs/qa/2026-07-09-qa-round.md PR-B): recategorising a rejected bill via the
+    // Status-column chevron. Same PATCH shape + status:'saved' resolution as the
+    // awaiting-category picker (recategorizeBody) — a recategorised rejected bill becomes an
+    // ordinary saved row, out of the Rejected filter.
+    function onRecategorizeRejected(rowObj, category, statusEl, applyBtn) {
+      if (!category) { Escape.setText(statusEl, 'Pick a category first.'); applyBtn.disabled = false; return; }
+      var body = recategorizeBody(category);
+      apiFetch('/api/expenses/' + encodeURIComponent(rowObj.id), { method: 'PATCH', body: body })
+        .then(function (updated) {
+          var idx = state.rows.findIndex(function (x) { return x.id === rowObj.id; });
+          if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], body, updated && typeof updated === 'object' ? updated : {});
+          renderTable();
+        })
+        .catch(function () { applyBtn.disabled = false; Escape.setText(statusEl, 'Save failed. Please try again.'); });
+    }
+
+    // QA B8: ONE CLICK, no confirmation (Owner explicit) — this fires the DELETE the instant
+    // the icon is clicked, unlike the drawer's two-step confirm delete above.
+    function onPermanentDelete(rowObj, cellEl) {
+      apiFetch(permanentDeletePath(rowObj.id), { method: 'DELETE' })
+        .then(function () {
+          state.rows = state.rows.filter(function (x) { return x.id !== rowObj.id; });
+          renderTable();
+        })
+        .catch(function () {
+          var btn = cellEl && typeof cellEl.querySelector === 'function' ? cellEl.querySelector('.act-status-delete') : null;
+          if (btn) btn.disabled = false;
+        });
+    }
 
     // Awaiting-category picker: derived live from the loaded expenses (no extra fetch).
     // Hidden entirely when nothing is pending. Resolves via the same PATCH the drawer uses.
@@ -1159,6 +1267,9 @@
     refDisplay: refDisplay,
     anomalyReasonText: anomalyReasonText,
     patchBody: patchBody,
+    isRejected: isRejected,
+    recategorizeBody: recategorizeBody,
+    permanentDeletePath: permanentDeletePath,
     receiptPath: receiptPath,
     receiptByIdPath: receiptByIdPath,
     hasReceiptImage: hasReceiptImage,
