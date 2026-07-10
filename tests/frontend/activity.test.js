@@ -15,7 +15,7 @@ const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
-  isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
+  deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -655,6 +655,22 @@ test('hostile card remark/merchant render INERT via Escape.safeText (same bar as
   const remarkOut = Escape.safeText(hostile.remark);
   assert.ok(remarkOut.indexOf('<script>') === -1);
   assert.ok(remarkOut.indexOf('&lt;script&gt;') !== -1);
+});
+
+// --- deletedRowsPath / restorePath (QA B7: Recently-deleted bin + Recover) ------
+
+test('deletedRowsPath: the fixed "recently deleted" list endpoint', () => {
+  assert.strictEqual(deletedRowsPath(), '/api/expenses/deleted');
+});
+
+test('restorePath: builds /api/expenses/<id>/restore, encoding the id', () => {
+  assert.strictEqual(restorePath('abc-123'), '/api/expenses/abc-123/restore');
+  assert.strictEqual(restorePath('a/b c'), '/api/expenses/a%2Fb%20c/restore');
+});
+
+test('restorePath: null/undefined id does not throw', () => {
+  assert.strictEqual(restorePath(null), '/api/expenses//restore');
+  assert.strictEqual(restorePath(undefined), '/api/expenses//restore');
 });
 
 // --- isRejected / recategorizeBody / permanentDeletePath (QA B8/B9) --------

@@ -156,6 +156,20 @@ module.exports = function mountExpenses(app) {
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
   });
 
+  // GET /api/expenses/deleted — QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently
+  // deleted" bin. Registered BEFORE any future GET /api/expenses/:id route would be added, same
+  // convention as /api/expenses/payments above, so Express never swallows 'deleted' as an :id.
+  // Same scope/visibility contract as the main list (clerk own-branch, admin all) — just the
+  // opposite deleted_at filter. Expenses already soft-delete via deleted_at (schema.sql); this
+  // is a read-only view over existing data, no schema change.
+  app.get('/api/expenses/deleted', checkDash, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    try {
+      const rows = await sbSelect('expenses', { extra: 'deleted_at=not.is.null', order: 'deleted_at.desc', limit: 500, scope: req.scope });
+      res.json(clerkVisible(rows, req.scope));
+    } catch (e) { console.error('[api/expenses/deleted]', e.message); res.status(502).json({ error: 'load failed' }); }
+  });
+
   // PATCH /api/expenses/payments { ids, paid, note? } — Phase 4 (ADR-021) bulk mark-paid.
   // Business ADMIN only (clerk 403 — clerks read payment_status like any field, never write it);
   // 404 with the flag OFF. Registered BEFORE the :id route so Express doesn't swallow the path
@@ -283,6 +297,25 @@ module.exports = function mountExpenses(app) {
       await sbSoftDelete('expenses', { id: req.params.id, scope: req.scope });
       res.json({ ok: true });
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
+  });
+
+  // POST /api/expenses/:id/restore — QA B7: the "Recover" action on a Recently-deleted row.
+  // Clears deleted_at via the ordinary scoped sbUpdate (same clerk/admin gate as every other
+  // write). Refuses (409) a row that isn't currently deleted, so Recover can't be used as a
+  // backdoor no-op PATCH on a live row.
+  app.post('/api/expenses/:id/restore', checkDash, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    try {
+      const touch = await canTouchExpense(req, req.params.id);
+      if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
+      const rows = await sbSelect('expenses', { eq: { id: req.params.id }, scope: req.scope });
+      const cur = rows[0];
+      if (!cur) return res.status(404).json({ error: 'expense not found' });
+      if (!cur.deleted_at) return res.status(409).json({ error: 'expense is not deleted' });
+      const updated = await sbUpdate('expenses', { id: req.params.id, scope: req.scope, extra: 'deleted_at=not.is.null' }, { deleted_at: null });
+      if (!updated.length) return res.status(409).json({ error: 'expense is not deleted' });
+      res.json(updated[0]);
+    } catch (e) { console.error('[restore expense]', e.message); res.status(502).json({ error: 'restore failed' }); }
   });
 
   // DELETE /api/expenses/:id/permanent — QA B8 (docs/qa/2026-07-09-qa-round.md PR-B): the
