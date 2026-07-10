@@ -64,7 +64,14 @@ module.exports = function mountReview(app) {
         if (!decidable.ok) { results.push({ id, ok: false, error: decidable.error }); continue; }
         const who = req.scope && req.scope.role ? { role: req.scope.role, override: !!decidable.override } : null;
         const anomaly = buildReviewAudit(cur.anomaly, decision, note, who);
-        await supabase.sbUpdate('expenses', { id, scope: req.scope }, { status, anomaly });
+        const updatedRows = await supabase.sbUpdate('expenses', {
+          id,
+          scope: req.scope,
+          // Fold the status observed during validation into the write. This keeps the bulk
+          // decision from reporting success if the row changed between read and PATCH.
+          extra: 'status=eq.' + encodeURIComponent(cur.status),
+        }, { status, anomaly });
+        if (!updatedRows.length) { results.push({ id, ok: false, error: 'update failed' }); continue; }
         results.push({ id, ok: true });
       } catch (e) {
         results.push({ id, ok: false, error: 'update failed' });

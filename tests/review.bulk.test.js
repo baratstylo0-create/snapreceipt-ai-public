@@ -67,7 +67,7 @@ test('POST /api/review/bulk: admin bulk-approves a mix of decidable rows -> per-
     };
     const writes = [];
     supabase.sbSelect = async (t, { eq }) => (rows[eq.id] ? [rows[eq.id]] : []);
-    supabase.sbUpdate = async (t, w, p) => { writes.push({ id: w.id, patch: p }); return [{ id: w.id, ...p }]; };
+    supabase.sbUpdate = async (t, w, p) => { writes.push({ id: w.id, where: w, patch: p }); return [{ id: w.id, ...p }]; };
     try {
       const { status, json } = await call('POST', '/api/review/bulk', { token: 't', body: { ids: ['e1', 'e2'], decision: 'approve' } });
       assert.strictEqual(status, 200);
@@ -75,6 +75,7 @@ test('POST /api/review/bulk: admin bulk-approves a mix of decidable rows -> per-
       assert.strictEqual(json.updated, 2);
       assert.strictEqual(writes.length, 2);
       assert.ok(writes.every((w) => w.patch.status === 'approved'));
+      assert.ok(writes.every((w) => w.where.extra === 'status=eq.needs_review'));
     } finally { supabase.sbSelect = origSel; supabase.sbUpdate = origUpd; s.restore(); }
   });
 });
@@ -89,7 +90,7 @@ test('POST /api/review/bulk: a non-pending row in the batch fails individually, 
     };
     const writes = [];
     supabase.sbSelect = async (t, { eq }) => (rows[eq.id] ? [rows[eq.id]] : []);
-    supabase.sbUpdate = async (t, w, p) => { writes.push({ id: w.id, patch: p }); return [{ id: w.id, ...p }]; };
+    supabase.sbUpdate = async (t, w, p) => { writes.push({ id: w.id, where: w, patch: p }); return [{ id: w.id, ...p }]; };
     try {
       const { status, json } = await call('POST', '/api/review/bulk', { token: 't', body: { ids: ['e1', 'e2'], decision: 'reject' } });
       assert.strictEqual(status, 200);
@@ -97,6 +98,7 @@ test('POST /api/review/bulk: a non-pending row in the batch fails individually, 
       // e2 is already 'approved' -> admin override is ALLOWED (canRoleDecide treats decided rows
       // as override-eligible for an admin), so both succeed here. Use a clerk to prove refusal below.
       assert.strictEqual(json.updated, 2);
+      assert.strictEqual(writes.find((w) => w.id === 'e2').where.extra, 'status=eq.approved');
     } finally { supabase.sbSelect = origSel; supabase.sbUpdate = origUpd; s.restore(); }
   });
 });
@@ -111,7 +113,7 @@ test('POST /api/review/bulk: clerk touching another branch\'s row in the batch -
     };
     const writes = [];
     supabase.sbSelect = async (t, { eq }) => (rows[eq.id] ? [rows[eq.id]] : []);
-    supabase.sbUpdate = async (t, w, p) => { writes.push({ id: w.id, patch: p }); return [{ id: w.id, ...p }]; };
+    supabase.sbUpdate = async (t, w, p) => { writes.push({ id: w.id, where: w, patch: p }); return [{ id: w.id, ...p }]; };
     try {
       const { status, json } = await call('POST', '/api/review/bulk', { token: 't', body: { ids: ['e1', 'e2'], decision: 'approve' } });
       assert.strictEqual(status, 200);
@@ -119,8 +121,34 @@ test('POST /api/review/bulk: clerk touching another branch\'s row in the batch -
       assert.strictEqual(json.updated, 1);
       assert.strictEqual(writes.length, 1);
       assert.strictEqual(writes[0].id, 'e1');
+      assert.strictEqual(writes[0].where.extra, 'status=eq.needs_review');
       const failed = json.results.find((r) => r.id === 'e2');
       assert.strictEqual(failed.ok, false);
+    } finally { supabase.sbSelect = origSel; supabase.sbUpdate = origUpd; s.restore(); }
+  });
+});
+
+test('POST /api/review/bulk: zero-row PATCH is a per-id failure, not a false success', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    const s = stubSession(ADMIN);
+    const origSel = supabase.sbSelect; const origUpd = supabase.sbUpdate;
+    const rows = {
+      e1: { id: 'e1', status: 'needs_review', branch_id: null, created_at: daysAgo(1), anomaly: {} },
+      e2: { id: 'e2', status: 'needs_review', branch_id: null, created_at: daysAgo(1), anomaly: {} },
+    };
+    const writes = [];
+    supabase.sbSelect = async (t, { eq }) => (rows[eq.id] ? [rows[eq.id]] : []);
+    supabase.sbUpdate = async (t, w, p) => {
+      writes.push({ id: w.id, where: w, patch: p });
+      return w.id === 'e2' ? [] : [{ id: w.id, ...p }];
+    };
+    try {
+      const { status, json } = await call('POST', '/api/review/bulk', { token: 't', body: { ids: ['e1', 'e2'], decision: 'approve' } });
+      assert.strictEqual(status, 200);
+      assert.strictEqual(json.requested, 2);
+      assert.strictEqual(json.updated, 1);
+      assert.strictEqual(json.results.find((r) => r.id === 'e2').ok, false);
+      assert.ok(writes.every((w) => w.where.extra === 'status=eq.needs_review'));
     } finally { supabase.sbSelect = origSel; supabase.sbUpdate = origUpd; s.restore(); }
   });
 });
