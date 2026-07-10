@@ -349,3 +349,66 @@ test('#149: a genuinely unreadable date scores low/flagged instead of silently d
   assert.strictEqual(conf.perField.expense_date, 'low', 'but confidence must now catch it');
   assert.strictEqual(flagged, true, 'expense_date is required -> must flag for review/ask');
 });
+
+// Issue #162 D10 (live QA): a receipt dated 7/4/2026 was read as 14/7/2026 because the
+// photo was unclear -- a misread digit still LOOKS like a valid, present value, so
+// per-field confidence alone can never catch it. The model now self-reports legibility
+// directly (image_unclear); assembleExpense must reject BEFORE inserting, reusing the
+// existing 'blurry' skip message, regardless of how present/parseable the fields look.
+test('#162 D10: image_unclear:true rejects the receipt even when every field looks present', async () => {
+  const inserted = [];
+  const input = goodInput({ rawParsed: { merchant: 'Acme', amount: '100', expense_date: '2026-01-02', image_unclear: true } });
+  const { skipped, skipReason } = await assembleExpense(input, deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.strictEqual(skipped, true, 'an unclear photo must not force-extract/insert');
+  assert.strictEqual(skipReason, 'blurry');
+  assert.strictEqual(inserted.length, 0, 'nothing must be saved for an unclear photo');
+});
+
+test('#162 D10: image_unclear:false (or absent) does not affect a normal, clear read', async () => {
+  const { skipped } = await assembleExpense(goodInput({ rawParsed: { merchant: 'Acme', amount: '100', expense_date: '2026-01-02', image_unclear: false } }), deps());
+  assert.strictEqual(skipped, false);
+  const noSignal = await assembleExpense(goodInput(), deps()); // no image_unclear key at all
+  assert.strictEqual(noSignal.skipped, false);
+});
+
+test('#162 D10: a garbled/non-boolean image_unclear value fails open (not treated as unclear)', async () => {
+  const { skipped } = await assembleExpense(goodInput({ rawParsed: { merchant: 'Acme', amount: '100', expense_date: '2026-01-02', image_unclear: 'maybe' } }), deps());
+  assert.strictEqual(skipped, false);
+});
+
+// Issue #162 D13: "uploading a receipt already in the system saves it again." Opted-in via
+// rejectDuplicates -- must NOT insert a second row, must return the ORIGINAL row so the
+// caller (lib/ocr.js expenseFromPhoto) can build View/Edit buttons off it.
+const EXISTING_DUP = { id: 'exp-existing-1', merchant: 'Acme', amount: 100, currency: 'EUR', expense_date: '2026-01-02' };
+
+test('#162 D13: rejectDuplicates:true + a matched duplicate -> not inserted, duplicateOf is the existing row', async () => {
+  const inserted = [];
+  const d = deps({
+    detectAnomalies: async () => ({ flagged: true, reasons: [{ type: 'duplicate', detail: 'x', severity: 'high' }], status_suggestion: 'needs_review', duplicateOf: EXISTING_DUP }),
+    insertExpense: async (row) => { inserted.push(row); },
+  });
+  const result = await assembleExpense({ ...goodInput(), rejectDuplicates: true }, d);
+  assert.strictEqual(result.duplicate, true);
+  assert.strictEqual(result.skipped, false, 'duplicate is its own outcome, distinct from skipped');
+  assert.deepStrictEqual(result.duplicateOf, EXISTING_DUP);
+  assert.strictEqual(inserted.length, 0, 'no second row must be saved');
+});
+
+test('#162 D13: rejectDuplicates:false (default, e.g. dashboard bulk upload) keeps the old flag-and-save behaviour', async () => {
+  const inserted = [];
+  const d = deps({
+    detectAnomalies: async () => ({ flagged: true, reasons: [{ type: 'duplicate', detail: 'x', severity: 'high' }], status_suggestion: 'needs_review', duplicateOf: EXISTING_DUP }),
+    insertExpense: async (row) => { inserted.push(row); },
+  });
+  const result = await assembleExpense(goodInput(), d); // rejectDuplicates omitted
+  assert.ok(!result.duplicate, 'must not be treated as a hard-reject when not opted in');
+  assert.strictEqual(inserted.length, 1, 'the dashboard path must still save it, just flagged');
+  assert.strictEqual(inserted[0].status, 'needs_review');
+});
+
+test('#162 D13: rejectDuplicates:true but NO duplicate match -> saved normally', async () => {
+  const inserted = [];
+  const result = await assembleExpense({ ...goodInput(), rejectDuplicates: true }, deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.ok(!result.duplicate);
+  assert.strictEqual(inserted.length, 1);
+});

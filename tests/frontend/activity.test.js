@@ -15,7 +15,7 @@ const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
-  isRejected, recategorizeBody, permanentDeletePath,
+  isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -101,6 +101,36 @@ test('hasReceiptImage is true when EITHER receipt_url or receipt_file_id is pres
   assert.strictEqual(hasReceiptImage({ receipt_url: null, receipt_file_id: null }), false);
   assert.strictEqual(hasReceiptImage({}), false);
   assert.strictEqual(hasReceiptImage(null), false);
+});
+
+// --- reviewMetaParts (review-queue card: receipt details, Owner 2026-07-10) --
+// The review card now shows the receipt's key fields inline so an admin/clerk can decide
+// approve/reject without opening it separately. reviewMetaParts is the pure builder of the
+// muted meta line: [date, category, ref], skipping blanks and the '__pending__' sentinel.
+
+test('reviewMetaParts: returns date, category and ref in order, skipping blanks', () => {
+  assert.deepStrictEqual(
+    reviewMetaParts({ expense_date: '2026-07-01', category: 'Food', voucher_no: 'RC-2026-0041' }),
+    ['2026-07-01', 'Food', 'RC-2026-0041'],
+  );
+  assert.deepStrictEqual(
+    reviewMetaParts({ expense_date: '2026-07-01', category: '', voucher_no: '' }),
+    ['2026-07-01'],
+  );
+});
+
+test('reviewMetaParts: skips the __pending__ category sentinel (never leaks it to the UI)', () => {
+  assert.deepStrictEqual(
+    reviewMetaParts({ expense_date: '2026-07-02', category: '__pending__' }),
+    ['2026-07-02'],
+  );
+});
+
+test('reviewMetaParts: tolerates null / non-object / missing fields, never throws', () => {
+  assert.deepStrictEqual(reviewMetaParts(null), []);
+  assert.deepStrictEqual(reviewMetaParts(undefined), []);
+  assert.deepStrictEqual(reviewMetaParts({}), []);
+  assert.deepStrictEqual(reviewMetaParts('nope'), []);
 });
 
 // --- awaitingCategoryRows (dashboard category-picker) ---------------------

@@ -178,6 +178,9 @@
     if (typeof document === 'undefined' || !section) return null;
     var Api = deps.Api, Escape = deps.Escape;
     var categories = (deps.config && deps.config.categories) || [];
+    // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
+    // Activity — same shared switcher Upload's "View in Activity" button already uses.
+    var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
 
     var state = { rows: [], loaded: false, editMode: false, search: '', page: 1 };
 
@@ -271,27 +274,30 @@
 
     function doManagedExport(format) {
       var ids = currentFilteredIds();
-      var guard = ExportGuards.exportGate({ data: ids, confirmed: false });
-      if (!guard.ok && !guard.needsConfirm) {
-        note(guard.message);
-        return;
-      }
-      ExportGuards.requestReviewedConfirmation(function () {
-        setExportBusy(true);
-        note('Preparing ' + String(format).toUpperCase() + ' export...');
-        Api.fetchBlob('/api/manage-export?format=' + encodeURIComponent(format), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: ids }),
-        }).then(function (blob) {
-          downloadBlob(blob, 'ledger-export.' + (format === 'xlsx' ? 'xlsx' : format));
-          note(String(format).toUpperCase() + ' downloaded.');
-        }).catch(function () {
-          note('Export failed. Please try again.');
-        }).then(function () {
-          setExportBusy(false);
-        });
-      }, { confirmLabel: 'Confirm and export' });
+      // A3 (Owner 2026-07-10): remind only when receipts still await review; otherwise export
+      // straight through. runExportGuard keeps the empty-data guard + counts the scoped queue.
+      ExportGuards.runExportGuard({
+        data: ids,
+        apiFetch: Api.apiFetch,
+        onEmpty: function (m) { note(m); },
+        onReview: switchView ? function () { switchView('activity'); } : undefined,
+        onProceed: function () {
+          setExportBusy(true);
+          note('Preparing ' + String(format).toUpperCase() + ' export...');
+          Api.fetchBlob('/api/manage-export?format=' + encodeURIComponent(format), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: ids }),
+          }).then(function (blob) {
+            downloadBlob(blob, 'ledger-export.' + (format === 'xlsx' ? 'xlsx' : format));
+            note(String(format).toUpperCase() + ' downloaded.');
+          }).catch(function () {
+            note('Export failed. Please try again.');
+          }).then(function () {
+            setExportBusy(false);
+          });
+        },
+      });
     }
 
     // Save one cell. On 409 (someone else edited the row) we re-fetch everything —
