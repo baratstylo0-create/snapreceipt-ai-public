@@ -3,7 +3,7 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
-## ⚡ SESSION END — Claude-J2. READ THIS FIRST. (2026-07-10/11, LATEST-5 — Premala bot LIVE, QA round closed out, auto-deploy shipped, VPS security items deferred by Owner choice)
+## ⚡ SESSION END — Claude-J2 (handoff to J1). READ THIS FIRST. (2026-07-10/11, LATEST-5 — Premala bot LIVE, QA round closed out, auto-deploy shipped, VPS security items deferred by Owner choice)
 
 **main = `3ede83a`** (Merge #180), **1770 tests green** (`node --test --test-concurrency=1` — the `--test-concurrency=1` matters, see GOTCHA below). No open PRs, 8 open issues (routine backlog, nothing blocking). `npm install` first.
 **GOTCHA: repo-root `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.**
