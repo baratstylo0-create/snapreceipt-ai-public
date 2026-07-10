@@ -29,6 +29,11 @@
   // never send it.
   var EDITABLE = ['merchant', 'expense_date', 'amount', 'currency', 'category', 'status', 'remark'];
 
+  // Human-settable statuses (mirrors the toolbar filter). Excludes the auto-only
+  // sentinel states 'awaiting_category'/'awaiting_remark' — those are set by the
+  // OCR pipeline, not something a person should manually switch a row into.
+  var STATUS_OPTIONS = ['saved', 'needs_review', 'approved', 'rejected'];
+
   // DYNAMIC CATEGORIES (bug fix): the category list is no longer a hardcoded,
   // driftable 5-name stub — it now comes live from GET /api/config's
   // `categories` field (sourced from lib/categorize.js's real ~18-category
@@ -609,7 +614,7 @@
 
     var statusSel = el('select', 'act-filter act-filter--status');
     statusSel.setAttribute('aria-label', 'Filter by status');
-    ['all', 'saved', 'needs_review', 'approved', 'rejected'].forEach(function (s) {
+    ['all'].concat(STATUS_OPTIONS).forEach(function (s) {
       var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? 'All statuses' : s); statusSel.appendChild(o);
     });
     statusSel.value = state.filterStatus || 'all';
@@ -961,6 +966,16 @@
         input = el('select', 'act-field-input');
         categories.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); input.appendChild(o); });
         input.value = str(rowObj[key]) || 'Others';
+      } else if (key === 'status') {
+        input = el('select', 'act-field-input');
+        var cur = str(rowObj[key]);
+        // Mirror the toolbar's human-facing set (STATUS_OPTIONS). If the row is
+        // currently in an auto-only sentinel state (awaiting_category/awaiting_remark),
+        // keep that as a selectable option too so opening the drawer never silently
+        // reassigns it to 'saved' just because it wasn't in the list.
+        var opts = STATUS_OPTIONS.indexOf(cur) === -1 ? STATUS_OPTIONS.concat([cur]) : STATUS_OPTIONS;
+        opts.forEach(function (s) { var o = el('option'); o.value = s; Escape.setText(o, s); input.appendChild(o); });
+        input.value = cur;
       } else {
         input = el('input', 'act-field-input');
         input.type = type || 'text';
