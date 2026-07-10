@@ -157,10 +157,14 @@ test('failed[].reason sanitized: raw error text never reaches the client', async
 
 // QA report #1: the dashboard upload result must show WHAT was extracted, not just
 // counts — this locks that the wrapped assembleExpense captures a per-item summary.
-test('saved_items: captures merchant/amount/category/voucher_no/id for each saved receipt', async () => {
+test('saved_items: captures merchant/amount/category/voucher_no/id + branch/staff attribution fields for each saved receipt', async () => {
   const app = appWith({
     assembleExpense: async () => ({
-      expense: { id: 'exp-1', merchant: 'Shell', amount: 42.5, currency: 'MYR', category: 'Fuel & Auto', voucher_no: 'RC-2026-0099' },
+      expense: {
+        id: 'exp-1', merchant: 'Shell', amount: 42.5, currency: 'MYR',
+        category: 'Fuel & Auto', voucher_no: 'RC-2026-0099',
+        branch_id: 'bA', staff_user_id: null,
+      },
       flagged: false, skipped: false,
     }),
     // Mirror the real lib/massupload.js contract: call the injected assembleExpense once per receipt.
@@ -171,7 +175,11 @@ test('saved_items: captures merchant/amount/category/voucher_no/id for each save
   });
   const r = await post(app, { images: [b64] });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json.saved_items, [{ id: 'exp-1', merchant: 'Shell', amount: 42.5, currency: 'MYR', category: 'Fuel & Auto', voucher_no: 'RC-2026-0099' }]);
+  assert.deepEqual(r.json.saved_items, [{
+    id: 'exp-1', merchant: 'Shell', amount: 42.5, currency: 'MYR',
+    category: 'Fuel & Auto', voucher_no: 'RC-2026-0099',
+    branch_id: 'bA', staff_user_id: null,
+  }]);
 });
 
 test('saved_items: a skipped (non-receipt) result is never included', async () => {
@@ -187,4 +195,31 @@ test('saved_items: defaults to [] when runBatch never calls assembleExpense (e.g
   const app = appWith({ runBatch: async () => ({ images: 1, receipts: 0, saved: 0, failed: [{ image_index: 0, reason: 'x' }], flagged: [], truncated_images: [] }) });
   const r = await post(app, { images: [b64] });
   assert.deepEqual(r.json.saved_items, []);
+});
+
+test('flagged duplicate rows are enriched with the saved review row id and existing duplicate id', async () => {
+  const app = appWith({
+    assembleExpense: async () => ({
+      expense: {
+        id: 'new-dup',
+        merchant: 'Shell',
+        anomaly: { flagged: true, reasons: [{ type: 'duplicate', detail: 'matches existing expense old-123 (same merchant & amount within 3d)' }] },
+      },
+      flagged: true,
+      skipped: false,
+    }),
+    runBatch: async (images, spec, d) => {
+      await d.assembleExpense({});
+      return {
+        images: 1, receipts: 1, saved: 1, failed: [],
+        flagged: [{ image_index: 0, receipt_index: 0, merchant: 'Shell', reason: true }],
+        truncated_images: [],
+      };
+    },
+  });
+  const r = await post(app, { images: [b64] });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.flagged[0].expense_id, 'new-dup');
+  assert.equal(r.json.flagged[0].existing_expense_id, 'old-123');
+  assert.match(r.json.flagged[0].duplicate_detail, /matches existing expense old-123/);
 });

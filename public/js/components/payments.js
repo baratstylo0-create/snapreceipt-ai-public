@@ -193,6 +193,9 @@
     if (typeof document === 'undefined' || !section) return null;
     var Api = deps.Api, Escape = deps.Escape, Format = deps.Format || (typeof root !== 'undefined' && root.Format) || null;
     var isAdmin = !!(deps.session && deps.session.role === 'admin');
+    // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
+    // Activity — same shared switcher Upload's "View in Activity" button already uses.
+    var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
 
     var state = { rows: [], tab: 'pending', month: '', branch: '', staff: '', selected: {}, branchNames: {}, staffNames: {}, loaded: false, mySubmission: null };
 
@@ -492,11 +495,15 @@
     function doStatementExport(format) {
       var ready = statementReady({ month: state.month, branch: state.branch }, isAdmin);
       if (!ready.ok) { Escape.setText(stmtMsg, ready.reason); return; }
-      var gate = ExportGuards.exportGate({ data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin), confirmed: false });
-      if (!gate.ok && !gate.needsConfirm) { Escape.setText(stmtMsg, gate.message); return; }
-      ExportGuards.requestReviewedConfirmation(function () {
-        startStatementExport(format);
-      }, { confirmLabel: 'Confirm and export' });
+      // A3 (Owner 2026-07-10): remind only when receipts still await review; otherwise export
+      // straight through. runExportGuard keeps the empty-data guard + counts the scoped queue.
+      ExportGuards.runExportGuard({
+        data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin),
+        apiFetch: Api.apiFetch,
+        onEmpty: function (m) { Escape.setText(stmtMsg, m); },
+        onReview: switchView ? function () { switchView('activity'); } : undefined,
+        onProceed: function () { startStatementExport(format); },
+      });
     }
 
     function startStatementExport(format) {
