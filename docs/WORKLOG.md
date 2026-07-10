@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-07-10 · Claude (for Jeevan) · qa/review-card-details — review-queue cards show the receipt + details
+
+- **Files:** `public/js/components/activity.js` (`reviewMetaParts` pure helper + rebuilt `buildReviewItem` + `onOpen` wired into `renderReview`), `public/css/app.css` (review-item now a thumbnail+details flex row), `tests/frontend/activity.test.js`.
+- **Why (Owner request 2026-07-10):** the Activity **review queue** cards showed only merchant + amount + the flag reason. To actually *see* a flagged receipt before Approve/Reject you had to leave and open it separately — inconvenient. Now each card shows the receipt itself so it can be judged in place.
+- **What's on the card now:** a **receipt thumbnail** (image, or a "Receipt PDF" link for PDFs — via the same auth'd `loadReceiptImage`/`hasReceiptImage` the table & card views already use), a **meta line "date · category · ref"** (`reviewMetaParts`, which drops blanks and never leaks the `__pending__` sentinel), the **remark** (staff/OCR note — useful context), and the existing flag reason + Approve/Reject. **Clicking the thumbnail opens the full detail drawer** (`onOpen`) for a closer look.
+- **Scope note (staff):** the expense row only carries `staff_user_id`/`branch_id` as **UUIDs** — no human name without a staff-directory lookup (which clerks can't call: `/api/branches` 403s them). Rather than show a raw UUID, staff-name is left out; adding it would mirror `payments.js`'s best-effort directory fetch and is a clean follow-up if wanted. Everything shown is directly displayable, real data.
+- **Tests:** TDD red-first — `reviewMetaParts` (order date→category→ref, skips blanks + `__pending__`, garbage-tolerant, never throws). Full suite **1647/1647** green (`.env` moved aside/restored), +3 over the 1644 baseline. The card DOM itself is render-layer (no jsdom here) so it's verified live.
+- **Live-verified** in the browser preview via stub-mounted `Activity`: a needs_review row with a receipt renders the thumbnail (image loads), the meta line "2026-07-01 · Food · RC-2026-0041", the remark "client lunch", and the flag reason; clicking the thumbnail opens the full drawer titled "Flagged Vendor"; a receipt-less needs_review row degrades gracefully (no thumbnail, meta "2026-07-03 · Others" + everything else intact). No console errors; `.act-review-item` computes to the intended flex row.
+- **What's next:** not merging myself — Owner/reviewer to merge. NB this touches `activity.js` like my open PRs #160/#161/#165; distinct function (`buildReviewItem`) so conflicts should be minimal, but whichever merges first, the rest may need a trivial rebase.
+
+---
+
 ## 2026-07-10 · Claude (for Jeevan) · qa/pr-a3-review-reminder — A3 popup simplified: real info + working Review button
 
 - **Files:** `public/js/exportGuards.js` (new `unreviewedItemLabel`, `unreviewedSummary`; `requestReviewedConfirmation` renders an item list + fires `opts.onCancel`), `public/js/components/reports.js` + `payments.js` + `grid.js` (wired `onReview` via the existing `deps.switchView`), `public/css/app.css`, `tests/frontend/exportGuards.test.js`.
