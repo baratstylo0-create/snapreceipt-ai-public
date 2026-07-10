@@ -15,6 +15,19 @@ test('duplicate: same merchant + amount within window is flagged', async () => {
   assert.strictEqual(r.status_suggestion, 'needs_review');
 });
 
+// Issue #162 D13: the matched row itself must ride along (not just its id embedded in a
+// text string) so a caller can build "View existing" / "Edit" buttons off it.
+test('duplicate: the matched existing row is returned as duplicateOf', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const r = await detectAnomalies({ merchant: 'shell', amount: 50, expense_date: '2026-06-02' }, { history, useLLM: false });
+  assert.strictEqual(r.duplicateOf && r.duplicateOf.id, 'a1');
+});
+
+test('no duplicate -> duplicateOf is null', async () => {
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 999, expense_date: '2026-06-02' }, { history: [], useLLM: false });
+  assert.strictEqual(r.duplicateOf, null);
+});
+
 test('duplicate: outside the date window is NOT a duplicate', async () => {
   const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
   const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-20' }, { history, useLLM: false });

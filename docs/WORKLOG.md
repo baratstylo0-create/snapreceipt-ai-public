@@ -1,4 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
+
+## 2026-07-10 · Codex (for Jeevan) · qa/upload-staff-assign-153 — dashboard bulk-upload staff assignment + duplicate presentation
+
+- **Files:** `routes/expenses.js`, `routes/upload.js`, `public/js/components/upload.js`, `public/css/app.css`, `tests/expenses.staffassign.test.js` (new), `tests/frontend/upload.staffassign.test.js` (new), `tests/upload.route.test.js`.
+- **What changed:** Implemented the Jeevan-lane/core of issue #153 on a branch off current `main`: dashboard-upload saved rows now return `branch_id`/`staff_user_id`, render as a saved-results grid with per-row staff dropdowns, and support a multi-select **assign selected → staff** flow using one bulk `PATCH /api/expenses` endpoint. The endpoint is business-mode only, validates request bodies, allows clearing with `staff_user_id:null`, and enforces the M2 isolation contract: clerks can assign only own-branch rows to own-branch staff; admins can work across branches but cannot assign a row to staff from another branch. Duplicate flagged upload rows are now enriched from the saved row's anomaly metadata with the new review-row id + parsed existing duplicate id, so the upload result can show "Possible duplicate of existing expense …" with View/Discard actions (Discard routes through the existing review reject endpoint).
+- **Coordination flags:** Did **not** add the image content-hash/dedup schema column; that remains Barat's lane and shared with the bot side (#152). The new bulk staff endpoint is in `routes/expenses.js`, so it may need a trivial merge-order rebase against Claude-J's endpoint PRs (#160/#161/#165). Failed-file thumbnail/re-add remains Mugi-lane per issue #153.
+- **Tests:** TDD added route + frontend helper coverage. Focused upload/staff pack **51/51**. Full suite **1657/1657** with `.env` moved aside/restored.
+- **What's next:** push branch and open PR against `main`; stop for Claude-J review/merge. Do not merge.
+- **Assumptions:** The current duplicate engine exposes the existing row id only inside the anomaly detail string (`matches existing expense <id>`); this PR parses and presents that safely, but the stronger exact-image duplicate identity still depends on Barat's shared content-hash work.
+
+---
 > Append-only ledger of every push. **A push that isn't logged here did not happen** (SOP §4.3, §7).
 > Format: date · who (Claude/human) · branch · files touched · what changed · what's next · new assumptions.
 
@@ -24,6 +35,30 @@
 - **Tests:** TDD red-first — `countUnreviewed` (counts only `needs_review`, garbage-tolerant), `reviewReminderMessage` (singular/plural + count), and `runExportGuard` decision matrix (empty→onEmpty/no-fetch; 0→proceed/no-popup; >0→reminder-with-count/`Download anyway`, proceeds only on confirm; fetch-error and no-apiFetch→generic fallback). The DOM modal is dependency-injected (`opts.confirm`) so the orchestrator is fully testable without a browser. Full suite **1652/1652** green (`.env` moved aside/restored), +8 over the 1644 baseline.
 - **Live-verified** in the browser preview (real modal DOM, not the injected fake): 2 unreviewed → popup reads "You still have **2 receipts** waiting for review in Activity. Download anyway?" with `Download anyway` + `Go review`, no export before clicking; 1 unreviewed → correct singular "**1 receipt**"; clicking `Download anyway` proceeds and closes; **0 unreviewed → no popup at all, export runs directly**. No console errors.
 - **What's next:** not merging myself — Owner/reviewer to merge. This closes the last open item from Codex's PR-A/E/F scope (A3's pre-export confirm). Remaining QA-round work: my PRs #160/#161/#165 + Barat's issues #162/#164 all awaiting review, then VPS deploy.
+
+---
+
+## 2026-07-09 · Claude (Opus, for Barat) · qa/pr-k-telegram — QA PR-D: Telegram bot fixes D10–D13 (#162)
+- **Files:** `lib/ocr.js` (D10 blurry-reject, D13 duplicate-reject + reply/keyboard), `lib/anomaly.js` (D13 `duplicateOf` additive), `lib/bot.js` (D11 always-ask-staff + prior-status restore, D12 `is_persistent`, D13 `dupview:`/`dupedit:`/`dupstaff:` callback branches). Tests: `tests/ingest.test.js` (+6), `tests/ocr.categorypicker.test.js` (+4), `tests/anomaly.test.js` (+2), `tests/bot.business.staffscope.test.js` (+3, 1 amended), `tests/bot.menu.test.js` (+1), `tests/bot.duplicate.test.js` (**new**, +9). All my lane.
+- **What — TDD, RED→GREEN, closes the four QA items in `docs/qa` PR-D / issue #162:**
+  - **D10 (reject blurry):** new `image_unclear` vision-prompt key (single-photo path); `assembleExpense` rejects BEFORE insert when set, reusing the existing `blurry` skip message ("photo not clear, please resend"). Fails open on a garbled signal. Catches the "7/4/2026 → garbled" misread that presence-based confidence structurally can't — root cause was a blurry image, not the date parser (`parseDateLoose` already reads DD/MM/YYYY correctly; #149's date-robustness already on main).
+  - **D11 (always ask staff):** `sendStaffPicker` marks `status:'awaiting_staff'` (remembering prior status); the `sp:` tap restores that prior status on resolve. **Owner-confirmed semantics:** save-then-ask-and-mark-pending (matches the awaiting_date/category/remark idiom), NOT hold-before-insert — nothing lost if the prompt goes unanswered (fixable on dashboard). Scoped to business mode with a populated staff directory (personal/no-directory unchanged).
+  - **D12 (menu on PC/web):** `MAIN_MENU_KEYBOARD` gains `is_persistent:true` so Telegram Desktop/Web keep the reply keyboard visible instead of collapsing it (mobile already auto-shows). Owner-confirmed: reply-keyboard fix only, no native `setMyCommands` menu.
+  - **D13 (duplicates):** `detectAnomalies` returns the matched row as `duplicateOf`; `assembleExpense` gains opt-in `rejectDuplicates` (Telegram single-photo path only — dashboard bulk path keeps flag-and-save, #153's lane) → returns `{duplicate,duplicateOf}` without inserting a 2nd row; reply carries 👀 View / ✏️ Edit → Edit staff (reopens the real staff picker) / 🗑️ Delete (reuses `delask:`). All ownership-checked. **Dedup key = existing findDuplicate heuristic (merchant+amount+date within 3d)** per #162's own suggestion.
+- **Tests: full suite 1669/1669** (hermetic — ran green with NO `.env` present; +25 net new).
+- **What's next:** Owner/reviewer merges (no self-merge). Then live Premala QA: blurry→resend ask, clear→staff prompt every time, same receipt twice→duplicate reject w/ View/Edit/Delete, menu visible on Desktop/Web.
+- **Assumptions:** Premala date locale is DD/MM/YYYY (matches MYT throughout). D13's heuristic dedup should later CONVERGE with #152/#153's exact-image `file_unique_id`/content-hash key into one shared column — flagged, deliberately NOT built here (out of #162's scope). ⚠️ **Local `.env` was lost this session** (my error deleting a `.env.bak.tmp` that was the only surviving copy) — must be repopulated from source secrets before local live-bot QA; the live VPS `.env` and the (hermetic) test suite are unaffected.
+
+---
+
+## 2026-07-10 · Claude (for Jeevan) · ops (VPS deploy, not a push) — main @ 077fdaa deployed to Premala VPS
+
+- **What.** `main` at `077fdaa` (PR #159 F: Reports→Overview fold + Manage export trio, plus doc-only #163/#170) deployed to the Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 `receipt-analyser`). Built the tarball from an isolated `git worktree --detach` pinned to `origin/main` (not the shared working directory, which was mid-branch-switch on QA-round work) — same isolation pattern as the previous deploy.
+- **Method:** no `package.json` diff since the last deploy → no `npm install`; copied the existing `node_modules` into the new extract instead of reinstalling. Extracted into a staging dir (`/opt/receipt-analyser-new`), copied the live `.env` in, `node --check server.js` sanity-passed, then swapped directories (`receipt-analyser` → `receipt-analyser-old` kept as a rollback point, new dir promoted) and `pm2 restart --update-env`.
+- **Verified live:** `/health` → `{"ok":true}`; `/ready` → `{"ok":true,"deps":{"db":"up"}}`; `GET /js/components/manage.js` served the new sub-page content (confirms PR-F actually took effect, not a stale restart); `/api/config` → `multi_user:true, excel_lite_grid:true, branch_submission:true` (Premala profile intact); pm2 error log showed only routine 401 `auth_fail` bot-scan noise, no crashes, no restart loop.
+- **NOT deployed (intentionally):** the QA round's 5 code PRs — #160 (G), #161 (H), #165 (I), #167 (A3 refinement), #169 (review-card details) — are still open, awaiting GPT-5.5/Codex's independent review (Track 1 of `docs/qa/2026-07-10-codex-handoff.md`) before merge. Deploying `main` as-is means the colleague can QA everything already merged (personal M1, M2 business layer, PR-A/E/F) live now; the newer B7/B8/B9/B4/A3-popup/review-card features are local/PR-only until Codex's pass clears and they merge.
+- **Cleanup:** deploy tarball removed from VPS `/tmp` and local temp; deploy worktree removed. `/opt/receipt-analyser-old` left in place on the VPS as a same-session rollback point (not yet deleted).
+- **What's next:** once Codex's Track-1 review lands (fixes applied / findings resolved), merge the 5 held PRs as a batch and redeploy.
 
 ---
 

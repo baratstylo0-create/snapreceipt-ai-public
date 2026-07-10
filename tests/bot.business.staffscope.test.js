@@ -103,6 +103,30 @@ test('sendStaffPicker: missing expense or branch is a silent no-op', async () =>
   assert.strictEqual(sent.length, 0);
 });
 
+// --- Issue #162 D11: "always ask for staff name" — the ask must be a tracked, real
+// pending state (status: 'awaiting_staff'), not just a fire-and-forget message that can
+// go unanswered with no trace. ---
+
+test('sendStaffPicker: marks the receipt awaiting_staff when it actually asks', async () => {
+  const { deps, updates } = baseDeps({ listStaff: async () => STAFF });
+  await sendStaffPicker(30, { id: 'e-await1', merchant: 'Shop', amount: 5, status: 'saved' }, 'br-A', deps);
+  assert.deepStrictEqual(updates, [{ table: 'expenses', where: { id: 'e-await1' }, patch: { status: 'awaiting_staff' } }]);
+});
+
+test('sendStaffPicker: a branch with no staff directory never touches status (nothing to ask)', async () => {
+  const { deps, updates } = baseDeps({ listStaff: async () => [] });
+  await sendStaffPicker(31, { id: 'e-await2', merchant: 'X', amount: 1, status: 'saved' }, 'br-A', deps);
+  assert.strictEqual(updates.length, 0);
+});
+
+test('staff tap: resolving the pick restores the PRIOR status (e.g. needs_review), not a hardcoded "saved"', async () => {
+  const { deps: pickDeps } = baseDeps({ listStaff: async () => STAFF });
+  await sendStaffPicker(32, { id: 'e-await3', merchant: 'Shop', amount: 7, status: 'needs_review' }, 'br-A', pickDeps);
+  const { deps: tapDeps, updates } = baseDeps();
+  await handleCallbackQuery(spTap(32, 'e-await3', 0), tapDeps);
+  assert.strictEqual(updates[0].patch.status, 'needs_review', 'must restore the anomaly flag, not silently clear it');
+});
+
 // --- the staff-tag tap (sp:<expenseId>:<idx>) --------------------------------------------
 
 test('staff tap: tapping a name stamps staff_user_id on that expense and confirms in place', async () => {
@@ -112,7 +136,10 @@ test('staff tap: tapping a name stamps staff_user_id on that expense and confirm
 
   const { deps: tapDeps, updates, edited, answered } = baseDeps();
   await handleCallbackQuery(spTap(20, 'e-tag1', 1), tapDeps); // idx 1 = Mei
-  assert.deepStrictEqual(updates, [{ table: 'expenses', where: { id: 'e-tag1' }, patch: { staff_user_id: 's-mei' } }]);
+  // Issue #162 D11: resolving the pick also restores the receipt's prior status (here
+  // 'saved', since this fixture's expense had no status set) — see the dedicated
+  // priorStatus test below for the 'needs_review' case.
+  assert.deepStrictEqual(updates, [{ table: 'expenses', where: { id: 'e-tag1' }, patch: { staff_user_id: 's-mei', status: 'saved' } }]);
   assert.match(edited[0].text, /Tagged to \*Mei\*/);
   assert.strictEqual(answered[0].opts.text, 'Tagged');
 });
