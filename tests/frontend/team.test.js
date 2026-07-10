@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches, botDeepLink,
-  viewedCredentialPanel, copyBlockText,
+  viewedCredentialPanel, copyBlockText, branchDeleteWarning,
 } = require('../../public/js/components/team');
 
 test('isAdmin: true only for role admin, false for clerk/staff/missing/garbage', () => {
@@ -137,4 +137,21 @@ test('copyBlockText: no configured bot username -> falls back to the raw bind co
 test('copyBlockText: no bindToken at all -> no Bot link line, never throws', () => {
   const text = copyBlockText({ username: 'kl-ab12', password: 'p', bindToken: null }, 'ReceiptBot');
   assert.doesNotMatch(text, /Bot link/);
+});
+
+// --- branchDeleteWarning: the confirmation-modal copy (QA round — replaces the old
+// inline two-step "Remove branch" / "Confirm remove" button with a real warning window) ---
+
+test('branchDeleteWarning: names the branch and warns it revokes the clerk login + unbinds the bot', () => {
+  const w = branchDeleteWarning(normalizeBranch({ office: 'Ipoh', clerk_name: 'Ali' }));
+  assert.match(w.title, /Ipoh/);
+  assert.match(w.message, /revoke/i);
+  assert.match(w.message, /clerk/i);
+  assert.match(w.message, /bot/i);
+});
+
+test('branchDeleteWarning: tolerant of a garbage/partial branch, never throws', () => {
+  const w = branchDeleteWarning(null);
+  assert.strictEqual(typeof w.title, 'string');
+  assert.strictEqual(typeof w.message, 'string');
 });
