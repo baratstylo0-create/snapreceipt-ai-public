@@ -63,6 +63,36 @@
     };
   }
 
+  // viewedCredentialPanel(office, resp) -> the "view anytime" model from a real
+  // GET /api/branches/:id/credentials response (ADR-025 amendment, Owner-approved).
+  // Unlike credentialPanel (the one-time POST-response model, which requires a
+  // password and returns null otherwise), this NEVER returns null — a fetched branch
+  // always has SOMETHING to show — and tolerates password:null for a legacy branch
+  // (created before this feature, or CRED_ENC_KEY wasn't configured), which the panel
+  // renders as "no password on file" with a Reset option instead of the value.
+  function viewedCredentialPanel(office, resp) {
+    return {
+      office: office || '',
+      username: (resp && resp.username) || '',
+      password: (resp && resp.password) || null,
+      bindToken: (resp && resp.bindToken) || '',
+    };
+  }
+
+  // copyBlockText(c, botUsername) -> the single paste-ready block the copy-icon puts on
+  // the clipboard: username + password (when known) + the bot-binding link (or raw code
+  // as a fallback, mirroring the panel's own link/code degrade). Omits the password line
+  // entirely for a legacy branch rather than printing a confusing "null".
+  function copyBlockText(c, botUsername) {
+    var lines = ['Username: ' + (c && c.username || '')];
+    if (c && c.password) lines.push('Password: ' + c.password);
+    if (c && c.bindToken) {
+      var link = botDeepLink(botUsername, c.bindToken);
+      lines.push('Bot link: ' + (link || c.bindToken));
+    }
+    return lines.join('\n');
+  }
+
   // botDeepLink(botUsername, bindToken) -> a clickable https://t.me/<bot>?start=<token> URL,
   // or null when botUsername isn't configured (the frontend then falls back to showing the
   // raw code for copy-paste). Mirrors setup/provision.js's CLI bindingLink() — same
@@ -103,7 +133,9 @@
       staffByBranch: {},      // branchId -> [{id,name}]
       companies: [],          // admin only, [] if the dimension is off
       companiesEnabled: null, // null = not probed yet; feature-detected via a live 404
-      newCred: null,          // the just-created branch's one-time credential panel
+      newCred: null,          // the credential panel model (creation OR "view anytime")
+      newCredMode: null,      // 'created' (one-time, from POST) | 'viewed' (re-fetched, ADR-025)
+      newCredBranchId: null,  // which branch the open panel belongs to (for Reset password)
       error: '',
     };
 
@@ -118,22 +150,69 @@
 
     function ghostBtn(label) { var b = el('button', 'team-btn team-btn--ghost'); b.type = 'button'; Escape.setText(b, label); return b; }
 
-    // ---- one-time credential panel (shown once, dismissible, never re-fetchable) ----
+    // ---- credential panel: shown once at creation, OR re-opened anytime via the branch
+    // card's user icon (ADR-025 amendment, Owner-approved 2026-07-11 QA round). Same
+    // panel either way; `state.newCredMode` ('created' | 'viewed') only changes the
+    // header copy — the "shown only once" warning is misleading once it's re-fetchable.
     function renderCredPanel(host) {
       if (!state.newCred) return;
       var c = state.newCred;
+      var viewing = state.newCredMode === 'viewed';
       var panel = el('div', 'team-cred-panel');
-      panel.appendChild(textEl('div', 'team-cred-title', 'Branch created — save these now'));
-      panel.appendChild(textEl('div', 'team-cred-warn', 'This password is shown only once. It cannot be retrieved again — write it down or share it securely with the ' + c.office + ' clerk now.'));
+
+      var head = el('div', 'team-cred-head');
+      head.appendChild(textEl('div', 'team-cred-title', viewing ? (c.office + ' — credentials') : 'Branch created — save these now'));
+      // Copy-all icon (QA round Issue 4): one tap copies username + password (when known)
+      // + the bot-binding link, as a single paste-ready block for sharing with the clerk.
+      var copyBtn = el('button', 'team-cred-copy'); copyBtn.type = 'button';
+      copyBtn.setAttribute('aria-label', 'Copy username, password, and bot link');
+      Escape.setText(copyBtn, '📋 Copy');
+      copyBtn.addEventListener('click', function () {
+        var botUsername = deps.config && deps.config.bot_username;
+        var text = copyBlockText(c, botUsername);
+        if (!(navigator.clipboard && navigator.clipboard.writeText)) return;
+        navigator.clipboard.writeText(text).then(function () {
+          Escape.setText(copyBtn, 'Copied ✓');
+          setTimeout(function () { Escape.setText(copyBtn, '📋 Copy'); }, 1500);
+        }).catch(function () { /* clipboard denied — the values are still visible in the panel */ });
+      });
+      head.appendChild(copyBtn);
+      panel.appendChild(head);
+
+      if (!viewing) {
+        panel.appendChild(textEl('div', 'team-cred-warn', 'This password is shown only once. It cannot be retrieved again — write it down or share it securely with the ' + c.office + ' clerk now.'));
+      }
 
       var grid = el('div', 'team-cred-grid');
-      [['Office', c.office], ['Username', c.username], ['Password', c.password]].forEach(function (pair) {
+      var rows = [['Office', c.office], ['Username', c.username]];
+      if (c.password) rows.push(['Password', c.password]);
+      rows.forEach(function (pair) {
         var row = el('div', 'team-cred-row');
         row.appendChild(textEl('span', 'team-cred-label', pair[0]));
         row.appendChild(textEl('span', 'team-cred-value', pair[1]));
         grid.appendChild(row);
       });
       panel.appendChild(grid);
+
+      if (!c.password) {
+        // Legacy branch (created before ADR-025's encrypted-recoverable amendment, or
+        // CRED_ENC_KEY wasn't configured at the time) — there's nothing to decrypt.
+        // Reset is the only way forward; it also covers "I think this leaked".
+        panel.appendChild(textEl('div', 'team-cred-hint', 'No password on file for this branch.'));
+        var resetBtn = ghostBtn('Reset password');
+        resetBtn.addEventListener('click', function () {
+          resetBtn.disabled = true;
+          Api.apiFetch('/api/branches/' + encodeURIComponent(state.newCredBranchId) + '/reset-password', { method: 'POST' }).then(function (resp) {
+            var creds = resp && resp.credentials;
+            state.newCred = { office: c.office, username: (creds && creds.username) || c.username, password: creds && creds.password, bindToken: c.bindToken };
+            state.newCredMode = 'viewed';
+            render();
+          }).catch(function () {
+            resetBtn.disabled = false;
+          });
+        });
+        panel.appendChild(resetBtn);
+      }
 
       if (c.bindToken) {
         var bindRow = el('div', 'team-cred-row');
@@ -159,8 +238,8 @@
         }
       }
 
-      var dismiss = ghostBtn('I’ve saved this — dismiss');
-      dismiss.addEventListener('click', function () { state.newCred = null; render(); });
+      var dismiss = ghostBtn(viewing ? 'Close' : 'I’ve saved this — dismiss');
+      dismiss.addEventListener('click', function () { state.newCred = null; state.newCredMode = null; state.newCredBranchId = null; render(); });
       panel.appendChild(dismiss);
       host.appendChild(panel);
     }
@@ -203,6 +282,8 @@
           state.branches.push(b);
           state.staffByBranch[b.id] = [];
           state.newCred = credentialPanel(b.office, resp);
+          state.newCredMode = 'created';
+          state.newCredBranchId = b.id;
           render();
         }).catch(function (err) {
           submit.disabled = false;
@@ -303,8 +384,32 @@
     function renderBranchCard(host, b) {
       var card = el('div', 'team-branch-card' + (b.active ? '' : ' is-inactive'));
       var head = el('div', 'team-branch-head');
-      head.appendChild(textEl('span', 'team-branch-name', b.office + (b.state ? ' · ' + b.state : '')));
-      if (b.clerkName) head.appendChild(textEl('span', 'team-branch-clerk', 'Clerk: ' + b.clerkName));
+      var nameCol = el('div', 'team-branch-name-col');
+      nameCol.appendChild(textEl('span', 'team-branch-name', b.office + (b.state ? ' · ' + b.state : '')));
+      if (b.clerkName) nameCol.appendChild(textEl('span', 'team-branch-clerk', 'Clerk: ' + b.clerkName));
+      head.appendChild(nameCol);
+      if (admin) {
+        // ADR-025 amendment (QA round Issue 1): view this branch's login anytime, not
+        // just at creation — top-right of the card, opens the SAME credential panel used
+        // at creation (viewedCredentialPanel tolerates a legacy branch's null password).
+        var credBtn = el('button', 'team-branch-cred-btn'); credBtn.type = 'button';
+        credBtn.setAttribute('aria-label', 'View ' + b.office + '’s login');
+        credBtn.title = 'View login';
+        Escape.setText(credBtn, '👤');
+        credBtn.addEventListener('click', function () {
+          credBtn.disabled = true;
+          Api.apiFetch('/api/branches/' + encodeURIComponent(b.id) + '/credentials').then(function (resp) {
+            state.newCred = viewedCredentialPanel(b.office, resp);
+            state.newCredMode = 'viewed';
+            state.newCredBranchId = b.id;
+            credBtn.disabled = false;
+            render();
+          }).catch(function () {
+            credBtn.disabled = false;
+          });
+        });
+        head.appendChild(credBtn);
+      }
       card.appendChild(head);
 
       if (admin) {
@@ -456,6 +561,8 @@
     normalizeStaff: normalizeStaff,
     normalizeCompany: normalizeCompany,
     credentialPanel: credentialPanel,
+    viewedCredentialPanel: viewedCredentialPanel,
+    copyBlockText: copyBlockText,
     sortedBranches: sortedBranches,
     botDeepLink: botDeepLink,
     // render (browser)
