@@ -6,6 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches, botDeepLink,
+  branchDeleteWarning,
 } = require('../../public/js/components/team');
 
 test('isAdmin: true only for role admin, false for clerk/staff/missing/garbage', () => {
@@ -95,4 +96,21 @@ test('botDeepLink: null when the bot username is unset (frontend falls back to t
 test('botDeepLink: null when the bind token is missing, even with a configured bot', () => {
   assert.strictEqual(botDeepLink('ReceiptBot', ''), null);
   assert.strictEqual(botDeepLink('ReceiptBot', null), null);
+});
+
+// --- branchDeleteWarning: the confirmation-modal copy (QA round — replaces the old
+// inline two-step "Remove branch" / "Confirm remove" button with a real warning window) ---
+
+test('branchDeleteWarning: names the branch and warns it revokes the clerk login + unbinds the bot', () => {
+  const w = branchDeleteWarning(normalizeBranch({ office: 'Ipoh', clerk_name: 'Ali' }));
+  assert.match(w.title, /Ipoh/);
+  assert.match(w.message, /revoke/i);
+  assert.match(w.message, /clerk/i);
+  assert.match(w.message, /bot/i);
+});
+
+test('branchDeleteWarning: tolerant of a garbage/partial branch, never throws', () => {
+  const w = branchDeleteWarning(null);
+  assert.strictEqual(typeof w.title, 'string');
+  assert.strictEqual(typeof w.message, 'string');
 });

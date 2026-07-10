@@ -74,6 +74,17 @@
     return 'https://t.me/' + bot + '?start=' + encodeURIComponent(token);
   }
 
+  // branchDeleteWarning(branch) -> { title, message } for the delete-confirmation modal.
+  // Tolerant of a garbage/partial branch (falls back to normalizeBranch's own defaults).
+  function branchDeleteWarning(branch) {
+    var b = normalizeBranch(branch);
+    return {
+      title: 'Remove ' + b.office + '?',
+      message: 'This will permanently remove the branch and revoke the clerk\'s login. '
+        + 'The Telegram bot binding for this branch will also be unbound. This cannot be undone.',
+    };
+  }
+
   // sortedBranches(branches) -> active branches first, alphabetical by office within each group.
   function sortedBranches(branches) {
     var list = (Array.isArray(branches) ? branches : []).slice();
@@ -299,6 +310,47 @@
       host.appendChild(addForm);
     }
 
+    // ---- delete-confirmation modal (QA round: was an inline two-step button, now a real
+    // warning window so a fast double-click can't accidentally remove a branch) ----
+    function openDeleteModal(b, triggerBtn) {
+      var warn = branchDeleteWarning(b);
+      var overlay = el('div', 'team-modal-overlay');
+      var modal = el('div', 'team-modal');
+      modal.setAttribute('role', 'alertdialog');
+      modal.setAttribute('aria-label', warn.title);
+      modal.appendChild(textEl('div', 'team-modal-title', warn.title));
+      modal.appendChild(textEl('p', 'team-modal-message', warn.message));
+
+      var actions = el('div', 'team-modal-actions');
+      var cancel = el('button', 'team-btn team-btn--ghost'); cancel.type = 'button';
+      Escape.setText(cancel, 'Cancel');
+      var confirm = el('button', 'team-btn team-btn--danger'); confirm.type = 'button';
+      Escape.setText(confirm, 'Remove branch');
+      actions.appendChild(cancel); actions.appendChild(confirm);
+      modal.appendChild(actions);
+      overlay.appendChild(modal);
+
+      function closeModal() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+      overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeModal(); });
+      cancel.addEventListener('click', closeModal);
+      confirm.addEventListener('click', function () {
+        confirm.disabled = true;
+        cancel.disabled = true;
+        Api.apiFetch('/api/branches/' + encodeURIComponent(b.id), { method: 'DELETE' }).then(function () {
+          state.branches = state.branches.filter(function (x) { return x.id !== b.id; });
+          delete state.staffByBranch[b.id];
+          closeModal();
+          render();
+        }).catch(function () {
+          confirm.disabled = false;
+          cancel.disabled = false;
+          Escape.setText(confirm, 'Failed — try again');
+        });
+      });
+
+      document.body.appendChild(overlay);
+    }
+
     // ---- one branch card (admin: full card + remove; clerk: staff-only, no card chrome) ----
     function renderBranchCard(host, b) {
       var card = el('div', 'team-branch-card' + (b.active ? '' : ' is-inactive'));
@@ -310,25 +362,8 @@
       if (admin) {
         var rmBranch = el('button', 'team-branch-remove'); rmBranch.type = 'button';
         Escape.setText(rmBranch, 'Remove branch');
-        var confirming = false;
         rmBranch.addEventListener('click', function () {
-          if (!confirming) {
-            confirming = true;
-            Escape.setText(rmBranch, 'Confirm remove (revokes clerk login)');
-            rmBranch.classList.add('is-confirming');
-            return;
-          }
-          rmBranch.disabled = true;
-          Api.apiFetch('/api/branches/' + encodeURIComponent(b.id), { method: 'DELETE' }).then(function () {
-            state.branches = state.branches.filter(function (x) { return x.id !== b.id; });
-            delete state.staffByBranch[b.id];
-            render();
-          }).catch(function () {
-            confirming = false;
-            rmBranch.disabled = false;
-            rmBranch.classList.remove('is-confirming');
-            Escape.setText(rmBranch, 'Remove branch');
-          });
+          openDeleteModal(b, rmBranch);
         });
         card.appendChild(rmBranch);
       }
@@ -458,6 +493,7 @@
     credentialPanel: credentialPanel,
     sortedBranches: sortedBranches,
     botDeepLink: botDeepLink,
+    branchDeleteWarning: branchDeleteWarning,
     // render (browser)
     mount: mount,
   };
