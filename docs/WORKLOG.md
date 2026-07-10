@@ -15,6 +15,19 @@
 - **What's next:** Owner/reviewer merges (no self-merge). Then live Premala QA: blurry→resend ask, clear→staff prompt every time, same receipt twice→duplicate reject w/ View/Edit/Delete, menu visible on Desktop/Web.
 - **Assumptions:** Premala date locale is DD/MM/YYYY (matches MYT throughout). D13's heuristic dedup should later CONVERGE with #152/#153's exact-image `file_unique_id`/content-hash key into one shared column — flagged, deliberately NOT built here (out of #162's scope). ⚠️ **Local `.env` was lost this session** (my error deleting a `.env.bak.tmp` that was the only surviving copy) — must be repopulated from source secrets before local live-bot QA; the live VPS `.env` and the (hermetic) test suite are unaffected.
 
+---
+
+## 2026-07-10 · Claude (for Jeevan) · ops (VPS deploy, not a push) — main @ 077fdaa deployed to Premala VPS
+
+- **What.** `main` at `077fdaa` (PR #159 F: Reports→Overview fold + Manage export trio, plus doc-only #163/#170) deployed to the Premala VPS (`31.97.70.50`, `/opt/receipt-analyser`, PM2 `receipt-analyser`). Built the tarball from an isolated `git worktree --detach` pinned to `origin/main` (not the shared working directory, which was mid-branch-switch on QA-round work) — same isolation pattern as the previous deploy.
+- **Method:** no `package.json` diff since the last deploy → no `npm install`; copied the existing `node_modules` into the new extract instead of reinstalling. Extracted into a staging dir (`/opt/receipt-analyser-new`), copied the live `.env` in, `node --check server.js` sanity-passed, then swapped directories (`receipt-analyser` → `receipt-analyser-old` kept as a rollback point, new dir promoted) and `pm2 restart --update-env`.
+- **Verified live:** `/health` → `{"ok":true}`; `/ready` → `{"ok":true,"deps":{"db":"up"}}`; `GET /js/components/manage.js` served the new sub-page content (confirms PR-F actually took effect, not a stale restart); `/api/config` → `multi_user:true, excel_lite_grid:true, branch_submission:true` (Premala profile intact); pm2 error log showed only routine 401 `auth_fail` bot-scan noise, no crashes, no restart loop.
+- **NOT deployed (intentionally):** the QA round's 5 code PRs — #160 (G), #161 (H), #165 (I), #167 (A3 refinement), #169 (review-card details) — are still open, awaiting GPT-5.5/Codex's independent review (Track 1 of `docs/qa/2026-07-10-codex-handoff.md`) before merge. Deploying `main` as-is means the colleague can QA everything already merged (personal M1, M2 business layer, PR-A/E/F) live now; the newer B7/B8/B9/B4/A3-popup/review-card features are local/PR-only until Codex's pass clears and they merge.
+- **Cleanup:** deploy tarball removed from VPS `/tmp` and local temp; deploy worktree removed. `/opt/receipt-analyser-old` left in place on the VPS as a same-session rollback point (not yet deleted).
+- **What's next:** once Codex's Track-1 review lands (fixes applied / findings resolved), merge the 5 held PRs as a batch and redeploy.
+
+---
+
 ## 2026-07-10 · Codex + Claude-J (for Jeevan) · qa/pr-f-ia — QA PR-F: Reports→Overview fold + Manage export trio
 
 - **Authored by GPT-5.5/Codex, finished + verified by Claude-J** (Owner-directed takeover; Codex rate-limited mid-PR). Codex's uncommitted WIP was preserved as commit `da3ea05` before Claude finished it.
