@@ -9,9 +9,11 @@ const express = require('express');
 const { getCapabilities } = require('../lib/account');
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sbSelect } = require('../lib/supabase');
+const { logSecurity } = require('../lib/log');
 const { checkDash } = require('./expenses'); // shared auth gate: sets req.scope in business mode
 const {
   createBranch, listBranches, softDeleteBranch, addStaff, listStaff, removeStaff,
+  getBranchCredentials, resetBranchPassword,
 } = require('../lib/branches');
 
 // Generous default — this is an internal provisioning surface, not a public endpoint (SEC-7).
@@ -92,6 +94,39 @@ module.exports = function mountBranches(app) {
     } catch (e) {
       console.error('[branches delete]', e.message);
       return res.status(502).json({ error: 'failed to delete branch' });
+    }
+  });
+
+  // GET /api/branches/:id/credentials — admin: view a branch's login AGAIN (ADR-025
+  // amendment, Owner-approved). `password` is null for a legacy branch (no encrypted
+  // copy on file) — the client shows "no password on file, use Reset" for that case.
+  // Every access is logged (who/when/which branch) via the security-event channel —
+  // this is real sensitive-data re-display, not a one-time show.
+  app.get('/api/branches/:id/credentials', businessOnly, branchesLimiter, checkDash, async (req, res) => {
+    if (!isAdmin(req)) return forbid(res);
+    try {
+      const creds = await getBranchCredentials(req.params.id);
+      if (!creds) return res.status(404).json({ error: 'not found' });
+      logSecurity('cred_view', { branch_id: String(req.params.id), admin_user_id: String((req.user && req.user.user_id) || '') });
+      return res.json(creds);
+    } catch (e) {
+      console.error('[branches credentials]', e.message);
+      return res.status(502).json({ error: 'failed to load credentials' });
+    }
+  });
+
+  // POST /api/branches/:id/reset-password — admin: issue a fresh password (revokes the
+  // clerk's existing sessions). Covers the legacy-branch case above and lets an admin
+  // rotate a credential on suspicion of compromise, same "show once" contract as create.
+  app.post('/api/branches/:id/reset-password', businessOnly, branchesLimiter, checkDash, async (req, res) => {
+    if (!isAdmin(req)) return forbid(res);
+    try {
+      const credentials = await resetBranchPassword(req.params.id);
+      logSecurity('cred_reset', { branch_id: String(req.params.id), admin_user_id: String((req.user && req.user.user_id) || '') });
+      return res.json({ credentials });
+    } catch (e) {
+      console.error('[branches reset-password]', e.message);
+      return res.status(502).json({ error: 'failed to reset password' });
     }
   });
 
