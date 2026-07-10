@@ -56,6 +56,20 @@ function sanitizeSummary(summary) {
   return { ...summary, failed };
 }
 
+function duplicateInfo(expense) {
+  const reasons = expense && expense.anomaly && Array.isArray(expense.anomaly.reasons)
+    ? expense.anomaly.reasons : [];
+  const dup = reasons.find((r) => r && r.type === 'duplicate');
+  if (!dup) return null;
+  const detail = String(dup.detail || '');
+  const m = detail.match(/matches existing expense\s+([^\s)]+)/i);
+  return {
+    expense_id: expense.id || null,
+    existing_expense_id: m ? m[1] : null,
+    duplicate_detail: detail || 'possible duplicate',
+  };
+}
+
 module.exports = function mountUpload(app, deps = {}) {
   const runBatch = deps.runBatch || realRunBatch;
   // Resolve via 'in deps' so a test can force the unavailable (503) path with an explicit undefined,
@@ -135,17 +149,29 @@ module.exports = function mountUpload(app, deps = {}) {
       // per saved receipt (lib/bot.js's captureAssemble) — mirror that same wrapper here so
       // the dashboard can show it too, plus the row id for a "View in Activity" link.
       const savedItems = [];
+      const flaggedDetails = [];
       const captureAssemble = async (args) => {
         const result = await assembleExpense(args);
         if (result && result.expense && !result.skipped) {
           const e = result.expense;
-          savedItems.push({ id: e.id, merchant: e.merchant, amount: e.amount, currency: e.currency, category: e.category, voucher_no: e.voucher_no });
+          savedItems.push({
+            id: e.id, merchant: e.merchant, amount: e.amount, currency: e.currency,
+            category: e.category, voucher_no: e.voucher_no,
+            branch_id: e.branch_id || null,
+            staff_user_id: e.staff_user_id || null,
+          });
+          if (result.flagged) {
+            flaggedDetails.push(duplicateInfo(e) || { expense_id: e.id || null });
+          }
         }
         return result;
       };
       const summary = await runBatch(expanded, fieldSpec, { extractReceipts, assembleExpense: captureAssemble, meta, metas });
       if (summary.failed && summary.failed.length) console.error('[api/upload] failures:', JSON.stringify(summary.failed));
       const out = sanitizeSummary(summary);
+      if (Array.isArray(out.flagged) && flaggedDetails.length) {
+        out.flagged = out.flagged.map((f, i) => ({ ...f, ...(flaggedDetails[i] || {}) }));
+      }
       out.saved_items = savedItems;
       if (pagesTruncated) out.pages_truncated = true;
       res.json(out);

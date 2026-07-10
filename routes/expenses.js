@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const { cfg } = require('../lib/config');
-const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
+const { sbSelect, sbUpdate, sbSoftDelete, sbHardDelete } = require('../lib/supabase');
 const { hreq } = require('../lib/http'); // Phase 4 bulk-pay: chunked id=in.(…) PATCH (multi-row, unlike sbUpdate)
 const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
 const { getFieldSpec } = require('../lib/templates'); // read-only: the account's own chart of accounts
@@ -23,6 +23,7 @@ const dashAuthLimiter = createRateLimiter({ max: Number(process.env.DASH_AUTH_RA
 // The M2 route carries its own generous rate limiter (SEC-7).
 const BULK_PAY_CHUNK = Number(process.env.BULK_PAY_CHUNK) || 100;
 const BULK_PAY_MAX_IDS = Number(process.env.BULK_PAY_MAX_IDS) || 1000;
+const STAFF_ASSIGN_MAX_IDS = Number(process.env.STAFF_ASSIGN_MAX_IDS) || 200;
 const paymentsLimiter = createRateLimiter({ max: Number(process.env.PAYMENTS_RATE_MAX) || 60 });
 
 // Constant-time token comparison (Task J security-QA F1): a plain `===` short-circuits on
@@ -112,6 +113,24 @@ function clerkVisible(rows, scope) {
   if (!scope || scope.role !== 'clerk') return rows;
   return rows.filter((e) => e && String(e.branch_id == null ? '' : e.branch_id) === String(scope.branch_id));
 }
+
+function enc(v) { return encodeURIComponent(String(v)); }
+
+async function patchExpenseStaff(id, branchId, staffUserId) {
+  let url = cfg.SB_REST + '/expenses?id=eq.' + enc(id)
+    + '&account_id=eq.' + enc(cfg.ACCOUNT_ID)
+    + '&deleted_at=is.null';
+  if (branchId) url += '&branch_id=eq.' + enc(branchId);
+  const rows = await hreq({
+    method: 'PATCH',
+    url,
+    headers: { ...cfg.sbH, Prefer: 'return=representation' },
+    body: { staff_user_id: staffUserId },
+    json: true,
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
 // canTouchExpense(req, id) -> { ok:true } | { ok:false, code, error }. For a clerk, look the
 // row up and require it to be on their branch BEFORE any write (PATCH/DELETE) happens.
 async function canTouchExpense(req, id) {
@@ -156,6 +175,58 @@ module.exports = function mountExpenses(app) {
   // 404 with the flag OFF. Registered BEFORE the :id route so Express doesn't swallow the path
   // as :id='payments'. Reversible: paid:false resets to pending and clears paid_at/paid_note.
   // Chunked id=in.(…) PATCHes so one request can't take a giant row lock or blow the URL length.
+  app.patch('/api/expenses',
+    (req, res, next) => (getCapabilities().multiUser ? next() : res.status(404).json({ error: 'not found' })),
+    checkDash, express.json({ limit: '128kb' }), async (req, res) => {
+      res.set('Access-Control-Allow-Origin', dashOrigin());
+      const { ids, staff_user_id } = req.body || {};
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => typeof v !== 'string' || !v)) {
+        return res.status(400).json({ error: 'ids must be a non-empty array of expense ids' });
+      }
+      if (ids.length > STAFF_ASSIGN_MAX_IDS) return res.status(413).json({ error: 'too many ids (max ' + STAFF_ASSIGN_MAX_IDS + ')' });
+      const clearing = staff_user_id === null;
+      if (!clearing && (typeof staff_user_id !== 'string' || staff_user_id === '')) {
+        return res.status(400).json({ error: 'staff_user_id must be a staff id or null' });
+      }
+      try {
+        let staff = null;
+        if (!clearing) {
+          const staffRows = await sbSelect('users', { eq: { id: staff_user_id, role: 'staff', active: true }, limit: 1 });
+          staff = staffRows[0];
+          if (!staff) return res.status(404).json({ error: 'staff not found' });
+          if (req.scope && req.scope.role === 'clerk' && String(staff.branch_id || '') !== String(req.scope.branch_id || '')) {
+            return res.status(403).json({ error: 'staff belongs to another branch' });
+          }
+        }
+
+        const results = [];
+        let updated = 0;
+        for (const id of ids) {
+          const rows = await sbSelect('expenses', { eq: { id }, extra: 'deleted_at=is.null', limit: 1, scope: req.scope });
+          const row = rows[0];
+          if (!row) {
+            results.push({ id, ok: false, code: 404, error: 'expense not found' });
+            continue;
+          }
+          if (staff && String(row.branch_id || '') !== String(staff.branch_id || '')) {
+            results.push({ id, ok: false, code: 403, error: 'staff belongs to another branch' });
+            continue;
+          }
+          const written = await patchExpenseStaff(id, row.branch_id || null, clearing ? null : staff_user_id);
+          if (written[0]) {
+            updated += 1;
+            results.push({ id, ok: true, staff_user_id: written[0].staff_user_id == null ? null : written[0].staff_user_id });
+          } else {
+            results.push({ id, ok: false, code: 409, error: 'expense changed while assigning staff' });
+          }
+        }
+        return res.json({ ok: true, requested: ids.length, updated, staff_user_id: clearing ? null : staff_user_id, results });
+      } catch (e) {
+        console.error('[staff assign]', e.message);
+        return res.status(502).json({ error: 'staff assignment failed' });
+      }
+    });
+
   app.patch('/api/expenses/payments',
     (req, res, next) => (getCapabilities().multiUser ? next() : res.status(404).json({ error: 'not found' })),
     paymentsLimiter, checkDash, express.json({ limit: '256kb' }), async (req, res) => {
@@ -245,6 +316,31 @@ module.exports = function mountExpenses(app) {
       if (!updated.length) return res.status(409).json({ error: 'expense is not deleted' });
       res.json(updated[0]);
     } catch (e) { console.error('[restore expense]', e.message); res.status(502).json({ error: 'restore failed' }); }
+  });
+
+  // DELETE /api/expenses/:id/permanent — QA B8 (docs/qa/2026-07-09-qa-round.md PR-B): the
+  // dashboard's "Rejected" view gets a one-click, NO-CONFIRMATION hard delete (Owner explicit —
+  // do not add a confirm step here, unlike the soft-delete drawer above). Registered as a
+  // distinct path (not a query flag on the existing DELETE) so the soft-delete route above stays
+  // byte-for-byte unchanged. Scoped exactly like every other write here: canTouchExpense gates a
+  // clerk to their own branch BEFORE anything is read or written. Restricted to status='rejected'
+  // rows only — an admin/clerk can't hard-delete a live 'saved'/'needs_review'/'approved' row
+  // through this door; that would defeat the whole point of a reviewable soft-delete elsewhere.
+  app.delete('/api/expenses/:id/permanent', checkDash, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    try {
+      const touch = await canTouchExpense(req, req.params.id);
+      if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
+      const rows = await sbSelect('expenses', { eq: { id: req.params.id }, scope: req.scope });
+      const cur = rows[0];
+      if (!cur) return res.status(404).json({ error: 'expense not found' });
+      if (cur.status !== 'rejected') {
+        return res.status(409).json({ error: 'only a rejected bill can be permanently deleted (status=' + cur.status + ')' });
+      }
+      const deleted = await sbHardDelete('expenses', { id: req.params.id, scope: req.scope, eq: { status: 'rejected' } });
+      if (!deleted.length) return res.status(409).json({ error: 'only a rejected bill can be permanently deleted' });
+      res.json({ ok: true });
+    } catch (e) { console.error('[permanent delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });
 
   // `categories` — the frontend's filter/edit dropdowns + pill colours. Prefers the
