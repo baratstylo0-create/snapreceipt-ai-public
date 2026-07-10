@@ -3,6 +3,47 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
+## ⚡ SESSION END — Claude-J2. READ THIS FIRST. (2026-07-10/11, LATEST-5 — Premala bot LIVE, QA round closed out, auto-deploy shipped, VPS security items deferred by Owner choice)
+
+**main = `3ede83a`** (Merge #180), **1770 tests green** (`node --test --test-concurrency=1` — the `--test-concurrency=1` matters, see GOTCHA below). No open PRs, 8 open issues (routine backlog, nothing blocking). `npm install` first.
+**GOTCHA: repo-root `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.**
+**GOTCHA (new): Windows `node --test` hangs under full parallel concurrency** — not a code bug, confirmed via serial run + CI passing identically on Linux. Always run the full suite with `--test-concurrency=1` locally; don't chase it as a regression if you hit it.
+
+### The Premala VPS is LIVE — bot is ON, dashboard is reachable, real QA has happened
+- **VPS:** `31.97.70.50`, root SSH key at `~/.ssh/newvps_ed25519` (already set up in this environment, not something you need from the Owner). `/opt/README.md` on the box itself is a shared-tenancy guardrail — **read it before running anything** — this box also hosts Barat's `frictionai`/`quote-server`/`health-monitor`, never touch those without his sign-off.
+- **`receipt_file_unique_id` migration applied** to the correct Supabase project (Premala, `xurnpvesgcybrnilxszf` — NOT the FrictionAI parent `fziaxuhonvrhqjulhcyu`) and verified via `information_schema.columns` + a live API probe before the bot was turned on.
+- **Telegram bot is registered and working** (`PUBLIC_URL`/`WEBHOOK_CERT_PATH` set, self-signed cert uploaded to Telegram via the multipart cert path). Owner + a QA colleague have both bound test chat IDs and exercised real flows (duplicate-receipt handling, staff picker, edit-staff).
+- **TLS is still self-signed** (every check needs `-k`) — deferred, tracked in `docs/STATUS.md` Blockers, blocked on the Owner picking a subdomain on a domain he already owns (any name, doesn't need to be Premala-branded). Don't start this without him giving you the subdomain first.
+
+### 🚀 NEW THIS SESSION — auto-deploy to the VPS is live (`.github/workflows/deploy.yml`)
+**Merging to `main` now deploys itself.** No more manual SSH/tar/pm2-restart for routine ships:
+- Runs the full test suite as a gate → packages via `git archive` (git-tracked files only, `.env`/`node_modules` structurally cannot leak in) → uploads via a dedicated deploy SSH key (`VPS_DEPLOY_SSH_KEY` + `VPS_HOST` in GitHub Actions secrets) → restarts → verifies `/health` + `/ready`.
+- The live app was **migrated off root's pm2 onto a new unprivileged `deploy` Linux user's own pm2 daemon** (zero sudo, `chown`'d only to `/opt/receipt-analyser`) specifically so this account can't touch Barat's processes even by mistake. Verified end-to-end (PR #180's own merge was the first real deploy — went green first try).
+- **If you need to deploy something NOT yet on `main`** (a hotfix test, etc.), the old manual method still works as documented fallback — see `docs/roles/BARAT.md` §6 point 6, or just merge to `main` and let it deploy itself.
+- Two things the Owner explicitly declined for now, don't re-propose without him asking: (a) blue-green/zero-downtime deploys — a plain few-second pm2 restart is fine at this scale, he called it overkill; (b) a full staging environment — agreed it's a good idea **once Premala has actually shipped**, not before. If he brings up "testing without touching the live system" again, the answer is already designed: a `develop` branch → separate deploy target → own test Supabase data, not yet built.
+
+### Closed out this session (all merged to `main`, PRs #174–#180)
+- **#174:** bot `dupstaff:` on an empty staff directory now sends an explanation instead of silently doing nothing (live QA finding, Owner-reported via Telegram screenshot).
+- **#175 + #177:** expense edit-drawer's Status field was a free-text `<input>` — now a `<select>` (`saved`/`needs_review`/`approved`/`rejected`), same pattern as Category. #177 is the regression test an independent Opus review flagged as missing (locks in that an unmodified sentinel status like `awaiting_category` is never silently rewritten).
+- **#176:** Docker isolation plan for the shared VPS — **proposed only, not executed.** `docs/ops/2026-07-10-docker-isolation-plan.md`. Needs Owner's explicit go before touching production with it.
+- **#178:** tracked the deferred TLS + security-hardening items in `docs/STATUS.md` Blockers (see below).
+- **#179:** wrote out Barat's Deputy review/merge playbook in `docs/roles/BARAT.md` §6 — he already had merge authority per `docs/PROJECT_BRIEF.md`/SOP, this just wrote down the concrete mechanical checklist (read real diff, run full suite locally, confirm CI green on correct base branch, Tier-2 gate honestly, update WORKLOG, now: auto-deploy is the normal path).
+- **All originally-scoped QA-round items** (`docs/qa/2026-07-09-qa-round.md` + `-round2.md`, PR-A through PR-K) were already merged before this session started (confirmed via WORKLOG during this session) — the items closed this session (#174/#175) were **new** live-QA findings from the Owner and a colleague actually using the deployed system, not leftover round-1/2 items.
+
+### Deferred by explicit Owner choice — tracked in `docs/STATUS.md` Blockers, don't just do these unprompted
+- **Real TLS cert (Let's Encrypt)** — blocked on Owner picking a subdomain.
+- **VPS security hardening batch** (from a 2026-07-10 Opus-reviewed checklist): `PermitRootLogin yes` + no fail2ban on the shared VPS; UFW port 22 open to any IP, no allowlist; `npm audit` in CI is informational-only; no Dependabot; Supabase backup/PITR tier unconfirmed. All flagged "deferred, not urgent" — Owner knows about them, hasn't asked to act.
+
+### Access / people state
+- **Barat** = already a GitHub collaborator (write access) + already formally named **Deputy** (can merge to `main` when Owner's away, same review bar) — this was true before this session, nothing new needed there except the playbook doc (#179).
+- **Mugi** = already a GitHub collaborator (write access).
+- **A QA colleague** (separate person, not Barat) has been testing the live dashboard + Telegram bot — he does NOT have GitHub or VPS access; that conversation was still open (Owner was deciding scope) when this session ended. If Owner asks to onboard him: get his GitHub username for a collaborator invite, and/or an SSH public key if he also wants VPS access — do NOT paste/ask for passwords in chat.
+- **Auto-mode classifier note:** creating new privileged accounts / SSH keys / stopping-restarting the live production process each individually required the Owner to name the *specific* action in plain words, not just a general "go ahead" earlier in the conversation — expect this same friction on similarly sensitive VPS actions and don't retry a blocked call silently; explain and ask.
+
+### Merge authority
+Same as always: worker Claudes never self-merge; Owner or named Deputy (Barat) merges. The auto-mode classifier blocks self-authored merges without explicit Owner direction.
+
+---
 ## ⚡ SESSION END — Claude-J2. READ THIS FIRST. (2026-07-04, LATEST-4 — voucher LIVE, dashboard fully driven, security reviewed, receipt-image storage foundation shipped)
 
 **main ≈ `3a07e9d`** (Merge #87), **856 tests**. `npm install` first. **GOTCHA: repo `.env` has LIVE creds — `mv .env .env.local.bak` before `npm test`, restore after, or ~90 tests falsely fail.** Preview server may be running on :3001.
