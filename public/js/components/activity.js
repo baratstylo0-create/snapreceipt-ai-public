@@ -306,6 +306,22 @@
     return succeeded + ' of ' + requested + ' ' + verb + ' — ' + (requested - succeeded) + ' failed.';
   }
 
+  // QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin + Recover action.
+  // Pure path builders, unit-testable without a DOM — mirrors the receiptPath pattern below.
+  function deletedRowsPath() { return '/api/expenses/deleted'; }
+  function restorePath(id) { return '/api/expenses/' + encodeURIComponent(str(id)) + '/restore'; }
+
+  // QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill actions, pure so they're
+  // unit-testable without a DOM. isRejected gates BOTH the recategorise chevron and the
+  // permanent-delete icon — neither shows on a non-rejected row. recategorizeBody mirrors the
+  // exact PATCH shape the awaiting-category picker already uses (category + status:'saved'),
+  // so a recategorised rejected bill becomes an ordinary saved row, not a new pending state.
+  function isRejected(row) { return !!row && row.status === 'rejected'; }
+  function recategorizeBody(category) { return { category: category, status: 'saved' }; }
+  function permanentDeletePath(id) {
+    return '/api/expenses/' + encodeURIComponent(str(id)) + '/permanent';
+  }
+
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
@@ -340,6 +356,22 @@
 
   function receiptLabel(row) {
     return receiptKind(row) === 'pdf' ? 'Receipt PDF' : 'Receipt image';
+  }
+
+  // Review-queue card meta (Owner 2026-07-10): the ordered, displayable key fields shown under a
+  // flagged receipt so it can be reviewed in place — [date, category, ref]. Blanks and the
+  // internal '__pending__' category sentinel are dropped so the UI never shows an empty or
+  // sentinel value. Pure, never throws.
+  function reviewMetaParts(row) {
+    if (!row || typeof row !== 'object') return [];
+    var parts = [];
+    var d = str(row.expense_date).trim();
+    if (d) parts.push(d);
+    var c = str(row.category).trim();
+    if (c && c !== '__pending__') parts.push(c);
+    var ref = str(row.voucher_no).trim();
+    if (ref) parts.push(ref);
+    return parts;
   }
 
   var VIEW_MODE_KEY = 'activityViewMode';
@@ -676,6 +708,68 @@
     };
   }
 
+  // QA B9/B8 (docs/qa/2026-07-09-qa-round.md PR-B): the Status cell for a REJECTED row grows
+  // two controls a normal row doesn't have: a (v) chevron that reveals a category picker
+  // (reuses the exact PATCH shape the awaiting-category picker already uses — see
+  // recategorizeBody) and a delete icon that permanently removes the bill in ONE CLICK, no
+  // confirmation step (Owner explicit — do not add one here even though the drawer's own
+  // delete uses a two-step confirm; B8 is deliberately different). tag lets the same builder
+  // serve both the table <td> and the card <span> without duplicating the control markup.
+  // Every click inside stops propagation so it never also fires the row/card's onOpen.
+  function buildStatusCell(tag, r, categories, handlers) {
+    var cell = el(tag, tag === 'td' ? 'act-td act-td--status' : 'act-card-status act-td--status');
+    var text = el('span', 'act-status-text');
+    Escape.setText(text, r.status);
+    cell.appendChild(text);
+    if (!isRejected(r)) return cell;
+
+    var actions = el('span', 'act-status-actions');
+
+    var chevron = el('button', 'act-status-chevron');
+    chevron.type = 'button';
+    chevron.title = 'Recategorise';
+    chevron.setAttribute('aria-label', 'Recategorise this rejected bill');
+    Escape.setText(chevron, '▾'); // ▾
+    actions.appendChild(chevron);
+
+    var picker = el('span', 'act-status-picker');
+    picker.style.display = 'none';
+    var select = el('select', 'act-status-picker-select');
+    var cats = Array.isArray(categories) && categories.length ? categories : DEFAULT_CATEGORIES;
+    cats.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); select.appendChild(o); });
+    var apply = el('button', 'act-status-picker-apply'); apply.type = 'button'; Escape.setText(apply, 'Apply');
+    var pst = el('span', 'act-status-picker-msg muted');
+    picker.appendChild(select); picker.appendChild(apply); picker.appendChild(pst);
+    actions.appendChild(picker);
+
+    chevron.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      picker.style.display = picker.style.display === 'none' ? '' : 'none';
+    });
+    picker.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    apply.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      apply.disabled = true;
+      Escape.setText(pst, 'Saving…');
+      handlers.onRecategorize(r, select.value, pst, apply);
+    });
+
+    var del = el('button', 'act-status-delete');
+    del.type = 'button';
+    del.title = 'Delete permanently (no confirmation)';
+    del.setAttribute('aria-label', 'Permanently delete this rejected bill');
+    Escape.setText(del, '✖'); // ✖
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      del.disabled = true;
+      handlers.onPermanentDelete(r, cell);
+    });
+    actions.appendChild(del);
+
+    cell.appendChild(actions);
+    return cell;
+  }
+
   function buildTable(page, state, handlers) {
     var labels = columnLabels(state.fieldSpec);
     var table = el('table', 'act-table');
@@ -732,7 +826,7 @@
       cat.appendChild(categoryCell(r));
       tr.appendChild(cat);
 
-      tr.appendChild(textCell('td', 'act-td act-td--status', r.status));
+      tr.appendChild(buildStatusCell('td', r, state.categories, handlers));
 
       tr.addEventListener('click', function () { handlers.onOpen(r); });
       tr.addEventListener('keydown', function (ev) {
@@ -749,7 +843,7 @@
   // descriptors as the table row — no duplicated badge logic) and the shared
   // loadReceiptImage auth'd-fetch helper for the thumbnail. Clicking a card opens
   // the same detail drawer as clicking a table row (handlers.onOpen).
-  function buildCard(r, handlers, selectState) {
+  function buildCard(r, handlers, categories, selectState) {
     var card = el('div', 'act-card');
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
@@ -790,7 +884,7 @@
     if (refDisplay(r) !== '—') meta.appendChild(textCell('span', 'act-card-ref muted', refDisplay(r)));
     body.appendChild(meta);
 
-    body.appendChild(textCell('span', 'act-card-status act-td--status', r.status));
+    body.appendChild(buildStatusCell('span', r, categories, handlers));
 
     if (r.remark) {
       var remark = el('p', 'act-card-remark');
@@ -808,9 +902,9 @@
     return card;
   }
 
-  function buildCardGrid(page, handlers, selectState) {
+  function buildCardGrid(page, handlers, categories, selectState) {
     var grid = el('div', 'act-card-grid');
-    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, selectState)); });
+    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, categories, selectState)); });
     return grid;
   }
 
@@ -972,13 +1066,48 @@
 
   function buildReviewItem(rowObj, handlers) {
     var card = el('div', 'act-review-item');
-    card.appendChild(textCell('span', 'act-review-merchant', rowObj.merchant));
+
+    // Owner request 2026-07-10: show the receipt itself on the card so a decision can be made in
+    // place. A thumbnail (image or a PDF link), loaded via the same auth'd fetch the table/cards
+    // use. Clicking it opens the full detail drawer (handlers.onOpen) for a closer look.
+    if (hasReceiptImage(rowObj)) {
+      var thumbWrap = el('div', 'act-review-thumb');
+      if (typeof handlers.onOpen === 'function') {
+        thumbWrap.setAttribute('role', 'button');
+        thumbWrap.setAttribute('tabindex', '0');
+        thumbWrap.setAttribute('title', 'Open full receipt');
+        thumbWrap.addEventListener('click', function () { handlers.onOpen(rowObj); });
+        thumbWrap.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); handlers.onOpen(rowObj); }
+        });
+      }
+      thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
+      card.appendChild(thumbWrap);
+      loadReceiptImage(rowObj.id, thumbWrap, { imgClassName: 'act-review-thumb-image', alt: 'Receipt image', kind: receiptKind(rowObj) });
+    }
+
+    var main = el('div', 'act-review-main');
+
+    var mCell = textCell('span', 'act-review-merchant', rowObj.merchant);
+    main.appendChild(mCell);
     var amt = el('span', 'act-review-amount');
     Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
-    card.appendChild(amt);
+    main.appendChild(amt);
+
+    // Key fields (date · category · ref) so the receipt is identifiable at a glance.
+    var parts = reviewMetaParts(rowObj);
+    if (parts.length) main.appendChild(textCell('p', 'act-review-meta muted', parts.join(' · ')));
+
+    // The staff/OCR remark often explains the expense — helpful context for the decision.
+    if (rowObj.remark) {
+      var remark = el('p', 'act-review-remark');
+      Escape.setText(remark, rowObj.remark);                              // untrusted -> textContent
+      remark.setAttribute('title', Escape.stripControls(str(rowObj.remark)));
+      main.appendChild(remark);
+    }
 
     var reason = anomalyReasonText(rowObj.anomaly);
-    card.appendChild(textCell('p', 'act-review-reason', reason));  // untrusted reason -> escaped
+    main.appendChild(textCell('p', 'act-review-reason', reason));  // untrusted reason -> escaped
 
     var actions = el('div', 'act-review-actions');
     var approve = el('button', 'act-review-approve'); approve.type = 'button'; Escape.setText(approve, 'Approve');
@@ -987,7 +1116,9 @@
     approve.addEventListener('click', function () { handlers.onDecide(rowObj, 'approve', card, st); });
     reject.addEventListener('click', function () { handlers.onDecide(rowObj, 'reject', card, st); });
     actions.appendChild(approve); actions.appendChild(reject); actions.appendChild(st);
-    card.appendChild(actions);
+    main.appendChild(actions);
+
+    card.appendChild(main);
     return card;
   }
 
@@ -1046,8 +1177,14 @@
     // Sub-mounts: table area, drawer host, awaiting-category picker, review area.
     var tableArea = el('div', 'act-table-area');
     var drawerHost = el('div', 'act-drawer-host');
+    // QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin. Reuses the exact
+    // same modal-overlay CSS as drawerHost (class act-drawer-host) — same backdrop, same
+    // centered-card mechanics — just a different host element so opening one never clobbers
+    // the other's content.
+    var deletedHost = el('div', 'act-drawer-host');
     rootEl.appendChild(tableArea);
     rootEl.appendChild(drawerHost);
+    rootEl.appendChild(deletedHost);
     // Awaiting-category picker (dashboard parity of the bot #74 picker). Heading + area are
     // hidden entirely when nothing is pending (an exception state, not a standing queue).
     var awaitHead = textCell('h3', 'act-await-title', 'Needs a category');
@@ -1138,7 +1275,9 @@
       clear(tableArea);
       if (state.loading) { tableArea.appendChild(msg('act-loading muted', 'Loading expenses…')); return; }
       if (state.error) { tableArea.appendChild(msg('act-error', 'Could not load your expenses. Please try again shortly.')); return; }
-      tableArea.appendChild(buildToolbar(state, onChange));
+      var toolbarEl = buildToolbar(state, onChange);
+      toolbarEl.appendChild(buildBinButton());
+      tableArea.appendChild(toolbarEl);
       restoreFocus(tableArea, focused); // must run right after the toolbar exists, before any early return below
       tableArea.appendChild(buildViewToggle(state, onChange));
       renderAwaiting(); // independent of table filters/pagination — reflects ALL pending rows
@@ -1149,13 +1288,19 @@
         tableArea.appendChild(msg('act-empty muted', state.rows.length ? 'No expenses match your filters.' : 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
         return;
       }
+      var rowHandlers = {
+        onOpen: openDrawer,
+        onRecategorize: onRecategorizeRejected,
+        onPermanentDelete: onPermanentDelete,
+      };
       if (state.viewMode === 'cards') {
         tableArea.appendChild(buildCardGrid(pageData,
-          { onOpen: openDrawer, onToggleRow: selectHandlers.onToggleRow },
+          Object.assign({ onToggleRow: selectHandlers.onToggleRow }, rowHandlers),
+          state.categories,
           { selectMode: state.selectMode, selectedIds: state.selectedIds }));
       } else {
         tableArea.appendChild(buildTable(pageData, state,
-          { onChange: onChange, onOpen: openDrawer, onToggleRow: selectHandlers.onToggleRow }));
+          Object.assign({ onChange: onChange, onToggleRow: selectHandlers.onToggleRow }, rowHandlers)));
       }
       tableArea.appendChild(buildPager(pageData, onChange));
     }
@@ -1217,6 +1362,134 @@
       if (ev.target === drawerHost) closeDrawer();
     });
 
+    // ---- "Recently deleted" bin + Recover (QA B7) ---------------------------
+    var deletedState = { loading: false, loaded: false, rows: [], error: false };
+    var deletedListArea = null;
+
+    function buildBinButton() {
+      var btn = el('button', 'act-bin-btn');
+      btn.type = 'button';
+      btn.title = 'Recently deleted';
+      btn.setAttribute('aria-label', 'View recently deleted bills');
+      Escape.setText(btn, '🗑 Recently deleted'); // trash-can + label
+      btn.addEventListener('click', openDeletedPanel);
+      return btn;
+    }
+
+    function buildDeletedItem(rowObj, handlers) {
+      var item = el('div', 'act-deleted-item');
+      item.appendChild(textCell('span', 'act-deleted-merchant', rowObj.merchant));
+      var amt = el('span', 'act-deleted-amount');
+      Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
+      item.appendChild(amt);
+      item.appendChild(textCell('span', 'act-deleted-date muted', rowObj.expense_date));
+      var recover = el('button', 'act-deleted-recover'); recover.type = 'button'; Escape.setText(recover, 'Recover');
+      var st = el('span', 'act-deleted-msg muted');
+      recover.addEventListener('click', function () { handlers.onRecover(rowObj, st, recover); });
+      item.appendChild(recover);
+      item.appendChild(st);
+      return item;
+    }
+
+    function renderDeletedList() {
+      if (!deletedListArea) return;
+      clear(deletedListArea);
+      if (deletedState.loading) { deletedListArea.appendChild(msg('act-loading muted', 'Loading…')); return; }
+      if (deletedState.error) { deletedListArea.appendChild(msg('act-error', 'Could not load recently deleted bills.')); return; }
+      if (!deletedState.rows.length) {
+        deletedListArea.appendChild(msg('act-empty muted', 'Nothing here — bills you delete show up in this list and can be recovered.'));
+        return;
+      }
+      deletedState.rows.forEach(function (r) {
+        deletedListArea.appendChild(buildDeletedItem(r, {
+          onRecover: function (rowObj, st, btn) {
+            btn.disabled = true;
+            Escape.setText(st, 'Restoring…');
+            apiFetch(restorePath(rowObj.id), { method: 'POST' })
+              .then(function () {
+                deletedState.rows = deletedState.rows.filter(function (x) { return x.id !== rowObj.id; });
+                renderDeletedList();
+                load(true); // refresh the main table so the recovered bill reappears there
+              })
+              .catch(function () { btn.disabled = false; Escape.setText(st, 'Restore failed. Please try again.'); });
+          },
+        }));
+      });
+    }
+
+    function loadDeleted() {
+      if (deletedState.loading || !apiFetch) return;
+      deletedState.loading = true; deletedState.error = false; renderDeletedList();
+      apiFetch(deletedRowsPath()).then(function (rows) {
+        deletedState.loading = false; deletedState.loaded = true;
+        deletedState.rows = Array.isArray(rows) ? rows : [];
+        renderDeletedList();
+      }).catch(function () { deletedState.loading = false; deletedState.error = true; renderDeletedList(); });
+    }
+
+    function closeDeletedPanel() {
+      clear(deletedHost);
+      deletedListArea = null;
+      document.removeEventListener('keydown', onDeletedKeydown);
+    }
+
+    function onDeletedKeydown(ev) { if (ev.key === 'Escape') closeDeletedPanel(); }
+
+    function openDeletedPanel() {
+      clear(deletedHost);
+      var wrap = el('div', 'act-drawer');
+      var head = el('div', 'act-drawer-head');
+      head.appendChild(textCell('h3', 'act-drawer-title', 'Recently deleted'));
+      var close = el('button', 'act-drawer-close');
+      close.type = 'button';
+      close.setAttribute('aria-label', 'Close');
+      Escape.setText(close, '×'); // ×
+      close.addEventListener('click', closeDeletedPanel);
+      head.appendChild(close);
+      wrap.appendChild(head);
+      wrap.appendChild(msg('act-await-note muted', 'Bills deleted from Activity land here and can be recovered.'));
+      deletedListArea = el('div', 'act-deleted-list');
+      wrap.appendChild(deletedListArea);
+      deletedHost.appendChild(wrap);
+      document.addEventListener('keydown', onDeletedKeydown);
+      renderDeletedList(); // show loading state immediately, even before the fetch resolves
+      loadDeleted();
+    }
+
+    deletedHost.addEventListener('click', function (ev) {
+      if (ev.target === deletedHost) closeDeletedPanel();
+    });
+
+    // QA B9 (docs/qa/2026-07-09-qa-round.md PR-B): recategorising a rejected bill via the
+    // Status-column chevron. Same PATCH shape + status:'saved' resolution as the
+    // awaiting-category picker (recategorizeBody) — a recategorised rejected bill becomes an
+    // ordinary saved row, out of the Rejected filter.
+    function onRecategorizeRejected(rowObj, category, statusEl, applyBtn) {
+      if (!category) { Escape.setText(statusEl, 'Pick a category first.'); applyBtn.disabled = false; return; }
+      var body = recategorizeBody(category);
+      apiFetch('/api/expenses/' + encodeURIComponent(rowObj.id), { method: 'PATCH', body: body })
+        .then(function (updated) {
+          var idx = state.rows.findIndex(function (x) { return x.id === rowObj.id; });
+          if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], body, updated && typeof updated === 'object' ? updated : {});
+          renderTable();
+        })
+        .catch(function () { applyBtn.disabled = false; Escape.setText(statusEl, 'Save failed. Please try again.'); });
+    }
+
+    // QA B8: ONE CLICK, no confirmation (Owner explicit) — this fires the DELETE the instant
+    // the icon is clicked, unlike the drawer's two-step confirm delete above.
+    function onPermanentDelete(rowObj, cellEl) {
+      apiFetch(permanentDeletePath(rowObj.id), { method: 'DELETE' })
+        .then(function () {
+          state.rows = state.rows.filter(function (x) { return x.id !== rowObj.id; });
+          renderTable();
+        })
+        .catch(function () {
+          var btn = cellEl && typeof cellEl.querySelector === 'function' ? cellEl.querySelector('.act-status-delete') : null;
+          if (btn) btn.disabled = false;
+        });
+    }
+
     // Awaiting-category picker: derived live from the loaded expenses (no extra fetch).
     // Hidden entirely when nothing is pending. Resolves via the same PATCH the drawer uses.
     function renderAwaiting() {
@@ -1251,6 +1524,7 @@
       if (!reviewState.rows.length) { reviewArea.appendChild(msg('act-empty muted', 'Nothing to review. 🎉')); return; }
       reviewState.rows.forEach(function (r) {
         reviewArea.appendChild(buildReviewItem(r, {
+          onOpen: openDrawer, // clicking the receipt thumbnail opens the full detail drawer
           onDecide: function (rowObj, decision, card, st) {
             Escape.setText(st, decision === 'approve' ? 'Approving…' : 'Rejecting…');
             apiFetch('/api/review/' + encodeURIComponent(rowObj.id), { method: 'POST', body: { decision: decision } })
@@ -1324,11 +1598,17 @@
     allSelected: allSelected,
     toggleAllSelected: toggleAllSelected,
     summarizeBulkResult: summarizeBulkResult,
+    deletedRowsPath: deletedRowsPath,
+    restorePath: restorePath,
+    isRejected: isRejected,
+    recategorizeBody: recategorizeBody,
+    permanentDeletePath: permanentDeletePath,
     receiptPath: receiptPath,
     receiptByIdPath: receiptByIdPath,
     hasReceiptImage: hasReceiptImage,
     receiptKind: receiptKind,
     receiptLabel: receiptLabel,
+    reviewMetaParts: reviewMetaParts,
     normaliseViewMode: normaliseViewMode,
     // render (browser)
     mount: mount,
