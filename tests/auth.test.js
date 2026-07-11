@@ -150,6 +150,21 @@ test('scopeForUser(clerk) is hard-filtered to the clerk branch', () => {
   assert.deepStrictEqual(scope, { account_id: 'acme', branch_id: 'b2', role: 'clerk' });
 });
 
+// Issue #164 (QA PR-J, C2) data-model finding, locked in as a regression guard: a clerk carries
+// EXACTLY ONE branch_id today — scopeForUser has no concept of "this clerk watches N branches",
+// and the users table (schema.sql) stores branch_id as a single scalar FK, not a join table. A
+// multi-branch clerk filter is therefore an ARCHITECTURE decision (a users<->branches join table,
+// or a scope-shape change), not a UI-only filter — escalated to the Owner in issue #164 rather
+// than silently built around. If this test ever needs to change, that decision has been made.
+test("scopeForUser(clerk): branch_id is a SINGLE value — passing an array is not a supported multi-branch shape (issue #164 finding)", () => {
+  const scope = scopeForUser({ account_id: 'acme', role: 'clerk', branch_id: ['b1', 'b2'] });
+  // No array-aware branching exists: whatever is passed as branch_id is stamped through verbatim,
+  // so an array would silently become the scope's branch_id — never split into a real multi-branch
+  // filter. This documents the CURRENT (single-branch-only) contract, not a recommendation to pass
+  // an array in production.
+  assert.deepStrictEqual(scope.branch_id, ['b1', 'b2'], 'no multi-branch handling exists — the value passes through unexamined');
+});
+
 // ADR-023 Phase 8: the clerk scope OPTIONALLY carries company_id when the session denormalises one
 // (multi-company clients). It must be OMITTED (not null-keyed) when absent so pre-Phase-8 clerks
 // and the single-company product keep the exact frozen shape. Admin is unchanged (cross-company).
