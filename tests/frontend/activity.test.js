@@ -17,6 +17,7 @@ const {
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
+  receiptErrorMessage,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -102,6 +103,24 @@ test('hasReceiptImage is true when EITHER receipt_url or receipt_file_id is pres
   assert.strictEqual(hasReceiptImage({ receipt_url: null, receipt_file_id: null }), false);
   assert.strictEqual(hasReceiptImage({}), false);
   assert.strictEqual(hasReceiptImage(null), false);
+});
+
+// --- receiptErrorMessage (Owner-reported 2026-07-11: dead-end "could not load" for a --
+// --- permanently-gone photo looked identical to a one-off network hiccup) ---------
+// /receipt/by-id/:id returns 404 specifically when neither the durable Storage copy
+// nor the live Telegram proxy can produce bytes (row not found, Storage object missing,
+// or a stale/invalid file_id Telegram now rejects) -- the one case where "try again" is
+// false hope. Every other failure (401 session, 502 upstream) IS worth retrying.
+
+test('receiptErrorMessage: a 404 gets the "no photo available, re-send" message', () => {
+  assert.match(receiptErrorMessage({ status: 404 }), /re-send it in Telegram/);
+});
+
+test('receiptErrorMessage: any other status (or no status) keeps the generic retry message', () => {
+  assert.strictEqual(receiptErrorMessage({ status: 401 }), 'Could not load the receipt. Please try again shortly.');
+  assert.strictEqual(receiptErrorMessage({ status: 502 }), 'Could not load the receipt. Please try again shortly.');
+  assert.strictEqual(receiptErrorMessage(undefined), 'Could not load the receipt. Please try again shortly.');
+  assert.strictEqual(receiptErrorMessage({}), 'Could not load the receipt. Please try again shortly.');
 });
 
 // --- reviewMetaParts (review-queue card: receipt details, Owner 2026-07-10) --
