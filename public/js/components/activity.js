@@ -363,6 +363,22 @@
     return receiptKind(row) === 'pdf' ? 'Receipt PDF' : 'Receipt image';
   }
 
+  // Owner-reported 2026-07-11: some receipts (mostly ones captured before ADR-018's durable
+  // Storage copy existed, or whose only-ever image was the live Telegram file_id proxy) show
+  // the SAME generic "Could not load the receipt." for a permanently-gone image as for a
+  // one-off network hiccup — no way to tell "try again in a minute" from "this photo is never
+  // coming back, re-send it." /receipt/by-id/:id (routes/receipt.js) returns 404 specifically
+  // when neither the Storage copy nor the Telegram proxy can produce bytes (row not found,
+  // storage object missing, or Telegram's getFile rejects a stale/invalid file_id) — every
+  // OTHER failure (401 session, 502 upstream) is a genuine "try again" case. Pure so the
+  // distinction is unit-testable without a fetch/DOM.
+  function receiptErrorMessage(err) {
+    if (err && err.status === 404) {
+      return 'This receipt has no photo available. If you have the original, re-send it in Telegram to attach one.';
+    }
+    return 'Could not load the receipt. Please try again shortly.';
+  }
+
   // Review-queue card meta (Owner 2026-07-10): the ordered, displayable key fields shown under a
   // flagged receipt so it can be reviewed in place — [date, category, ref]. Blanks and the
   // internal '__pending__' category sentinel are dropped so the UI never shows an empty or
@@ -505,9 +521,9 @@
         img.alt = alt;
         imgWrap.appendChild(img);
       }
-    }).catch(function () {
+    }).catch(function (err) {
       clear(imgWrap);
-      imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt.'));
+      imgWrap.appendChild(msg('act-receipt-msg muted', receiptErrorMessage(err)));
     });
   }
 
@@ -1623,6 +1639,7 @@
     hasReceiptImage: hasReceiptImage,
     receiptKind: receiptKind,
     receiptLabel: receiptLabel,
+    receiptErrorMessage: receiptErrorMessage,
     reviewMetaParts: reviewMetaParts,
     normaliseViewMode: normaliseViewMode,
     // render (browser)
