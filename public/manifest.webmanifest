@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "Receipt Analyser",
+  "short_name": "Receipts",
+  "description": "Scan receipts, review expenses, and export — your business's receipt dashboard.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e6e1ce",
+  "theme_color": "#5f7a47",
+  "icons": [
+    { "src": "icons/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
