@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { tgSend, tgSendPhoto, tgEditMessage, tgAnswerCallback, registerWebhook } = require('../lib/telegram');
+const { tgSend, tgSendPhoto, tgEditMessage, tgAnswerCallback, registerWebhook, resolveBotUsername } = require('../lib/telegram');
 const { cfg } = require('../lib/config');
 
 // Stub global.fetch (tgSend -> hreq -> fetch). Each call returns the next queued
@@ -218,6 +218,49 @@ test('registerWebhook: cert path given -> uploads multipart/form-data with the c
     global.fetch = realFetch; cfg.PUBLIC_URL = realUrl; cfg.WEBHOOK_SECRET = realSecret;
     fs.unlinkSync(certPath);
   }
+});
+
+// resolveBotUsername: derive the bot's @handle from Telegram's getMe (a GET, no body) so the
+// dashboard's t.me/<bot>?start=<token> deep link works without anyone setting BOT_USERNAME.
+// getMe is a GET, so this stub must NOT assume a request body (unlike stubTelegram above).
+function stubGetMe(body, { throwErr = false } = {}) {
+  const realFetch = global.fetch;
+  let url = null;
+  global.fetch = async (u) => {
+    url = String(u);
+    if (throwErr) throw new Error('ECONNRESET');
+    return { text: async () => JSON.stringify(body) };
+  };
+  return { restore: () => { global.fetch = realFetch; }, calledUrl: () => url };
+}
+
+test('resolveBotUsername: returns result.username from a getMe body, hitting the getMe endpoint', async () => {
+  const s = stubGetMe({ ok: true, result: { id: 1, is_bot: true, username: 'PremlaReceiptBot' } });
+  try {
+    assert.strictEqual(await resolveBotUsername(), 'PremlaReceiptBot');
+    assert.match(s.calledUrl(), /\/getMe$/);
+  } finally { s.restore(); }
+});
+
+test('resolveBotUsername: strips a leading @ and trims', async () => {
+  const s = stubGetMe({ ok: true, result: { username: '  @PremlaReceiptBot  ' } });
+  try { assert.strictEqual(await resolveBotUsername(), 'PremlaReceiptBot'); } finally { s.restore(); }
+});
+
+test('resolveBotUsername: non-ok body / missing username / garbage -> null (never throws)', async () => {
+  let s = stubGetMe({ ok: false, error_code: 401, description: 'Unauthorized' });
+  try { assert.strictEqual(await resolveBotUsername(), null); } finally { s.restore(); }
+
+  s = stubGetMe({ ok: true, result: { id: 1, is_bot: true } }); // no username field
+  try { assert.strictEqual(await resolveBotUsername(), null); } finally { s.restore(); }
+
+  s = stubGetMe(null);
+  try { assert.strictEqual(await resolveBotUsername(), null); } finally { s.restore(); }
+});
+
+test('resolveBotUsername: a network error resolves to null, never rejects', async () => {
+  const s = stubGetMe(null, { throwErr: true });
+  try { await assert.doesNotReject(async () => { assert.strictEqual(await resolveBotUsername(), null); }); } finally { s.restore(); }
 });
 
 test('registerWebhook: falls back to cfg.WEBHOOK_CERT_PATH when no explicit arg is passed', async () => {

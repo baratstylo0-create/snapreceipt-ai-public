@@ -5,7 +5,7 @@
 'use strict';
 const express = require('express');
 const { cfg, assertConfig, configSummary } = require('./lib/config');
-const { registerWebhook } = require('./lib/telegram');
+const { registerWebhook, resolveBotUsername } = require('./lib/telegram');
 const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
 const securityEvents = require('./lib/security-events'); // SEC-6 security-event logging (ADR-025)
@@ -83,5 +83,15 @@ if (process.argv.includes('--register-only')) {
   app.listen(cfg.PORT, () => {
     console.log('[receipt-saas] listening on :' + cfg.PORT + '  (' + configSummary() + ')');
     setTimeout(registerWebhook, 1500);
+    // Auto-detect the bot's @handle from Telegram when BOT_USERNAME wasn't set, so the
+    // dashboard's t.me/<bot>?start=<token> deep link is clickable (was showing the raw
+    // token when the handle was blank). Non-blocking so it never delays /health; an
+    // explicit BOT_USERNAME env var wins. /api/config reads cfg.BOT_USERNAME live, so the
+    // real handle is served once this resolves (well before any human loads the dashboard).
+    if (!cfg.BOT_USERNAME) {
+      resolveBotUsername().then((u) => {
+        if (u) { cfg.BOT_USERNAME = u; console.log('[receipt-saas] bot username auto-detected: @' + u); }
+      });
+    }
   });
 }
