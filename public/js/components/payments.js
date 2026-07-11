@@ -75,37 +75,42 @@
     return { canSend: true, label: sent ? 'Re-send to Admin' : 'Send to Admin', withdrawable: sent };
   }
 
-  // --- Statement export pure logic (ADR-023/024 Phase 10 UI) -----------------
+  // --- Statement export pure logic (ADR-023/024 Phase 10 UI; all-branches follow-up) --------
 
-  var statementBranchRequiredMessage = 'Statements are per-branch - pick a branch, or use Manage -> Export for all branches.';
-
-  // statementReady({ month, branch }, isAdmin) -> { ok, reason? }. A clerk only needs a
-  // month (the server hard-forces their own branch); an admin also needs a real branch
-  // picked — 'All branches'/'unassigned' isn't a valid single-branch statement.
-  function statementReady(opts, isAdmin) {
+  // statementReady({ month, branch }, isAdmin) -> { ok, reason? }. A clerk only needs a month
+  // (the server hard-forces their own branch). An admin needs a month too; branch is now
+  // OPTIONAL — leaving it blank (or picking the 'All branches' option) combines every branch
+  // into one export (statementUrl below turns that into branch=all). The one branch value that
+  // still isn't a valid statement is the literal 'unassigned' bucket (untagged rows aren't a
+  // real branch on the server's petty-cash ledger) — same guard as before, just narrowed from
+  // "any missing branch" down to that one specific value.
+  function statementReady(opts) {
     opts = opts || {};
     if (!opts.month) return { ok: false, reason: 'Pick a month first.' };
-    if (isAdmin && (!opts.branch || opts.branch === 'unassigned')) return { ok: false, reason: statementBranchRequiredMessage };
+    if (opts.branch === 'unassigned') return { ok: false, reason: 'Pick a real branch, or leave it on All branches.' };
     return { ok: true };
   }
 
   // statementUrl({ month, branch }, isAdmin, format) -> the GET /api/statement query string.
+  // An admin with no branch picked sends branch=all (every branch combined server-side).
   function statementUrl(opts, isAdmin, format) {
     opts = opts || {};
     var params = ['period=' + encodeURIComponent(opts.month), 'format=' + encodeURIComponent(format)];
-    if (isAdmin) params.push('branch=' + encodeURIComponent(opts.branch));
+    if (isAdmin) params.push('branch=' + encodeURIComponent(opts.branch || 'all'));
     return '/api/statement?' + params.join('&');
   }
 
-  // Rows the statement export would actually cover from the client-side cache. Admin exports
-  // a selected branch/month; clerk rows are already branch-scoped by /api/expenses, so month is
-  // enough. This deliberately ignores the Pending/Paid tab: a petty-cash statement is a branch
-  // x month evidence pack, not just the currently visible payment-status slice.
+  // Rows the statement export would actually cover from the client-side cache. Admin exports a
+  // selected branch (or, when branch is blank/'all', EVERY branch) for the month; clerk rows are
+  // already branch-scoped by /api/expenses, so month is enough. This deliberately ignores the
+  // Pending/Paid tab: a petty-cash statement is a branch(es) x month evidence pack, not just the
+  // currently visible payment-status slice.
   function statementExportRows(rows, opts, isAdmin) {
     opts = opts || {};
     var month = String(opts.month || '');
     if (!month) return [];
     var branch = opts.branch == null ? '' : String(opts.branch);
+    var filterByBranch = isAdmin && branch && branch !== 'all';
     var out = [];
     var list = Array.isArray(rows) ? rows : [];
     for (var i = 0; i < list.length; i++) {
@@ -114,11 +119,24 @@
       if (r.deleted_at) continue;
       if (String(r.status || '') === 'rejected') continue;
       if (String(r.expense_date || '').slice(0, 7) !== month) continue;
-      if (isAdmin) {
+      if (filterByBranch) {
         var b = r.branch_id == null || r.branch_id === '' ? 'unassigned' : String(r.branch_id);
         if (b !== branch) continue;
       }
       out.push(r);
+    }
+    return out;
+  }
+
+  // The rows above that actually carry a receipt (either storage flavour) — the PDF photo-count
+  // popup's "This record has X bill photos attached" number, pure so it's node-testable without
+  // touching the DOM. Every row with a receipt gets exactly one appended page (statementPdf.js).
+  function statementPhotoRows(rows) {
+    var list = Array.isArray(rows) ? rows : [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (r && (r.receipt_url || r.receipt_file_id)) out.push(r);
     }
     return out;
   }
@@ -450,18 +468,28 @@
       setTimeout(function () { URL.revokeObjectURL(url); }, 0);
     }
 
+    // PDF and Excel statement exports have their OWN checkpoint (below), separate from the A3
+    // "receipts awaiting review" reminder that Reports/Manage still use — a petty-cash statement
+    // is a formal evidence pack the admin/clerk has already assembled deliberately, not a casual
+    // data pull, so PDF confirms the PHOTO COUNT instead, and Excel (data-only, no images) just
+    // goes straight through past the empty-data guard.
     function doStatementExport(format) {
-      var ready = statementReady({ month: state.month, branch: state.branch }, isAdmin);
+      var ready = statementReady({ month: state.month, branch: state.branch });
       if (!ready.ok) { Escape.setText(stmtMsg, ready.reason); return; }
-      // A3 (Owner 2026-07-10): remind only when receipts still await review; otherwise export
-      // straight through. runExportGuard keeps the empty-data guard + counts the scoped queue.
-      ExportGuards.runExportGuard({
-        data: statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin),
-        apiFetch: Api.apiFetch,
-        onEmpty: function (m) { Escape.setText(stmtMsg, m); },
-        onReview: switchView ? function () { switchView('activity'); } : undefined,
-        onProceed: function () { startStatementExport(format); },
-      });
+      var rows = statementExportRows(state.rows, { month: state.month, branch: state.branch }, isAdmin);
+      if (!ExportGuards.hasExtractData(rows)) { Escape.setText(stmtMsg, ExportGuards.NO_DATA_MESSAGE); return; }
+
+      if (format === 'pdf') {
+        var photoCount = statementPhotoRows(rows).length;
+        var noun = photoCount === 1 ? 'bill photo' : 'bill photos';
+        ExportGuards.requestReviewedConfirmation(function () { startStatementExport('pdf'); }, {
+          message: 'This record has ' + photoCount + ' ' + noun + ' attached.',
+          confirmLabel: 'Export PDF',
+          cancelLabel: 'Cancel',
+        });
+        return;
+      }
+      startStatementExport('xlsx'); // data-only — no popup needed beyond the empty-data guard above
     }
 
     function startStatementExport(format) {
@@ -470,7 +498,7 @@
       Escape.setText(stmtMsg, 'Preparing ' + format.toUpperCase() + '…');
       var url = statementUrl({ month: state.month, branch: state.branch }, isAdmin, format);
       Api.fetchBlob(url).then(function (blob) {
-        var branchToken = isAdmin ? state.branch : 'own-branch';
+        var branchToken = isAdmin ? (state.branch || 'all-branches') : 'own-branch';
         triggerStatementDownload(blob, 'petty-cash-' + branchToken + '-' + state.month + '.' + format);
         Escape.setText(stmtMsg, format.toUpperCase() + ' downloaded.');
       }).catch(function (err) {
@@ -509,7 +537,7 @@
     mount: mount, filterRows: filterRows, selectionSummary: selectionSummary,
     submissionStatusLine: submissionStatusLine, clerkSendState: clerkSendState,
     statementReady: statementReady, statementUrl: statementUrl, statementExportRows: statementExportRows,
-    statementBranchRequiredMessage: statementBranchRequiredMessage,
+    statementPhotoRows: statementPhotoRows,
     optionModels: optionModels,
   };
 });

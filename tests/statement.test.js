@@ -108,6 +108,23 @@ test('staff column toggle: rows carry staffName resolved from the map when shown
   assert.strictEqual(on.sectionB.categories.find((c) => c.name === 'Food').rows[0].staffName, 'Farid');
 });
 
+test('branch column toggle (all-branches export): rows carry branchLabel resolved from the map when shown', () => {
+  const expenses = [exp('e1', 50, 'Food', '2025-10-01', { branch_id: 'bA' })];
+  const off = buildStatementModel({ ...base, expenses });
+  assert.strictEqual(off.showBranchColumn, false);
+  assert.strictEqual(off.sectionB.categories.find((c) => c.name === 'Food').rows[0].branchLabel, undefined);
+
+  const on = buildStatementModel({ ...base, showBranchColumn: true, branchNames: { bA: 'KL Branch' }, expenses });
+  assert.strictEqual(on.showBranchColumn, true);
+  assert.strictEqual(on.sectionB.categories.find((c) => c.name === 'Food').rows[0].branchLabel, 'KL Branch');
+});
+
+test('branch column: an unknown branch id falls back to the raw id, never blank/undefined text', () => {
+  const expenses = [exp('e1', 50, 'Food', '2025-10-01', { branch_id: 'bZ' })];
+  const on = buildStatementModel({ ...base, showBranchColumn: true, branchNames: {}, expenses });
+  assert.strictEqual(on.sectionB.categories.find((c) => c.name === 'Food').rows[0].branchLabel, 'bZ');
+});
+
 test('second currency: amount2 rows + total2 present only when currency2 is set', () => {
   const m = buildStatementModel({
     ...base, currency2: 'INR', balanceBf: 1000, balanceBf2: 18000,

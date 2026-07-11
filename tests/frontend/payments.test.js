@@ -15,8 +15,8 @@ const {
   statementReady,
   statementUrl,
   statementExportRows,
+  statementPhotoRows,
   optionModels,
-  statementBranchRequiredMessage,
 } = require('../../public/js/components/payments');
 
 const ROWS = [
@@ -111,13 +111,19 @@ test('clerkSendState: month picked, never sent -> Send; already submitted -> Re-
 });
 
 // --- ADR-023/024 Phase 10 UI: Statement export pure logic ---
+// --- All-branches + Branch column + PDF photo popup follow-up ---
 
-test('statementReady: clerk only needs a month; admin also needs a real branch', () => {
-  assert.deepStrictEqual(statementReady({ month: '' }, false), { ok: false, reason: 'Pick a month first.' });
-  assert.deepStrictEqual(statementReady({ month: '2026-07' }, false), { ok: true });
-  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: '' }, true), { ok: false, reason: statementBranchRequiredMessage });
-  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'unassigned' }, true), { ok: false, reason: statementBranchRequiredMessage });
-  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'bA' }, true), { ok: true });
+test('statementReady: only a month is required now — a blank branch means "All branches", not blocked', () => {
+  assert.deepStrictEqual(statementReady({ month: '' }), { ok: false, reason: 'Pick a month first.' });
+  assert.deepStrictEqual(statementReady({ month: '2026-07' }), { ok: true });
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: '' }), { ok: true }, 'blank branch = All branches, now allowed');
+  assert.deepStrictEqual(statementReady({ month: '2026-07', branch: 'bA' }), { ok: true });
+});
+
+test("statementReady: the literal 'unassigned' bucket still isn't a valid single-branch statement", () => {
+  const r = statementReady({ month: '2026-07', branch: 'unassigned' });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.reason, /branch/i);
 });
 
 test('optionModels: staff dropdown labels ids with staffNames but keeps id values', () => {
@@ -143,6 +149,13 @@ test('statementUrl: builds period+format for a clerk, adds branch for an admin',
   );
 });
 
+test("statementUrl: an admin with no branch picked sends branch=all (every branch combined)", () => {
+  assert.strictEqual(
+    statementUrl({ month: '2026-07', branch: '' }, true, 'pdf'),
+    '/api/statement?period=2026-07&format=pdf&branch=all'
+  );
+});
+
 test('statementExportRows: admin export data check follows statement month+branch, not the current paid/pending tab', () => {
   assert.deepStrictEqual(
     statementExportRows(ROWS, { month: '2026-07', branch: 'bA' }, true).map((r) => r.id),
@@ -154,9 +167,30 @@ test('statementExportRows: admin export data check follows statement month+branc
   );
 });
 
+test("statementExportRows: admin with branch '' or 'all' gets EVERY branch's rows for the month, not zero", () => {
+  const expectedIds = ['a', 'c', 'd']; // every 2026-07 row regardless of branch (bA, bA, null)
+  assert.deepStrictEqual(statementExportRows(ROWS, { month: '2026-07', branch: '' }, true).map((r) => r.id), expectedIds);
+  assert.deepStrictEqual(statementExportRows(ROWS, { month: '2026-07', branch: 'all' }, true).map((r) => r.id), expectedIds);
+});
+
 test('statementExportRows: clerk export data check relies on already-scoped rows and only requires month', () => {
   assert.deepStrictEqual(
     statementExportRows(ROWS, { month: '2026-07' }, false).map((r) => r.id),
     ['a', 'c', 'd']
   );
+});
+
+test('statementPhotoRows: only rows carrying a receipt (either storage flavour) count', () => {
+  const rows = [
+    { id: 'p1', receipt_url: 'https://x/y.png' },
+    { id: 'p2', receipt_file_id: 'tg-123' },
+    { id: 'p3' }, // no receipt
+    { id: 'p4', receipt_url: '' }, // empty string is falsy — no receipt
+  ];
+  assert.deepStrictEqual(statementPhotoRows(rows).map((r) => r.id), ['p1', 'p2']);
+});
+
+test('statementPhotoRows: garbage input never throws, empty array in -> empty array out', () => {
+  assert.deepStrictEqual(statementPhotoRows(null), []);
+  assert.deepStrictEqual(statementPhotoRows([null, undefined, {}]), []);
 });

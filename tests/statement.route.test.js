@@ -7,6 +7,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const express = require('express');
+const ExcelJS = require('exceljs');
+const storage = require('../lib/storage');
+const { rgbaToPng } = require('../lib/pdf');
 const mountStatement = require('../routes/statement');
 
 function app() { const a = express(); mountStatement(a); return a; }
@@ -128,5 +131,90 @@ test('statement: clerk is hard-forced to own branch (query branch ignored)', asy
       assert.ok(!stub.calls.some((c) => /bEVIL/.test(c.url)), 'a clerk can never export another branch');
       assert.ok(stub.calls.some((c) => /branch_id=eq\.bA/.test(c.url)), 'queries pinned to the clerk’s own branch');
     } finally { stub.restore(); }
+  });
+});
+
+// --- All-branches export + Branch column + data-only Excel (follow-up) --------------------
+
+const EXPENSES_TWO_BRANCHES = [
+  { id: 'e1', account_id: 'default', branch_id: 'bA', merchant: 'Cafe', amount: 10, category: 'Food', expense_date: '2025-10-01', status: 'saved', deleted_at: null },
+  { id: 'e2', account_id: 'default', branch_id: 'bB', merchant: 'Grab', amount: 20, category: 'Transport', expense_date: '2025-10-02', status: 'saved', deleted_at: null },
+];
+const BRANCHES = [{ id: 'bA', office: 'KL Branch' }, { id: 'bB', office: 'Penang' }];
+
+test('statement: admin branch=all combines every branch\'s expenses for the period, no branch_id filter sent', async () => {
+  await withEnv(ON, async () => {
+    const stub = stubDb({
+      session: ADMIN,
+      handlers: { 'expenses:GET': () => EXPENSES_TWO_BRANCHES, 'branches:GET': () => BRANCHES },
+    });
+    try {
+      const r = await reqRaw(app(), '/api/statement?branch=all&period=2025-10&format=xlsx', { token: 't' });
+      assert.strictEqual(r.status, 200);
+      assert.match(r.disposition, /petty-cash-all-branches-2025-10\.xlsx/);
+      const expenseCalls = stub.calls.filter((c) => c.url.includes('/expenses'));
+      assert.ok(expenseCalls.length >= 1);
+      assert.ok(!expenseCalls.some((c) => /branch_id=eq\./.test(c.url)), 'all-branches drops the branch_id filter entirely');
+
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.load(r.bytes);
+      const cellTexts = [];
+      wb.worksheets[0].eachRow({ includeEmpty: true }, (row) => row.eachCell({ includeEmpty: true }, (c) => cellTexts.push(c.value)));
+      assert.ok(cellTexts.includes('BRANCH'), 'combined export shows the Branch column');
+      assert.ok(cellTexts.includes('KL Branch') && cellTexts.includes('Penang'), 'each row carries its own branch label');
+    } finally { stub.restore(); }
+  });
+});
+
+test('statement: admin branch=all skips the per-branch float/cash-in fetch entirely (a combined ledger has no single float)', async () => {
+  await withEnv(ON, async () => {
+    const stub = stubDb({ session: ADMIN, handlers: { 'expenses:GET': () => EXPENSES_TWO_BRANCHES, 'branches:GET': () => BRANCHES } });
+    try {
+      const r = await reqRaw(app(), '/api/statement?branch=all&period=2025-10&format=xlsx', { token: 't' });
+      assert.strictEqual(r.status, 200);
+      assert.ok(!stub.calls.some((c) => c.url.includes('/petty_cash_floats')), 'no float lookup for a combined export');
+      assert.ok(!stub.calls.some((c) => c.url.includes('/cash_in')), 'no cash-in lookup for a combined export');
+    } finally { stub.restore(); }
+  });
+});
+
+test('statement: a clerk sending branch=all is still hard-forced to their own branch (cannot escalate)', async () => {
+  await withEnv(ON, async () => {
+    const stub = stubDb({ session: CLERK_A, handlers: { 'expenses:GET': () => EXPENSES_TWO_BRANCHES, 'branches:GET': () => BRANCHES } });
+    try {
+      const r = await reqRaw(app(), '/api/statement?branch=all&period=2025-10&format=xlsx', { token: 't' });
+      assert.strictEqual(r.status, 200);
+      assert.match(r.disposition, /petty-cash-bA-2025-10\.xlsx/, 'branch=all is ignored — filename is still their own branch');
+      assert.ok(stub.calls.some((c) => c.url.includes('/expenses') && /branch_id=eq\.bA/.test(c.url)), 'still branch-filtered to bA, never all');
+    } finally { stub.restore(); }
+  });
+});
+
+test('statement: xlsx is now ALWAYS data-only — never fetches receipt bytes even when a row has one', async () => {
+  await withEnv(ON, async () => {
+    const withReceipt = [{ id: 'e1', account_id: 'default', branch_id: 'bA', merchant: 'Cafe', amount: 10, category: 'Food', expense_date: '2025-10-01', status: 'saved', deleted_at: null, receipt_url: 'default/abc.png' }];
+    const stub = stubDb({ session: ADMIN, handlers: { 'expenses:GET': () => withReceipt } });
+    const origFetch = storage.fetchReceiptObject;
+    storage.fetchReceiptObject = async () => { throw new Error('xlsx must never fetch receipt bytes'); };
+    try {
+      const r = await reqRaw(app(), '/api/statement?branch=bA&period=2025-10&format=xlsx', { token: 't' });
+      assert.strictEqual(r.status, 200, 'the request itself must not fail — fetchReceiptObject is simply never called');
+      const wb = new ExcelJS.Workbook(); await wb.xlsx.load(r.bytes);
+      assert.strictEqual(wb.worksheets[0].getImages().length, 0, 'no embedded image — link-only');
+    } finally { storage.fetchReceiptObject = origFetch; stub.restore(); }
+  });
+});
+
+test('statement: pdf STILL embeds the receipt as an appended page (only xlsx became data-only)', async () => {
+  await withEnv(ON, async () => {
+    const withReceipt = [{ id: 'e1', account_id: 'default', branch_id: 'bA', merchant: 'Cafe', amount: 10, category: 'Food', expense_date: '2025-10-01', status: 'saved', deleted_at: null, receipt_url: 'default/abc.png' }];
+    const stub = stubDb({ session: ADMIN, handlers: { 'expenses:GET': () => withReceipt } });
+    const origFetch = storage.fetchReceiptObject;
+    let fetchCalled = false;
+    storage.fetchReceiptObject = async () => { fetchCalled = true; return rgbaToPng(Buffer.alloc(2 * 2 * 4, 0xff), 2, 2); };
+    try {
+      const r = await reqRaw(app(), '/api/statement?branch=bA&period=2025-10&format=pdf', { token: 't' });
+      assert.strictEqual(r.status, 200);
+      assert.strictEqual(fetchCalled, true, 'the pdf path still fetches receipt bytes to append as evidence pages');
+    } finally { storage.fetchReceiptObject = origFetch; stub.restore(); }
   });
 });

@@ -1,13 +1,18 @@
 'use strict';
-// routes/statement.js (ADR-023/024 Phase 10): the client-facing deliverable — the Petty Cash
-// Monthly Statement of Account, one per branch × month, in BOTH .xlsx and .pdf (the PDF appends the
-// receipts, one per page, in statement-line order).
+// routes/statement.js (ADR-023/024 Phase 10; all-branches export follow-up): the client-facing
+// deliverable — the Petty Cash Monthly Statement of Account, one per branch (OR, for an admin,
+// all branches combined) × month, in BOTH .xlsx and .pdf. The PDF appends every bill photo, one
+// per page, in DATE order (not statement-line order — see lib/statementPdf.js). Excel is
+// data-only (receipt LINKS, never embedded images — the xlsx is meant to be opened/edited, the
+// PDF is the evidence pack).
 //
 // Gating: 404 unless BOTH multiUser AND pettyCash. Auth = shared checkDash (opaque sessions →
-// req.scope). Admin exports any branch; a clerk is hard-forced to their OWN branch (SEC-2). Exports
-// are heavy → its own generous limiter (SEC-7). period + format server-validated; the download
-// filename is built ONLY from validated tokens (no header-injection vector, same rule as
-// routes/excel.js). One model (lib/statement.js), two renderers (xlsx/pdf).
+// req.scope). Admin exports any branch OR `branch=all` (every branch combined — the query drops
+// the branch_id filter entirely; admin scope already adds none); a clerk is hard-forced to their
+// OWN branch (SEC-2) and can never request `all`. Exports are heavy → its own generous limiter
+// (SEC-7). period + format server-validated; the download filename is built ONLY from validated
+// tokens (no header-injection vector, same rule as routes/excel.js). One model (lib/statement.js),
+// two renderers (xlsx/pdf).
 const express = require('express');
 const supabase = require('../lib/supabase');       // namespace import so tests can stub sbSelect
 const templates = require('../lib/templates');     // namespace import (Barat's — import only)
@@ -23,9 +28,7 @@ const { checkDash, dashOrigin } = require('./expenses');
 
 const statementLimiter = createRateLimiter({ max: Number(process.env.STATEMENT_RATE_MAX) || 30 });
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-// Above this many receipted rows the xlsx embeds links only (keep the file/time sane) — same knob
-// and philosophy as routes/excel.js.
-const RECEIPT_EMBED_LIMIT = Number(process.env.EXCEL_EMBED_LIMIT) || 300;
+const ALL_BRANCHES = 'all';
 
 function statementOnly(req, res, next) {
   const caps = getCapabilities();
@@ -33,20 +36,12 @@ function statementOnly(req, res, next) {
   return next();
 }
 
-// Fetch the receipt bytes for the rows that have one (fail-safe: a null buffer just skips that
-// receipt). Returns { receipts: {id:{buffer,ext}}, links: {id:url} }.
-async function gatherReceipts(expenses) {
-  const withReceipt = expenses.filter((e) => e && e.id && e.receipt_url);
+// xlsx is data-only (no embedded images, ever — just a receipt LINK per row): build the id->link
+// map directly, no byte fetch needed. (The pdf branch below still fetches bytes to append pages.)
+function receiptLinksOf(expenses) {
   const links = {};
-  for (const e of withReceipt) links[e.id] = '/receipt/by-id/' + e.id;
-  const receipts = {};
-  if (withReceipt.length && withReceipt.length <= RECEIPT_EMBED_LIMIT) {
-    await Promise.all(withReceipt.map(async (e) => {
-      const buf = await storage.fetchReceiptObject(e.receipt_url);
-      if (buf) receipts[e.id] = { buffer: buf, ext: storage.extOf(buf) };
-    }));
-  }
-  return { receipts, links, over: withReceipt.length > RECEIPT_EMBED_LIMIT };
+  for (const e of expenses) if (e && e.id && e.receipt_url) links[e.id] = '/receipt/by-id/' + e.id;
+  return links;
 }
 
 module.exports = function mountStatement(app) {
@@ -61,36 +56,46 @@ module.exports = function mountStatement(app) {
     if (format !== 'xlsx' && format !== 'pdf') return res.status(400).json({ error: 'format must be xlsx or pdf' });
 
     let branchId;
-    if (s.role === 'clerk') branchId = s.branch_id;          // the bouncer: own branch only
+    let allBranches = false;
+    if (s.role === 'clerk') branchId = s.branch_id;          // the bouncer: own branch only — never 'all'
     else {
       branchId = req.query.branch;
       if (typeof branchId !== 'string' || !branchId) return res.status(400).json({ error: 'branch is required' });
+      allBranches = branchId === ALL_BRANCHES;
     }
 
     try {
-      // ---- assemble the data (branch-scoped, period-filtered, not deleted/rejected) ----
+      // ---- assemble the data (period-filtered, not deleted/rejected) ----
       // scope (#131): defense-in-depth — a clerk's `s` re-asserts branch_id at the DB even though
-      // branchId is already forced to their own branch above; admin scope adds no filter.
-      const floats = await supabase.sbSelect('petty_cash_floats', { eq: { branch_id: branchId, period }, limit: 1, scope: s });
-      const float = floats[0] || null;
-      const cashInRows = await supabase.sbSelect('cash_in', { eq: { branch_id: branchId, period }, order: 'created_at.asc', limit: 1000, scope: s });
-      const allExp = await supabase.sbSelect('expenses', { eq: { branch_id: branchId }, extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.asc', limit: 5000, scope: s });
+      // branchId is already forced to their own branch above; admin scope adds no filter either way.
+      // All-branches (admin only): skip the float/cash-in lookup entirely (those are a PER-BRANCH
+      // ledger, meaningless combined) and drop the branch_id filter on expenses so every branch's
+      // rows for the period come back.
+      const float = allBranches ? null : (await supabase.sbSelect('petty_cash_floats', { eq: { branch_id: branchId, period }, limit: 1, scope: s }))[0] || null;
+      const cashInRows = allBranches ? [] : await supabase.sbSelect('cash_in', { eq: { branch_id: branchId, period }, order: 'created_at.asc', limit: 1000, scope: s });
+      const allExp = await supabase.sbSelect('expenses', {
+        eq: allBranches ? {} : { branch_id: branchId },
+        extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.asc', limit: 5000, scope: s,
+      });
       const expenses = allExp.filter((e) => e && typeof e.expense_date === 'string' && e.expense_date.slice(0, 7) === period);
 
       const [branches, users] = await Promise.all([
         supabase.sbSelect('branches', {}),
         supabase.sbSelect('users', {}),
       ]);
-      const branch = branches.find((b) => String(b.id) === String(branchId)) || null;
-      const branchLabel = branch ? (branch.office || String(branchId)) : String(branchId);
+      const branch = allBranches ? null : branches.find((b) => String(b.id) === String(branchId)) || null;
+      const branchLabel = allBranches ? 'All branches' : (branch ? (branch.office || String(branchId)) : String(branchId));
+      const branchNames = {};
+      for (const b of branches) branchNames[b.id] = b.office || String(b.id);
       const staffNames = {};
       for (const u of users) staffNames[u.id] = u.display_name || u.username || '';
 
       // Company name + statement currency: from the company row when the company dimension is on,
-      // else the account default. Never fatal if the lookup is empty.
+      // else the account default. Never fatal if the lookup is empty. All-branches has no single
+      // branch/company to look up — stays on the account default (a combined export spans them all).
       let companyName = process.env.STATEMENT_COMPANY_NAME || '';
       let currency = (float && float.currency) || cfg.DEFAULT_CURRENCY || '';
-      if (getCapabilities().companyDimension && branch && branch.company_id) {
+      if (!allBranches && getCapabilities().companyDimension && branch && branch.company_id) {
         const comps = await supabase.sbSelect('companies', { eq: { id: branch.company_id }, limit: 1 });
         if (comps[0]) { companyName = comps[0].name || companyName; currency = comps[0].currency || currency; }
       }
@@ -102,6 +107,7 @@ module.exports = function mountStatement(app) {
       const model = buildStatementModel({
         companyName, branchLabel, preparedBy: '', period,
         categories, currency, showStaffColumn: true,
+        showBranchColumn: allBranches, branchNames,
         balanceBf: float ? float.balance_bf : 0,
         cashIn: cashInRows.map((c) => ({ date: c.date, description: c.description, amount: c.amount })),
         expenses, staffNames,
@@ -110,14 +116,13 @@ module.exports = function mountStatement(app) {
 
       // Filename tokens are validated-only (period matches YYYY-MM; branch sanitised) — no header
       // injection possible.
-      const safeBranch = String(branchId).replace(/[^A-Za-z0-9_-]/g, '') || 'branch';
+      const safeBranch = allBranches ? 'all-branches' : (String(branchId).replace(/[^A-Za-z0-9_-]/g, '') || 'branch');
       const filename = 'petty-cash-' + safeBranch + '-' + period + '.' + format;
 
       if (format === 'xlsx') {
-        const { receipts, links, over } = await gatherReceipts(expenses);
-        const opts = { receiptLinks: links };
-        if (over) opts.embedReceipts = false; else opts.receipts = receipts;
-        const wb = statementToWorkbook(model, opts);
+        // Excel is ALWAYS data-only (a receipt LINK per row, never an embedded image) — the PDF is
+        // the evidence pack with every photo appended, so xlsx doesn't need to also carry the bytes.
+        const wb = statementToWorkbook(model, { receiptLinks: receiptLinksOf(expenses), embedReceipts: false });
         const buf = await wb.xlsx.writeBuffer();
         res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
