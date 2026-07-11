@@ -274,7 +274,7 @@
     var rootEl = el('div', 'ag-root');
     section.appendChild(rootEl);
 
-    rootEl.appendChild(msg('ag-intro muted', 'Ask a question about your expenses.'));
+    rootEl.appendChild(msg('ag-intro muted', 'Ask about your expenses, or how to use the dashboard or Telegram bot.'));
 
     var list = el('div', 'ag-list');
     rootEl.appendChild(list);
@@ -286,7 +286,7 @@
 
     var textarea = el('textarea', 'ag-input');
     textarea.rows = 2;
-    textarea.setAttribute('placeholder', 'Ask about your expenses…');
+    textarea.setAttribute('placeholder', 'Ask about your expenses, or how to use this app…');
     form.appendChild(textarea);
 
     var actions = el('div', 'ag-actions');
