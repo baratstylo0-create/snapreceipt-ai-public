@@ -125,6 +125,26 @@
     return list;
   }
 
+  // rootLabel(session) -> the org-tree root node's title. There is no dedicated
+  // "organisation name" in the data model, so the admin's own account label
+  // (session.display_name) is the closest honest human name; fall back to a
+  // neutral title when it's absent. Never throws.
+  function rootLabel(session) {
+    var name = session && typeof session.display_name === 'string' ? session.display_name.trim() : '';
+    return name || 'Your organisation';
+  }
+
+  // companyNameById(companies, id) -> the display name for a branch's company, or
+  // '' when the id is unset/unknown (so a stale/dangling company_id degrades to no
+  // chip rather than a broken label). Pure, tolerant of a garbage list.
+  function companyNameById(companies, id) {
+    if (!id || !Array.isArray(companies)) return '';
+    for (var i = 0; i < companies.length; i++) {
+      if (companies[i] && companies[i].id === id) return companies[i].name || '';
+    }
+    return '';
+  }
+
   // ---- DOM helpers (browser only) ---------------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -432,13 +452,21 @@
       document.body.appendChild(overlay);
     }
 
-    // ---- one branch card (admin: full card + remove; clerk: staff-only, no card chrome) ----
-    function renderBranchCard(host, b) {
-      var card = el('div', 'team-branch-card' + (b.active ? '' : ' is-inactive'));
+    // ---- one branch node (admin: full node + view-login + remove) ----
+    // Wrapped in a .team-node so the CSS-only spine/elbow connector links it to the org
+    // root. Merges the QA-round card chrome (view-login button, delete-confirmation modal)
+    // with the org-tree reshape (node wrapper, "No clerk yet" fallback, company chip).
+    function renderBranchNode(host, b) {
+      var node = el('div', 'team-node');
+      var card = el('div', 'team-branch-card team-branch-node' + (b.active ? '' : ' is-inactive'));
       var head = el('div', 'team-branch-head');
       var nameCol = el('div', 'team-branch-name-col');
       nameCol.appendChild(textEl('span', 'team-branch-name', b.office + (b.state ? ' · ' + b.state : '')));
-      if (b.clerkName) nameCol.appendChild(textEl('span', 'team-branch-clerk', 'Clerk: ' + b.clerkName));
+      // Clerk line: name when known, otherwise an explicit "No clerk yet" so an empty
+      // branch reads as intentional, not broken.
+      nameCol.appendChild(textEl('span', 'team-branch-clerk', b.clerkName ? 'Clerk: ' + b.clerkName : 'No clerk yet'));
+      var coName = companyNameById(state.companies, b.companyId);
+      if (coName) nameCol.appendChild(textEl('span', 'team-branch-company', coName));
       head.appendChild(nameCol);
       if (admin) {
         // ADR-025 amendment (QA round Issue 1): view this branch's login anytime, not
@@ -475,7 +503,8 @@
 
       card.appendChild(textEl('div', 'team-staff-title', 'Staff'));
       renderStaffList(card, b.id);
-      host.appendChild(card);
+      node.appendChild(card);
+      host.appendChild(node);
     }
 
     function render() {
@@ -496,10 +525,9 @@
       }
 
       if (admin) {
-        var addRow = el('div', 'team-add-row');
-        renderAddBranch(addRow);
-        wrap.appendChild(addRow);
-
+        // Companies strip (feature-detected) sits above the tree — companies group
+        // branches but aren't themselves a tree level; each branch shows its company
+        // as a chip on its node.
         if (state.companiesEnabled) {
           var coSection = el('div', 'team-companies');
           coSection.appendChild(textEl('div', 'team-section-title', 'Companies'));
@@ -514,21 +542,40 @@
           wrap.appendChild(coSection);
         }
 
+        // The org-hierarchy tree: an organisation root node at the top, then a vertical
+        // spine down which every branch — and the add-branch affordance — hangs off a
+        // CSS-only elbow connector. Scales to any branch count and stacks on mobile.
+        var tree = el('div', 'team-tree');
+        var root = el('div', 'team-root');
+        root.appendChild(textEl('div', 'team-root-kicker', 'Organisation'));
+        root.appendChild(textEl('div', 'team-root-title', rootLabel(deps.session)));
+        root.appendChild(textEl('div', 'team-root-sub', 'Admin · sees every branch'));
+        tree.appendChild(root);
+
+        var spine = el('div', 'team-spine');
         var list = sortedBranches(state.branches);
         if (!list.length) {
-          wrap.appendChild(textEl('p', 'team-staff-empty muted', 'No branches yet — add your first branch above.'));
+          spine.appendChild(textEl('p', 'team-tree-empty muted', 'No branches yet — add your first below.'));
         } else {
-          var branchesHost = el('div', 'team-branches');
-          list.forEach(function (b) { renderBranchCard(branchesHost, b); });
-          wrap.appendChild(branchesHost);
+          list.forEach(function (b) { renderBranchNode(spine, b); });
         }
+        // Add-branch node always sits at the tail of the spine (tree-native affordance);
+        // it expands the existing add-branch form → unchanged POST + credential flow.
+        var addNode = el('div', 'team-node team-node--add');
+        var addBox = el('div', 'team-add-box');
+        addBox.appendChild(textEl('div', 'team-node-add-title', 'Add a branch'));
+        renderAddBranch(addBox);
+        addNode.appendChild(addBox);
+        spine.appendChild(addNode);
+        tree.appendChild(spine);
+        wrap.appendChild(tree);
       } else {
         var ownId = deps.session && deps.session.branch_id;
         if (!ownId) {
           wrap.appendChild(textEl('p', 'team-error', 'No branch is linked to your account yet.'));
           return;
         }
-        var ownCard = el('div', 'team-branch-card');
+        var ownCard = el('div', 'team-branch-card team-branch-node');
         ownCard.appendChild(textEl('div', 'team-branch-head', deps.session.display_name || 'Your branch'));
         ownCard.appendChild(textEl('div', 'team-staff-title', 'Staff'));
         renderStaffList(ownCard, ownId);
@@ -599,6 +646,8 @@
     viewedCredentialPanel: viewedCredentialPanel,
     copyBlockText: copyBlockText,
     sortedBranches: sortedBranches,
+    rootLabel: rootLabel,
+    companyNameById: companyNameById,
     botDeepLink: botDeepLink,
     branchDeleteWarning: branchDeleteWarning,
     // render (browser)
