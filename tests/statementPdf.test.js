@@ -136,33 +136,32 @@ test('receiptEvidence OFF (default): behaves exactly like before this feature �
   assert.strictEqual(withoutFlag.pages, withExplicitFalse.pages);
 });
 
-test('receiptEvidence ON: an expense with NO receipt at all still gets one "Receipt Not Available" page', async () => {
-  const base = (await statementToPdf(model, { receiptEvidence: true })).pages;
-  // model has 2 expenses (e1, e2) and neither has a receipt supplied here.
+test('receiptEvidence ON: expenses with NO receipt are omitted from the compilation (no placeholder pages) and collected onto ONE "not attached" summary page', async () => {
+  const base = (await statementToPdf(model, {})).pages; // statement only, no appendix
+  // model has 2 expenses (e1, e2) and neither has a receipt -> 0 image pages + 1 summary page.
   const { pages, skippedReceipts } = await statementToPdf(model, { receiptEvidence: true });
-  assert.strictEqual(pages, base, 'sanity: same call twice is deterministic');
-  assert.strictEqual(skippedReceipts, 0, 'a never-uploaded receipt is not a "skip" — it is a placeholder page');
-  assert.ok(pages >= 1);
+  assert.strictEqual(pages, base + 1, 'no per-expense placeholder pages — just one summary page listing the missing ones');
+  assert.strictEqual(skippedReceipts, 0, 'a never-uploaded receipt is not a "skip"');
 });
 
-test('receiptEvidence ON: one page per expense line item (real receipt OR placeholder), never fewer', async () => {
-  const noneAttached = await statementToPdf(model, { receiptEvidence: true });
-  const oneAttached = await statementToPdf(model, { receiptEvidence: true, receipts: { e1: { buffer: tinyPng(), ext: 'png' } } });
-  // Both calls append exactly 2 pages (one per expense: e1 + e2) — whether e1 has a real image
-  // or not doesn't change the page COUNT, only whether that page is a photo or a placeholder.
+test('receiptEvidence ON: real receipts each get an image page; missing ones only add the single summary page (once)', async () => {
   const base = (await statementToPdf(model, {})).pages; // statement-only, no appendix at all
-  assert.strictEqual(noneAttached.pages, base + 2, 'e1 + e2 each get a placeholder page');
-  assert.strictEqual(oneAttached.pages, base + 2, 'e1 (real) + e2 (placeholder) — same page count');
+  // e1 real image (1 page) + e2 missing (0 pages, triggers the one summary page) = base + 2
+  const oneReal = await statementToPdf(model, { receiptEvidence: true, receipts: { e1: { buffer: tinyPng(), ext: 'png' } } });
+  assert.strictEqual(oneReal.pages, base + 2, '1 image page + 1 summary page');
+  // both real -> 2 image pages, and NO summary page because nothing is missing
+  const bothReal = await statementToPdf(model, { receiptEvidence: true, receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } } });
+  assert.strictEqual(bothReal.pages, base + 2, '2 image pages, no summary page when nothing is missing');
 });
 
-test('receiptEvidence ON: an unreadable/unsupported receipt still gets a placeholder page (not silently dropped)', async () => {
+test('receiptEvidence ON: an unreadable/unsupported receipt is omitted (still counted) and listed on the summary page, never a placeholder page', async () => {
   const base = (await statementToPdf(model, {})).pages;
   const { pages, skippedReceipts } = await statementToPdf(model, {
     receiptEvidence: true,
     receipts: { e1: { buffer: Buffer.from('RIFFxxxxWEBP'), ext: 'webp' } },
   });
-  // e1 -> placeholder (unsupported format), e2 -> placeholder (no receipt) = 2 appended pages.
-  assert.strictEqual(pages, base + 2);
+  // e1 unreadable (no image page, counted) + e2 missing = 0 image pages + 1 summary page.
+  assert.strictEqual(pages, base + 1);
   assert.strictEqual(skippedReceipts, 1, 'the webp is still counted as skipped for diagnostics');
 });
 
