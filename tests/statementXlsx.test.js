@@ -73,6 +73,20 @@ test('header rows are grey-filled, bold, and thin-bordered', () => {
   assert.ok(findText(cs, 'NAME'), 'staff NAME header present when showStaffColumn');
 });
 
+test('branch column (all-branches export): a BRANCH header + each row\'s branchLabel render only when showBranchColumn is on', () => {
+  const withBranch = buildStatementModel({
+    ...baseArgs, showBranchColumn: true, branchNames: { bA: 'KL Branch', bB: 'Penang' },
+    expenses: baseArgs.expenses.map((e, i) => ({ ...e, branch_id: i === 2 ? 'bB' : 'bA' })),
+  });
+  const cs = cells(statementToWorkbook(withBranch).worksheets[0]);
+  assert.ok(findText(cs, 'BRANCH'), 'BRANCH header present when showBranchColumn');
+  assert.ok(findText(cs, 'KL Branch'));
+  assert.ok(findText(cs, 'Penang'));
+
+  const withoutBranch = cells(statementToWorkbook(buildStatementModel(baseArgs)).worksheets[0]);
+  assert.ok(!findText(withoutBranch, 'BRANCH'), 'no BRANCH header when showBranchColumn is off');
+});
+
 test('per-category TOTAL is yellow; the statement SUBTOTAL is green', () => {
   const cs = cells(statementToWorkbook(buildStatementModel(baseArgs)).worksheets[0]);
   assert.ok(anyFill(cs, 'FFFFFF00'), 'a yellow per-category TOTAL cell exists');
