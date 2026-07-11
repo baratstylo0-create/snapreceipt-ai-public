@@ -1,5 +1,18 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-11 · Claude (Opus, for Barat) · feature/dupdel-one-message — dupedit menu: Delete now turns the SAME message into confirm, then into "Deleted"
+
+- **Files:** `lib/bot.js` (dupedit menu's "🗑️ Delete" button now points at a new `dupdel:` callback instead of reusing `delask:`; new `dupdel:` handler mirrors `delask:`'s ownership/already-deleted checks but EDITS the tapped message in place — via `tgEditMessage` with a new Yes/Cancel keyboard — instead of sending a fresh message; the confirm buttons still point at the existing, unchanged `del:<id>`/`del:cancel` flow, which already edits in place, so the SAME message_id carries through menu → confirm → deleted). Tests: new `tests/bot.dupdel.test.js` (7 tests: edit-in-place with keyboard, full menu→confirm→deleted round trip stays on one message_id, not-yours/already-gone/unknown-id/lookup-failure all edited in place, no-message_id defensive fallback), `tests/bot.duplicate.test.js` (updated the dupedit menu's button assertion from `delask:` to `dupdel:`).
+
+- **Why — Owner screenshot + explicit request.** The duplicate-receipt "Edit staff / Delete" menu was 3 separate chat bubbles: the menu, then a NEW "Delete this bill? Yes/Cancel" message, then that one turning into "Deleted". Owner wanted it collapsed to feel like ONE message walking through 3 states. Confirmed via AskUserQuestion before writing any code: `delask:` is ALSO used by the "📋 Today's Bills" LIST (multiple bills, each with its own "❌ #N" button) — editing THAT message in place on one delete tap would wipe out every other bill's button, so Owner confirmed scope: **single-receipt dupedit menu only**, Today's Bills list stays exactly as-is.
+
+- **Design: new `dupdel:` prefix, not a change to `delask:`.** Reusing `delask:` for both callers and switching it to edit-in-place would have broken the Today's Bills list (proven by its own pinned tests in `tests/bot.delask.test.js`, all still green — untouched). `dupdel:` is a parallel handler with the same ownership/security checks (re-verifies `rep_chat_id` at confirm time, same as every other delete path here), just `edit()` instead of `send()`. The LAST step (confirm → "Deleted") needed zero changes — `del:<id>` already picked edit-vs-send based on whether the incoming update carries a `message_id`, and since `dupdel:` handed it a message that's already been edited (same message_id), the whole chain naturally stays on one bubble.
+
+- **Tests: 1858/1858** (`.env` moved aside per the contamination gotcha, restored after; zero regressions; +7 new, +0/-0 net on existing files beyond the one button-callback assertion update).
+
+- **What's next:** open PR for review; **not self-merging** — waiting for Barat's explicit go-ahead, same as every prior change this session. Bot needs a restart after this merges + deploys for the new one-message flow to take effect live.
+
+- **Assumptions:** none — traced the exact 3-message chain in the code (`dupedit:`/`delask:`/`del:`) before writing anything, confirmed the Today's-Bills-list side effect with the Owner before scoping the fix.
 ## 2026-07-11 · Claude (Opus, for Jeevan) · feature/jeevan-statement-category-overlap — fix statement PDF: long category names no longer wrap/overlap the next row
 
 - **Files:** `lib/statementPdf.js` (new `fitToWidth` single-line truncation helper used in `tableRow`; category-header row now writes the name into the wide `desc` column instead of the narrow `date` column). No test change (behaviour is pixel-level; page arithmetic unchanged — statement tests 29/29 + full suite 1864/1864 still green).
