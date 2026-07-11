@@ -26,6 +26,8 @@ function baseDeps(over = {}) {
       tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
       sbSelect: async () => [],
       sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); return []; },
+      downloadAndStoreReceiptImage: async () => null, // hermetic: never touch the real storage bucket (album path)
+      uploadReceiptImage: async () => null,           // hermetic: never touch the real storage bucket (PDF path)
       getCapabilities: () => ({ multiUser: true }),
       ...over,
     },

@@ -35,6 +35,20 @@
     return pages;
   }
 
+  // defaultSubPage(pages) -> which sub-page Manage OPENS on (2026-07-11, Owner request: the Data
+  // editor spreadsheet should be the landing page for BOTH admin and clerk). Whenever the Data
+  // editor is present (business mode + excel_lite_grid not off — true for both roles), open on it;
+  // otherwise fall back to the first page (the template editor) — personal mode or grid-off, where
+  // no Data editor exists. This changes only the initial selection, NOT the dropdown order
+  // (subPagesFor still lists template first). Pure, never throws.
+  function defaultSubPage(pages) {
+    var list = Array.isArray(pages) ? pages : [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === 'data') return 'data';
+    }
+    return (list[0] && list[0].id) || 'template';
+  }
+
   // ---- view (browser only) ---------------------------------------------------
 
   function mount(section, deps) {
@@ -116,16 +130,18 @@
 
     select.addEventListener('change', function () { showSub(select.value); });
 
-    // Default to the first sub-page; app.js calls load() when Manage first becomes visible.
-    var current = pages[0] ? pages[0].id : 'template';
+    // Default to the Data editor when it exists (Owner request — both admin & clerk land on the
+    // spreadsheet), else the template editor; app.js calls load() when Manage first becomes visible.
+    var current = defaultSubPage(pages);
+    select.value = current; // reflect the default in the dropdown so load() opens the right panel
     pages.forEach(function (p) { if (panels[p.id]) panels[p.id].hidden = (p.id !== current); });
 
     return {
       // load() is called by app.js on first show of the Manage view — load whatever
-      // sub-page is currently selected (defaults to the template editor).
+      // sub-page is currently selected (defaults to the Data editor when present).
       load: function () { showSub(select.value || current); },
     };
   }
 
-  return { subPagesFor: subPagesFor, mount: mount };
+  return { subPagesFor: subPagesFor, defaultSubPage: defaultSubPage, mount: mount };
 });

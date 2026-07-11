@@ -1,10 +1,13 @@
 'use strict';
-// routes/statement.js (ADR-023/024 Phase 10; all-branches export follow-up): the client-facing
-// deliverable — the Petty Cash Monthly Statement of Account, one per branch (OR, for an admin,
-// all branches combined) × month, in BOTH .xlsx and .pdf. The PDF appends every bill photo, one
-// per page, in DATE order (not statement-line order — see lib/statementPdf.js). Excel is
-// data-only (receipt LINKS, never embedded images — the xlsx is meant to be opened/edited, the
-// PDF is the evidence pack).
+// routes/statement.js (ADR-023/024 Phase 10; all-branches export follow-up; Receipt Evidence
+// follow-up): the client-facing deliverable — the Petty Cash Monthly Statement of Account, one
+// per branch (OR, for an admin, all branches combined) × month, in BOTH .xlsx and .pdf. The PDF
+// keeps the summary table on page 1 unchanged, then appends a numbered "Receipt Evidence" page
+// per expense line item (receipt image + Date/Merchant/Amount/Staff/Branch/Receipt ID captions,
+// or "Receipt Not Available" when no usable receipt exists), in DATE order (not statement-line
+// order — see lib/statementPdf.js). Downloaded as Expense_Report_<today>.pdf. Excel is data-only
+// (receipt LINKS, never embedded images — the xlsx is meant to be opened/edited, the PDF is the
+// evidence pack).
 //
 // Gating: 404 unless BOTH multiUser AND pettyCash. Auth = shared checkDash (opaque sessions →
 // req.scope). Admin exports any branch OR `branch=all` (every branch combined — the query drops
@@ -115,9 +118,12 @@ module.exports = function mountStatement(app) {
       });
 
       // Filename tokens are validated-only (period matches YYYY-MM; branch sanitised) — no header
-      // injection possible.
+      // injection possible. The PDF (the audit-ready evidence pack) uses the client-specified
+      // Expense_Report_<generated-date> naming; the xlsx keeps its existing petty-cash- naming.
       const safeBranch = allBranches ? 'all-branches' : (String(branchId).replace(/[^A-Za-z0-9_-]/g, '') || 'branch');
-      const filename = 'petty-cash-' + safeBranch + '-' + period + '.' + format;
+      const filename = format === 'pdf'
+        ? 'Expense_Report_' + new Date().toISOString().slice(0, 10) + '.pdf'
+        : 'petty-cash-' + safeBranch + '-' + period + '.' + format;
 
       if (format === 'xlsx') {
         // Excel is ALWAYS data-only (a receipt LINK per row, never an embedded image) — the PDF is
@@ -136,7 +142,7 @@ module.exports = function mountStatement(app) {
         const buf = await storage.fetchReceiptObject(e.receipt_url);
         if (buf) receipts[e.id] = { buffer: buf, ext: storage.extOf(buf) };
       }));
-      const { buffer } = await statementToPdf(model, { receipts });
+      const { buffer } = await statementToPdf(model, { receipts, receiptEvidence: true });
       res.set('Content-Type', 'application/pdf');
       res.set('Content-Disposition', 'attachment; filename="' + filename + '"');
       return res.send(buffer);

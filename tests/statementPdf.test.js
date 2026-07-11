@@ -125,3 +125,52 @@ test('sortRowsByDate: rows with no date sort first (empty string), never throws 
   assert.deepStrictEqual(sorted.map((r) => r.expenseId), [undefined, 'e1', 'e2']);
   assert.deepStrictEqual(sortRowsByDate([]), []);
 });
+
+// --- Receipt Evidence mode (opts.receiptEvidence) ---------------------------------------------
+// Opt-in per caller: routes/statement.js turns this on; manageExport.js (and every test above,
+// which never passes the flag) must see byte-for-byte the same plain-image behavior as before.
+
+test('receiptEvidence OFF (default): behaves exactly like before this feature — no extra pages', async () => {
+  const withoutFlag = await statementToPdf(model, { receipts: { e1: { buffer: tinyPng(), ext: 'png' } } });
+  const withExplicitFalse = await statementToPdf(model, { receipts: { e1: { buffer: tinyPng(), ext: 'png' } }, receiptEvidence: false });
+  assert.strictEqual(withoutFlag.pages, withExplicitFalse.pages);
+});
+
+test('receiptEvidence ON: expenses with NO receipt are omitted from the compilation (no placeholder pages) and collected onto ONE "not attached" summary page', async () => {
+  const base = (await statementToPdf(model, {})).pages; // statement only, no appendix
+  // model has 2 expenses (e1, e2) and neither has a receipt -> 0 image pages + 1 summary page.
+  const { pages, skippedReceipts } = await statementToPdf(model, { receiptEvidence: true });
+  assert.strictEqual(pages, base + 1, 'no per-expense placeholder pages — just one summary page listing the missing ones');
+  assert.strictEqual(skippedReceipts, 0, 'a never-uploaded receipt is not a "skip"');
+});
+
+test('receiptEvidence ON: real receipts each get an image page; missing ones only add the single summary page (once)', async () => {
+  const base = (await statementToPdf(model, {})).pages; // statement-only, no appendix at all
+  // e1 real image (1 page) + e2 missing (0 pages, triggers the one summary page) = base + 2
+  const oneReal = await statementToPdf(model, { receiptEvidence: true, receipts: { e1: { buffer: tinyPng(), ext: 'png' } } });
+  assert.strictEqual(oneReal.pages, base + 2, '1 image page + 1 summary page');
+  // both real -> 2 image pages, and NO summary page because nothing is missing
+  const bothReal = await statementToPdf(model, { receiptEvidence: true, receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } } });
+  assert.strictEqual(bothReal.pages, base + 2, '2 image pages, no summary page when nothing is missing');
+});
+
+test('receiptEvidence ON: an unreadable/unsupported receipt is omitted (still counted) and listed on the summary page, never a placeholder page', async () => {
+  const base = (await statementToPdf(model, {})).pages;
+  const { pages, skippedReceipts } = await statementToPdf(model, {
+    receiptEvidence: true,
+    receipts: { e1: { buffer: Buffer.from('RIFFxxxxWEBP'), ext: 'webp' } },
+  });
+  // e1 unreadable (no image page, counted) + e2 missing = 0 image pages + 1 summary page.
+  assert.strictEqual(pages, base + 1);
+  assert.strictEqual(skippedReceipts, 1, 'the webp is still counted as skipped for diagnostics');
+});
+
+test('receiptEvidence ON: a real image receipt still renders fine (no crash), same page arithmetic as plain mode', async () => {
+  const base = (await statementToPdf(model, {})).pages;
+  const { pages, skippedReceipts } = await statementToPdf(model, {
+    receiptEvidence: true,
+    receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } },
+  });
+  assert.strictEqual(pages, base + 2);
+  assert.strictEqual(skippedReceipts, 0);
+});
