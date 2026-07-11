@@ -82,8 +82,15 @@ test('skipReason: missing/garbled signal -> "unclear" (never guess)', () => {
 test('skipMessage: each reason has distinct, humanized wording', () => {
   assert.match(skipMessage('blurry'), /blurry/i);
   assert.match(skipMessage('not_receipt'), /doesn't look like a receipt/i);
-  assert.match(skipMessage('unclear'), /not a receipt — skipped/i);
+  assert.match(skipMessage('unclear'), /couldn't read this clearly/i);
   assert.ok(skipMessage('blurry') !== skipMessage('not_receipt'), 'blurry and not_receipt must read differently');
+});
+
+test('skipMessage: every reason states it was NOT saved AND asks to re-upload (Owner directive 2026-07-11)', () => {
+  for (const reason of ['blurry', 'not_receipt', 'unclear']) {
+    assert.match(skipMessage(reason), /NOT saved/, reason + ' must say it was NOT saved');
+    assert.match(skipMessage(reason), /re-upload/i, reason + ' must ask the user to re-upload');
+  }
 });
 
 test('skipMessage: an unrecognised reason falls back to the safe generic wording', () => {
