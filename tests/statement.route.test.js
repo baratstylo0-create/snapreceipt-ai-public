@@ -109,7 +109,7 @@ test('statement: xlsx emits with correct content-type + PK magic + filename', as
   });
 });
 
-test('statement: pdf emits with correct content-type + %PDF- magic', async () => {
+test('statement: pdf emits with correct content-type + %PDF- magic + Expense_Report filename', async () => {
   await withEnv(ON, async () => {
     const stub = stubDb({ session: ADMIN });
     try {
@@ -117,7 +117,7 @@ test('statement: pdf emits with correct content-type + %PDF- magic', async () =>
       assert.strictEqual(r.status, 200);
       assert.match(r.contentType, /application\/pdf/);
       assert.strictEqual(r.bytes.subarray(0, 5).toString('latin1'), '%PDF-');
-      assert.match(r.disposition, /petty-cash-bA-2025-10\.pdf/);
+      assert.match(r.disposition, /Expense_Report_\d{4}-\d{2}-\d{2}\.pdf/);
     } finally { stub.restore(); }
   });
 });
