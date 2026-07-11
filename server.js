@@ -6,6 +6,7 @@
 const express = require('express');
 const { cfg, assertConfig, configSummary } = require('./lib/config');
 const { registerWebhook, resolveBotUsername } = require('./lib/telegram');
+const { ensureCredKey } = require('./lib/credCrypto');
 const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
 const securityEvents = require('./lib/security-events'); // SEC-6 security-event logging (ADR-025)
@@ -31,6 +32,17 @@ const mountSettings = require('./routes/settings'); // per-account UI settings (
 const mountManageExport = require('./routes/manageExport'); // QA PR-F Manage/Data-editor exports (csv/xlsx/pdf-with-receipts)
 
 assertConfig();
+
+// Auto-provision the credential-encryption key (ADR-025 amendment) BEFORE serving, so the
+// very first branch created has a key and its password is stored recoverably. Explicit
+// CRED_ENC_KEY env wins; otherwise a key is generated once and persisted (see lib/credCrypto).
+// Runs here (not in unit tests) so recoverable passwords "just work" on the live server with
+// no manual config. Never logs the key value.
+{
+  const before = !!cfg.CRED_ENC_KEY;
+  ensureCredKey();
+  console.log('[receipt-saas] credential encryption key: ' + (before ? 'from env' : 'auto-provisioned (persisted)'));
+}
 
 const app = express();
 app.set('trust proxy', true);
