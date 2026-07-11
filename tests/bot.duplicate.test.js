@@ -50,12 +50,12 @@ test('dupview: an already-deleted receipt says so', async () => {
 
 // --- dupedit: -------------------------------------------------------------------------
 
-test('dupedit: an owned existing receipt -> a menu with Edit staff + Delete (delask: reused)', async () => {
+test('dupedit: an owned existing receipt -> a menu with Edit staff + Delete (dupdel: — a distinct, edit-in-place prefix from delask:)', async () => {
   const { deps, sent } = baseDeps({ sbSelect: async () => [EXISTING] });
   await handleCallbackQuery({ id: 'cb4', data: 'dupedit:exp-existing-1', message: { chat: { id: 100 } } }, deps);
   assert.strictEqual(sent.length, 1);
   const buttons = sent[0].replyMarkup.inline_keyboard.flat();
-  assert.deepStrictEqual(buttons.map(b => b.callback_data), ['dupstaff:exp-existing-1', 'delask:exp-existing-1']);
+  assert.deepStrictEqual(buttons.map(b => b.callback_data), ['dupstaff:exp-existing-1', 'dupdel:exp-existing-1']);
 });
 
 test('dupedit: not yours is refused', async () => {
