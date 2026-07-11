@@ -19,6 +19,7 @@ function baseDeps(over = {}) {
     tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
     tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
     hreq: async () => Buffer.from('%PDF-fake-bytes'),
+    uploadReceiptImage: async () => null, // hermetic: never touch the real storage bucket
     rasterizePdf: async (buf) => { rasterizeCalls.push(buf); return { pages: [FAKE_PAGE, FAKE_PAGE], truncated: false }; },
     getFieldSpec: async () => ({ account_id: 'default', columns: [{ key: 'merchant', label: 'M', type: 'text', required: true }] }),
     extractReceipts: async () => ({ receipts: [], truncated: false }),
@@ -45,6 +46,38 @@ test('a PDF document -> rasterizePdf once -> runBatch once with the pages -> one
   assert.strictEqual(runBatchCalls[0].meta.fileId, null, 'option A: single meta, fileId null');
   assert.strictEqual(sent.length, 1); // quiet mode: no "Reading…" ack — just the summary
   assert.match(sent[0].text, /Batch processed/);
+});
+
+// --- ADR-018 gap fix (2026-07-11): a PDF receipt's pages are now stored durably, so each row
+// gets a receipt_url (before, PDF rows saved with receipt_url=null → no dashboard thumbnail,
+// no photo in exports). Uploads the rasterized page BYTES directly (we already hold them).
+test('PDF: each rendered page is uploaded and its receipt_url threaded per-page into runBatch', async () => {
+  const uploaded = [];
+  const perImageMeta = [];
+  const { deps } = baseDeps({
+    uploadReceiptImage: async (buf) => { uploaded.push(buf); return 'default/page-' + uploaded.length + '.png'; },
+    runBatch: async (images, fieldSpec, d) => {
+      for (let i = 0; i < images.length; i++) perImageMeta.push(typeof d.metaForImage === 'function' ? d.metaForImage(i) : d.meta);
+      return { images: images.length, receipts: images.length, saved: images.length, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  await handleUpdate(pdfUpdate('fileA'), deps);
+  assert.strictEqual(uploaded.length, 2, 'both rendered pages uploaded (FAKE_PAGE x2)');
+  assert.ok(uploaded.every(Buffer.isBuffer), 'uploads the raw page bytes, not a data URI');
+  assert.deepStrictEqual(perImageMeta.map(m => m.receipt_url), ['default/page-1.png', 'default/page-2.png']);
+});
+
+test('PDF: a storage failure (null) still saves the row imageless — receipt_url null, never throws', async () => {
+  const perImageMeta = [];
+  const { deps } = baseDeps({
+    uploadReceiptImage: async () => null,
+    runBatch: async (images, fieldSpec, d) => {
+      for (let i = 0; i < images.length; i++) perImageMeta.push(d.metaForImage(i));
+      return { images: images.length, receipts: images.length, saved: images.length, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  await assert.doesNotReject(() => handleUpdate(pdfUpdate('fileB'), deps));
+  assert.ok(perImageMeta.every(m => m.receipt_url === null), 'a failed store degrades to null, rows still save');
 });
 
 test('reply NEVER contains failed[].reason (SOP §7.2) even when a receipt fails to save', async () => {

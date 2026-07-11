@@ -34,6 +34,7 @@ function baseDeps(over = {}) {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); return { result: { message_id: 1 } }; },
     tgSendPhoto: async (chatId, fileId, caption) => { sentPhotos.push({ chatId, fileId, caption }); },
     tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
+    downloadAndStoreReceiptImage: async () => null, // hermetic: never touch the real storage bucket
     getFieldSpec: async () => ({ account_id: 'default', columns: [{ key: 'merchant', label: 'M', type: 'text', required: true }] }),
     setTimeout: (fn) => fn, // overridden per-test by fakeTimers where needed
     ...over,

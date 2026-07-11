@@ -29,6 +29,7 @@ function baseDeps(t, over = {}) {
   const deps = {
     tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
     tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
+    downloadAndStoreReceiptImage: async () => null, // hermetic: never touch the real storage bucket
     getFieldSpec: async () => ({ account_id: 'default', columns: [{ key: 'merchant', label: 'M', type: 'text', required: true }] }),
     extractReceipts: async () => ({ receipts: [], truncated: false }),
     assembleExpense: async () => ({ expense: { merchant: 'X' }, flagged: false }),
