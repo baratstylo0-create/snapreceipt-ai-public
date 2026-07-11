@@ -228,13 +228,32 @@ test('formatBatchSummary humanizes a skipped (non-receipt) photo instead of sile
   });
   assert.match(text, /2 photos not a clear receipt/);
   assert.match(text, /didn't look like a clear receipt/i);
-  assert.match(text, /skipped rather than guessed/i);
+  assert.match(text, /NOT saved — please re-upload them/i);
 });
 
-test('formatBatchSummary: skipped=1 uses singular wording ("it was skipped")', () => {
+test('formatBatchSummary: skipped=1 uses singular wording ("it was NOT saved")', () => {
   const text = formatBatchSummary({ images: 1, receipts: 1, saved: 0, skipped: 1, failed: [], flagged: [], truncated_images: [] });
   assert.match(text, /1 photo not a clear receipt/);
-  assert.match(text, /it was skipped/i);
+  assert.match(text, /it was NOT saved — please re-upload it/i);
+});
+
+test('formatBatchSummary: a loud NOT-saved warning appears near the top when anything was dropped (Owner directive 2026-07-11)', () => {
+  // 3 saved, 2 skipped + 1 duplicate = 3 NOT saved -> plural warning line.
+  const text = formatBatchSummary({ images: 6, receipts: 6, saved: 3, skipped: 2, duplicates: 1, failed: [], flagged: [], truncated_images: [] });
+  assert.match(text, /⚠️/);
+  assert.match(text, /3 receipts were NOT saved — please re-send them/);
+  // Sits above the per-item saved breakdown, so it can't hide beneath the ✅ header.
+  assert.ok(text.indexOf('NOT saved') < text.indexOf('Open your dashboard'), 'warning is near the top, before the footer');
+});
+
+test('formatBatchSummary: singular NOT-saved warning ("1 receipt was NOT saved … re-send it")', () => {
+  const text = formatBatchSummary({ images: 2, receipts: 2, saved: 1, skipped: 0, duplicates: 1, failed: [], flagged: [], truncated_images: [] });
+  assert.match(text, /1 receipt was NOT saved — please re-send it/);
+});
+
+test('formatBatchSummary: NO warning line when every receipt saved cleanly', () => {
+  const text = formatBatchSummary({ images: 2, receipts: 2, saved: 2, skipped: 0, duplicates: 0, failed: [], flagged: [], truncated_images: [] });
+  assert.ok(!text.includes('NOT saved'), 'a fully-clean batch never shows the scary warning');
 });
 
 test('a media group with a mix of real + non-receipt photos: the breakdown lists ONLY real saves, never the skipped junk', async (t) => {
@@ -272,7 +291,7 @@ test('formatBatchSummary: given skippedReasons, breaks the skip count down by WH
   const text = formatBatchSummary(summary, [], ['blurry', 'not_receipt']);
   assert.match(text, /1 photo too blurry to read/);
   assert.match(text, /1 photo that didn't look like a receipt at all/);
-  assert.match(text, /nothing was guessed/i);
+  assert.match(text, /NOT saved, please re-upload/i);
 });
 
 test('formatBatchSummary: skippedReasons missing/incomplete falls back to the safe generic wording', () => {
@@ -280,14 +299,14 @@ test('formatBatchSummary: skippedReasons missing/incomplete falls back to the sa
   // Only one reason recorded for two skips (e.g. a hostile/short array) — must not
   // mis-render a partial breakdown, falls back to the plain "N skipped" line.
   const text = formatBatchSummary(summary, [], ['blurry']);
-  assert.match(text, /didn't look like a clear receipt, so they were skipped rather than guessed/i);
+  assert.match(text, /didn't look like a clear receipt, so they were NOT saved — please re-upload them/i);
   assert.ok(!text.includes('too blurry to read'), 'must not render a half-populated breakdown');
 });
 
 test('formatBatchSummary: an "unclear" reason in the mix falls back to generic wording rather than mislabeling it', () => {
   const summary = { images: 3, receipts: 3, saved: 0, skipped: 3, failed: [], flagged: [], truncated_images: [] };
   const text = formatBatchSummary(summary, [], ['blurry', 'not_receipt', 'unclear']);
-  assert.match(text, /didn't look like a clear receipt, so they were skipped rather than guessed/i);
+  assert.match(text, /didn't look like a clear receipt, so they were NOT saved — please re-upload them/i);
 });
 
 test('a media group with blurry AND not-a-receipt skips: the summary breaks them down by reason, real receipt untouched', async (t) => {

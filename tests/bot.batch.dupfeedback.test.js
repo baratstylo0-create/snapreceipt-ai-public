@@ -107,6 +107,10 @@ test('flushGroup: per-photo failure feedback — resends the SPECIFIC offending 
   assert.strictEqual(sentPhotos.length, 1);
   assert.strictEqual(sentPhotos[0].fileId, 'f2', 'must resend image_index 1\'s OWN file_id, not a generic one');
   assert.match(sentPhotos[0].caption, /blurry/i);
+  // Owner directive 2026-07-11: the re-sent thumbnail must make it unmistakable the photo
+  // was NOT saved and needs re-uploading, not just a soft "resend a clearer shot".
+  assert.match(sentPhotos[0].caption, /NOT saved/, 'caption states the receipt was not saved');
+  assert.match(sentPhotos[0].caption, /re-upload/i, 'caption asks the user to re-upload it');
 });
 
 test('flushGroup: multiple skips each get their OWN correctly-mapped photo + caption', async () => {

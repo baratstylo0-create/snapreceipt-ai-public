@@ -1,5 +1,25 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-11 · Claude (Opus, for Barat) · feature/bot-skip-not-saved-clarity — Telegram bot: make "receipt NOT saved — please re-upload" loud and unmissable
+
+- **Files:** `lib/ocr.js` (`SKIP_MESSAGES` blurry/not_receipt/unclear rewritten to explicitly say the receipt was NOT saved + ask to re-upload — shared by both the single-photo path and the album per-photo thumbnail re-send; catch-all read-failure reply aligned to the same wording), `lib/bot.js` (`formatBatchSummary` now prints a loud `⚠️ N receipt(s) were NOT saved — please re-send them` line right under the `✅ Batch processed` header whenever `skipped + failed + duplicates > 0`; `skipFooter` reworded from "skipped rather than guessed / nothing was guessed" → "NOT saved — please re-upload"). Tests: `tests/bot.batch.test.js` (updated 4 pinned-wording assertions, +3 new: loud NOT-saved header plural/singular + a clean-batch-has-no-warning guard), `tests/bot.batch.dupfeedback.test.js` (strengthened the album re-send caption test to assert NOT saved + re-upload), `tests/ocr.nonreceipt.test.js` (updated the `unclear` wording assertion, +1 new: every skip reason states NOT saved + re-upload).
+
+- **Why — diagnosed a live report from Barat before writing any code.** Barat sent ~6 bill photos in one Telegram album; only ~4 appeared in the dashboard. Investigated (two Explore passes over `lib/bot.js`/`routes/webhook.js`/`lib/ocr.js` ingest + `grid.js`/`routes/expenses.js`/`lib/supabase.js` listing). **Root cause: the missing receipts were never saved — the bot refuses blurry/unreadable (`isImageUnclear`/`isEmptyReceipt`) and duplicate (`rejectDuplicates:true`) photos at ingest, by design.** Proved it was NOT a dashboard/branch-scope hiding bug: one of the album's own photos (Budi Madani RON95, 49.30) IS in the dashboard, and all album photos share one binding/branch — so if one is visible, none are hidden. The bot already sent skip messages and even re-sent each blurry thumbnail, but the wording was too soft (led with a cheerful `✅ Batch processed`), so dropped photos were easy to miss.
+
+- **Owner's decision (confirmed via AskUserQuestion before building):** keep blocking blurry/duplicate (do NOT force-save junk), but make the "this one was NOT saved — please re-upload it" message loud, explicit, and per-photo. This change is **messaging clarity only — no change to what gets saved, no DB/branch/scope changes.**
+
+- **Reused, not rebuilt:** the per-skipped-photo thumbnail re-send already exists (`summary.skippedDetails{image_index,reason}` from `lib/massupload.js` → `flushGroup` re-sends `sendPhoto(fileIds[image_index], skipMessage(reason))`); only the TEXT `skipMessage` returns changed, so both single-photo and album paths get clearer wording from one edit.
+
+- **Tests: 1851/1851** (`.env` moved aside per the contamination gotcha, restored after; zero regressions; wording-only diffs + new coverage).
+
+- **Deliberately out of scope (flagged, not fixed):** (a) a blurry photo the model still reads *plausibly* is saved with maybe-wrong numbers and no warning — the opposite symptom (an extra row, not a lost one); (b) an album of >10 photos silently drops the 11th onward (`MAX_GROUP_IMAGES` cap) — could add a "only first 10 read" notice later. Both noted for possible follow-up.
+
+- **What's next:** open PR for review; **not self-merging** — waiting for Barat's explicit go-ahead. Optional live check (via the receipt-saas-bot skill): send a mixed album (2 clear + 1 blurry) → confirm the clear ones save, the blurry one returns its own thumbnail saying "NOT saved — please re-upload," and the summary shows the loud NOT-saved warning.
+
+- **Assumptions:** none — diagnosis is a direct code read plus a screenshot cross-check, confirmed with Barat before any edit.
+
+---
+
 ## 2026-07-11 · Claude (Sonnet, for Barat) · qa/pr-j-multibranch — issue #164 (QA PR-J, C2): data-model finding — STOP AND REPORT, not built
 
 - **Files:** `tests/auth.test.js` (+1 regression-guard test). No feature code — this is a scoped-out finding per the issue's own rules ("make it testable either way, even if the output is just a written finding").
