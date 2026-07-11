@@ -465,3 +465,11 @@ alter table cash_in           enable row level security;
 alter table expenses add column if not exists receipt_file_unique_id text;
 create index if not exists expenses_account_fileuniq_idx on expenses (account_id, receipt_file_unique_id)
   where receipt_file_unique_id is not null;
+
+-- ADR-025 amendment (Owner-approved, 2026-07-11 QA round): a branch-clerk's password is
+-- ALSO stored encrypted-at-rest (lib/credCrypto.js, AES-256-GCM, key never in the DB) so
+-- an admin can view it again later, not just at creation time. password_hash (scrypt,
+-- one-way) remains the ONLY thing login checks -- this column is purely for re-display.
+-- Null for every row created before this migration (or if CRED_ENC_KEY isn't configured);
+-- those branches show "no password on file" in the dashboard and offer Reset instead.
+alter table users add column if not exists password_enc text;

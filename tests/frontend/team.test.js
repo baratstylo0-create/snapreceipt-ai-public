@@ -7,6 +7,7 @@ const assert = require('node:assert');
 const {
   isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches,
   rootLabel, companyNameById, botDeepLink,
+  viewedCredentialPanel, copyBlockText, branchDeleteWarning,
 } = require('../../public/js/components/team');
 
 test('isAdmin: true only for role admin, false for clerk/staff/missing/garbage', () => {
@@ -127,4 +128,62 @@ test('botDeepLink: null when the bot username is unset (frontend falls back to t
 test('botDeepLink: null when the bind token is missing, even with a configured bot', () => {
   assert.strictEqual(botDeepLink('ReceiptBot', ''), null);
   assert.strictEqual(botDeepLink('ReceiptBot', null), null);
+});
+
+// --- viewedCredentialPanel / copyBlockText: ADR-025 amendment (view a branch's
+// credentials anytime + a one-tap copy-all), Owner-approved 2026-07-11 QA round ---
+
+test('viewedCredentialPanel: builds the model from a real GET /api/branches/:id/credentials response', () => {
+  const resp = { username: 'kl-ab12', password: 'Str0ngPass!!', bindToken: 'tok-xyz' };
+  assert.deepStrictEqual(viewedCredentialPanel('Ipoh', resp),
+    { office: 'Ipoh', username: 'kl-ab12', password: 'Str0ngPass!!', bindToken: 'tok-xyz' });
+});
+
+test('viewedCredentialPanel: NEVER returns null — a legacy branch (password:null) still shows username/link', () => {
+  const p = viewedCredentialPanel('Ipoh', { username: 'kl-ab12', password: null, bindToken: null });
+  assert.strictEqual(p.password, null);
+  assert.strictEqual(p.username, 'kl-ab12');
+});
+
+test('viewedCredentialPanel: garbage/missing response never throws', () => {
+  assert.deepStrictEqual(viewedCredentialPanel('Ipoh', null), { office: 'Ipoh', username: '', password: null, bindToken: '' });
+  assert.deepStrictEqual(viewedCredentialPanel(null, {}), { office: '', username: '', password: null, bindToken: '' });
+});
+
+test('copyBlockText: username + password + bot link, one block', () => {
+  const text = copyBlockText({ username: 'kl-ab12', password: 'Str0ngPass!!', bindToken: 'tok-xyz' }, 'ReceiptBot');
+  assert.strictEqual(text, 'Username: kl-ab12\nPassword: Str0ngPass!!\nBot link: https://t.me/ReceiptBot?start=tok-xyz');
+});
+
+test('copyBlockText: no password (legacy branch) -> omits the line entirely, never prints "null"', () => {
+  const text = copyBlockText({ username: 'kl-ab12', password: null, bindToken: 'tok-xyz' }, 'ReceiptBot');
+  assert.doesNotMatch(text, /Password/);
+  assert.doesNotMatch(text, /null/);
+});
+
+test('copyBlockText: no configured bot username -> falls back to the raw bind code', () => {
+  const text = copyBlockText({ username: 'kl-ab12', password: 'p', bindToken: 'tok-xyz' }, '');
+  assert.match(text, /Bot link: tok-xyz/);
+});
+
+test('copyBlockText: no bindToken at all -> no Bot link line, never throws', () => {
+  const text = copyBlockText({ username: 'kl-ab12', password: 'p', bindToken: null }, 'ReceiptBot');
+  assert.doesNotMatch(text, /Bot link/);
+});
+
+// --- branchDeleteWarning: the confirmation-modal copy (QA round — replaces the old
+// inline two-step "Remove branch" / "Confirm remove" button with a real warning window) ---
+
+test('branchDeleteWarning: names the branch and warns it revokes the clerk login + unbinds the bot', () => {
+  const w = branchDeleteWarning(normalizeBranch({ office: 'Ipoh', clerk_name: 'Ali' }));
+  assert.match(w.title, /Ipoh/);
+  assert.match(w.message, /revoke/i);
+  assert.match(w.message, /clerk/i);
+  assert.match(w.message, /bot/i);
+});
+
+test('branchDeleteWarning: tolerant of a garbage/partial branch, never throws', () => {
+  const w = branchDeleteWarning(null);
+  assert.strictEqual(typeof w.title, 'string');
+  assert.strictEqual(typeof w.message, 'string');
 });
