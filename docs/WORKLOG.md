@@ -16,6 +16,19 @@
 
 ---
 
+## 2026-07-11 · Claude (Opus, for Jeevan) · feat/jeevan-falc-product-guide — Falc now answers "how do I use this" dashboard/bot questions (PR #190)
+
+- **Files:** `lib/agent.js` (new exported `PRODUCT_GUIDE` constant appended to `SYSTEM_PROMPT`; requires `WELCOME`/`BOT_GUIDE_TEXT`/`BUSINESS_WELCOME_ADMIN`/`BUSINESS_WELCOME_CLERK` from `./bot`, no circular dependency), `public/js/components/agent.js` (2 placeholder-text tweaks — no test pinned the old strings). Tests: `tests/agent.test.js` (+5).
+- **What/why:** Owner request — *"make sure Falc can help out in guiding how to use the dashboard or the telegram… Falc should know everything about our system like you do."* Falc previously answered ONLY questions about the account's own expense data (`getReport`/`listExpenses`/`topMerchants`). `PRODUCT_GUIDE` is a purely-additive prompt block covering personal-vs-business account modes, admin-vs-clerk branch scoping, every real dashboard nav section (Overview/Activity/Upload/Manage incl. Template+Data sub-pages/Settings + business-only Team org-tree/Payments), and Telegram bot usage — plus an explicit carve-out that the pre-existing "answer ONLY using the provided tools" rule is about the account's OWN financial data, not general product-usage questions.
+- **Single source of truth:** the bot-usage text is NOT paraphrased — it concatenates the REAL exported strings from `lib/bot.js` verbatim, so it can never drift from what the bot itself actually says to users; a new test locks this in as a drift guard.
+- **Scope boundary (deliberate):** user-facing product knowledge only — excludes internal/dev docs (ADRs, security internals, schema/service-role-key details) since this content is exposed to end users through the chat widget. No new tool, route, schema, or dependency — pure prompt content plus two UI strings.
+- **Verification:** full suite **1825/1825 green** (`.env` moved aside per the contamination gotcha, restored after). Also drove `runAgent()` directly with the real (non-mocked) Groq key pool on 3 live product questions ("how do I add a branch", "what does the Telegram bot do", "admin vs clerk") — all answered correctly with **zero tool-calls**, confirming the carve-out actually works in practice, not just as prompt text.
+- **Merged:** PR #190 (fast-forwarded `main` → `a8d4e51`, landing just after #189's credkey-autogen fix). CI + Deploy (Premala VPS) both green; post-deploy `/health` + `/ready` reconfirmed on the live VPS.
+- **What's next:** none — small, self-contained, scoped task, fully closed. Optional-only and explicitly skipped this session: a full live-dashboard-UI click-through of Falc's new answers (sandboxed Browser pane has no shared cookies with the Owner's login; Claude-in-Chrome didn't connect) — the direct `runAgent()` verification above was judged sufficient since it exercises the exact same deployed code path the UI calls.
+- **Assumptions:** none beyond the scope decision (product-only content, no internal docs) already made before implementation began.
+
+---
+
 ## 2026-07-11 · Claude (Sonnet, for Barat) · qa/pr-q-credkey-autogen — recoverable branch passwords now actually work in prod (auto-generate CRED_ENC_KEY)
 
 - **Files:** `lib/credCrypto.js` (new `ensureCredKey()` — persisted auto-key), `server.js` (boot-time `ensureCredKey()` before `app.listen`), `.gitignore` (+`.cred_key`), `.env.example` (CRED_ENC_KEY now auto-provisioned + `CRED_ENC_KEY_FILE`). Tests: `tests/credKey.test.js` (**new**, 5).

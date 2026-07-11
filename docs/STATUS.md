@@ -2,6 +2,8 @@
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 > _Last refreshed 2026-07-08 (Claude, for Barat) — reconciled against `git log` / `gh pr list` / WORKLOG, not the previous stale copy. When in doubt, trust `gh pr list`/WORKLOG over this file._
 
+> 2026-07-11 Claude (Opus, for Jeevan) update: PR #190 merged + deployed — Falc (the dashboard/Telegram chat assistant, `lib/agent.js`) now answers general "how do I use this" product-usage questions (dashboard nav, admin-vs-clerk scoping, Telegram bot commands) via a new additive `PRODUCT_GUIDE` prompt block, not only questions about the account's own expense data. Bot-usage text is reused verbatim from `lib/bot.js` (single source of truth, drift-guarded by test) and deliberately excludes internal/dev docs since it's user-facing. Full suite 1825/1825; CI + Deploy (Premala VPS) both green; live `/health`+`/ready` reconfirmed post-deploy. No schema/route/dependency change, unrelated to the M2/Premala launch-blocker list below — see WORKLOG for detail.
+
 > 2026-07-10 Codex update: Track 1 review of PRs #160/#161/#165/#167/#169 plus doc #163 is complete (fix commits pushed where needed; no merges). Issue #153 dashboard bulk-upload parity is implemented on `qa/upload-staff-assign-153`: staff assignment grid + branch-scoped bulk `PATCH /api/expenses`, upload saved-row branch/staff payload, duplicate flagged-row View/Discard presentation. Full suite 1657/1657; PR pending Claude-J review/merge.
 
 ## Current phase
