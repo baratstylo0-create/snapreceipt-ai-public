@@ -30,7 +30,10 @@
   // Render the login screen into `mount`. deps needs { Escape, Api }. On success:
   // stores the token via deps.storeToken (app.js's sessionStorage helper), wires
   // Api, and calls onEntered({ role, branch_id, display_name }). Returns nothing.
-  function render(mount, deps, onEntered) {
+  // `initialMessage` is OPTIONAL — shown up front (e.g. "Your session expired.
+  // Please log in again." after app.js's handleAuthExpired reload) instead of the
+  // blank message paragraph a plain boot leaves until the first submit attempt.
+  function render(mount, deps, onEntered, initialMessage) {
     if (typeof document === 'undefined' || !mount) return;
     var Escape = deps.Escape, Api = deps.Api;
     mount.textContent = '';
@@ -70,6 +73,7 @@
 
     var msg = document.createElement('p');
     msg.className = 'token-gate-msg muted';
+    if (initialMessage) Escape.setText(msg, initialMessage);
 
     form.appendChild(userLabel);
     form.appendChild(userInput);
