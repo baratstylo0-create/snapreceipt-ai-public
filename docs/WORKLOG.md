@@ -1,5 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-11 · Claude (Opus, for Jeevan) · feature/jeevan-statement-category-overlap — fix statement PDF: long category names no longer wrap/overlap the next row
+
+- **Files:** `lib/statementPdf.js` (new `fitToWidth` single-line truncation helper used in `tableRow`; category-header row now writes the name into the wide `desc` column instead of the narrow `date` column). No test change (behaviour is pixel-level; page arithmetic unchanged — statement tests 29/29 + full suite 1864/1864 still green).
+- **Why:** on a real render (Premala-shaped statement), long category names — "Printing & Stationery", "Travelling Expenses", "Hardware & Loose Tools" — wrapped to a 2nd line and overlapped the first data row. Looks unprofessional on a client-facing audit document.
+- **Root cause — diagnosed empirically, not guessed:** the category name was drawn in the 66px-wide `date` column, and `tableRow` relied on pdfkit's `{ lineBreak:false, ellipsis:true }` to keep it on one line. A `doc.heightOfString(...)` probe proved those options are NOT honoured in this pdfkit build — a too-wide string still reports 19px (two lines) vs the 15px row height, so it overflows into the row below.
+- **Fix (two parts):** (1) `fitToWidth(doc, str, maxW)` measures with `widthOfString` and hard-truncates with a plain-ASCII "..." (never the U+2026 glyph — same standard-Helvetica tofu risk as a Unicode arrow) so NO cell can ever wrap/overlap, a general safety net for every row. (2) the category name moves to the WIDE description column — matching the client's BUMI ERA sample (category label sits in DESCRIPTION) — so realistic names show in full rather than being truncated in a cramped cell.
+- **Verification:** re-rendered the statement to PNG and eyeballed it — all six category names now sit on one clean line in the description column, no overlap, matching the sample. `manageExport` plain path unaffected (shares `tableRow` but its cells already fit). Full suite 1864/1864 (`.env` aside, restored).
+- **What's next:** push, PR, wait for explicit merge word. Companion task (setting Premala's company name on the statement header) is a separate production-config decision — raised with the Owner, not bundled here.
+- **Assumptions:** none — the fix is confined to text fitting/placement; totals, amounts, and page counts are unchanged.
+
 ## 2026-07-11 · Claude (Opus, for Jeevan) · feature/jeevan-statement-receipt-compilation — Statement PDF receipt appendix redesigned to match the client's sample ("big image + one-line annotation", no placeholder pages)
 
 - **Files:** `lib/statementPdf.js` (redesigned the `receiptEvidence` appendix — see below), `tests/statementPdf.test.js` (rewrote the 3 evidence-mode page-arithmetic tests to the new behaviour; net test count unchanged). NO change to `routes/statement.js` (already passes `receiptEvidence:true` and only consumes the buffer) or `routes/manageExport.js` (plain path untouched).
