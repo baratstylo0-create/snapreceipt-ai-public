@@ -34,8 +34,14 @@
   // be a standalone "Ledger" tab here; the Owner moved it under Manage (2026-07-09).
   var BUSINESS_SECTIONS = [
     { id: 'team', label: 'Team' },
-    { id: 'payments', label: 'Payments' },
   ];
+
+  function paymentsPageEnabled(opts) {
+    opts = opts || {};
+    if (opts.paymentsPage === true) return true;
+    if (opts.config && opts.config.payments_page === true) return true;
+    return false;
+  }
 
   // sectionsFor({ business, role }) -> the nav list for the mode. Personal (business falsy)
   // returns SECTIONS untouched — the classic six, byte-identical. Business adds Team +
@@ -47,9 +53,11 @@
   function sectionsFor(opts) {
     opts = opts || {};
     if (!opts.business) return SECTIONS;
+    var businessSections = BUSINESS_SECTIONS.slice();
+    if (paymentsPageEnabled(opts)) businessSections.push({ id: 'payments', label: 'Payments' });
     var out = [];
     for (var i = 0; i < SECTIONS.length; i++) {
-      if (SECTIONS[i].id === 'settings') { out = out.concat(BUSINESS_SECTIONS); }
+      if (SECTIONS[i].id === 'settings') { out = out.concat(businessSections); }
       out.push(SECTIONS[i]);
     }
     return out;
@@ -208,5 +216,5 @@
     return { el: nav, setActive: setActive };
   }
 
-  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS, sectionsFor: sectionsFor };
+  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS, sectionsFor: sectionsFor, paymentsPageEnabled: paymentsPageEnabled };
 });

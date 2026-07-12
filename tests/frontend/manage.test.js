@@ -18,6 +18,11 @@ test('business + excel_lite_grid omitted/true -> both sub-pages, template first'
   assert.deepStrictEqual(subPagesFor({ excel_lite_grid: true }, true).map((p) => p.id), ['template', 'data']);
 });
 
+test('business + template_builder:false -> category-only tab plus data editor (no template builder)', () => {
+  assert.deepStrictEqual(subPagesFor({ template_builder: false }, true).map((p) => p.id), ['category', 'data']);
+  assert.deepStrictEqual(subPagesFor({ template_builder: false, excel_lite_grid: false }, true).map((p) => p.id), ['category']);
+});
+
 test('business + excel_lite_grid:false (Premala-style off) -> data editor dropped, template kept', () => {
   assert.deepStrictEqual(subPagesFor({ excel_lite_grid: false }, true).map((p) => p.id), ['template']);
 });

@@ -482,16 +482,19 @@
   function mount(section, opts) {
     if (!hasDom() || !section) return null;
     opts = opts || {};
+    var categoryOnly = !!opts.categoryOnly;
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
 
     var rootEl = el('div', 'tp-root');
     section.appendChild(rootEl);
 
-    rootEl.appendChild(msg('tp-intro muted', 'Import a CSV or a real Excel (.xlsx) file to define your field template, or view the current one.'));
+    if (!categoryOnly) {
+      rootEl.appendChild(msg('tp-intro muted', 'Import a CSV or a real Excel (.xlsx) file to define your field template, or view the current one.'));
+    }
 
     // Current FieldSpec area.
     var specArea = el('div', 'tp-spec-area');
-    rootEl.appendChild(specArea);
+    if (!categoryOnly) rootEl.appendChild(specArea);
 
     // Import form: textarea (primary) + optional file picker + name input + submit.
     var form = el('form', 'tp-form');
@@ -544,7 +547,7 @@
     var statusEl = msg('tp-status muted', '');
     form.appendChild(statusEl);
 
-    rootEl.appendChild(form);
+    if (!categoryOnly) rootEl.appendChild(form);
 
     var busy = false;
     // Set when the user picked a real .xlsx file — the Import button submits THIS
@@ -842,7 +845,7 @@
       submitCsv(csv, nameInput.value, fbStatusEl, setFbBusy);
     });
 
-    rootEl.appendChild(builderWrap);
+    if (!categoryOnly) rootEl.appendChild(builderWrap);
 
     // ---- category editor section (additive, ADR-021) -----------------------
     // A second, independent visual builder (chart of accounts, not columns).
@@ -983,6 +986,17 @@
     function load() {
       if (state.loading || state.loaded || !apiFetch) return;
       state.loading = true;
+      if (categoryOnly) {
+        var cats = loadCategories();
+        if (cats && typeof cats.then === 'function') {
+          cats.then(function () {
+            state.loading = false; state.loaded = true;
+          }).catch(function () { state.loading = false; });
+        } else {
+          state.loading = false;
+        }
+        return cats;
+      }
       var p = loadCurrent();
       if (p && typeof p.then === 'function') {
         p.then(function (spec) {
@@ -997,7 +1011,10 @@
 
     // No-apiFetch/no-DOM-load environments (e.g. some tests) still get one
     // empty starter row so each builder is usable standalone.
-    if (!apiFetch) { addRow(); addCatRow(); }
+    if (!apiFetch) {
+      if (!categoryOnly) addRow();
+      addCatRow();
+    }
 
     return { el: rootEl, load: load };
   }
