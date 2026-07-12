@@ -53,6 +53,31 @@ module.exports = function mountMisc(app) {
     const ok = db === 'up';
     const body = { ok, deps: { db, storage: storageVerdict } };
     if (storageDetail) body.storage_detail = storageDetail;
+
+    // Opt-in DEEP object-read check (`/ready?deep=object`): actually DOWNLOAD the newest stored
+    // receipt object — the exact operation that serves a card's photo — and report whether THIS
+    // server can do it. Gated behind the query param so normal readiness polling stays cheap and
+    // never fetches image bytes. 2026-07-11: the decisive test for a live 404 where the object
+    // exists + reads fine from a dev box; a green bucket-auth probe alone can't confirm downloads.
+    if (req.query.deep === 'object') {
+      let objectRead = 'down';
+      let objectDetail;
+      try {
+        const rows = await withTimeout(
+          supabase.sbSelect('expenses', { extra: 'receipt_url=not.is.null&order=created_at.desc', limit: 1 }), 3000);
+        const path = rows && rows[0] && rows[0].receipt_url;
+        if (!path) { objectRead = 'no-data'; objectDetail = 'no receipt with a stored image yet'; }
+        else {
+          const r = await withTimeout(storage.probeStorageObject(path), 9000);
+          objectRead = r && r.ok ? 'up' : 'down';
+          objectDetail = r && r.ok ? (r.bytes + ' bytes') : ('status ' + (r && r.status != null ? r.status : '?') + ': ' + (r && r.detail || 'unreadable'));
+        }
+      } catch (e) { objectDetail = (e && e.message) || 'timeout'; }
+      body.deps.object_read = objectRead;
+      body.object_read_detail = objectDetail;
+      if (objectRead !== 'up') logWarn('ready', 'object read ' + objectRead + ': ' + (objectDetail || '?'));
+    }
+
     res.status(ok ? 200 : 503).json(body);
   });
 

@@ -88,3 +88,35 @@ test('probeStorage: a throwing hreq -> { ok:false }, never escapes', async () =>
   assert.strictEqual(r.ok, false);
   assert.match(r.detail, /ETIMEDOUT/);
 });
+
+// probeStorageObject — the DEEP object-download check (the operation that actually serves a photo).
+test('probeStorageObject: a 200 with bytes -> { ok:true, bytes }', async () => {
+  const fetch = async (url) => {
+    assert.match(url, /\/storage\/v1\/object\/receipts\/acme\/x\.jpg$/);
+    return { ok: true, status: 200, arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4]).buffer };
+  };
+  assert.deepStrictEqual(await storage.probeStorageObject('acme/x.jpg', { deps: { fetch } }), { ok: true, status: 200, bytes: 4 });
+});
+
+test('probeStorageObject: a non-2xx -> { ok:false, status, short detail } (NOT swallowed as bytes)', async () => {
+  const fetch = async () => ({ ok: false, status: 400, arrayBuffer: async () => Buffer.from('{"error":"InvalidRequest","message":"bad"}').buffer });
+  const r = await storage.probeStorageObject('acme/x.jpg', { deps: { fetch } });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.status, 400);
+  assert.ok(r.detail.length <= 140);
+});
+
+test('probeStorageObject: no path -> { ok:false } without a fetch', async () => {
+  let called = false;
+  const fetch = async () => { called = true; return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(1) }; };
+  const r = await storage.probeStorageObject('', { deps: { fetch } });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(called, false);
+});
+
+test('probeStorageObject: a throwing/timed-out fetch -> { ok:false }, never escapes', async () => {
+  const fetch = async () => { throw new Error('TimeoutError'); };
+  const r = await storage.probeStorageObject('a/b.jpg', { deps: { fetch } });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.detail, /Timeout/);
+});
