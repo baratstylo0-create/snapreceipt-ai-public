@@ -8,7 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const PDFDocument = require('pdfkit');
 const { buildStatementModel } = require('../lib/statement');
-const { statementToPdf, sortRowsByDate } = require('../lib/statementPdf');
+const { statementToPdf, sortRowsByDate, fitScale, formatDisplayDate } = require('../lib/statementPdf');
 const { rgbaToPng } = require('../lib/pdf');
 
 function tinyPng() { return rgbaToPng(Buffer.alloc(2 * 2 * 4, 0xff), 2, 2); }
@@ -172,5 +172,56 @@ test('receiptEvidence ON: a real image receipt still renders fine (no crash), sa
     receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } },
   });
   assert.strictEqual(pages, base + 2);
+  assert.strictEqual(skippedReceipts, 0);
+});
+
+// --- ID-card redesign (Owner request, replaces the full-bleed "image dump" appendix): a
+// bordered card with a details block + a bordered photo box that NEVER upscales a small
+// image (the reported blur bug — a small photo stretched to fill the box). fitScale is the
+// pure core of that fix: the scale factor to draw an image at, capped at 1 so a photo
+// smaller than its box is drawn at its real size instead of blown up. ---------------------
+
+test('fitScale: a BIG image shrinks to fit inside the box (aspect preserved)', () => {
+  // 2000x1000 image into a 500x500 box -> width-constrained, scale = 500/2000 = 0.25
+  assert.strictEqual(fitScale(2000, 1000, 500, 500), 0.25);
+});
+
+test('fitScale: a SMALL image is NEVER upscaled — stays at its real size (the blur fix)', () => {
+  // 100x50 image into a 500x500 box -> would compute 5x if uncapped; must cap at 1
+  assert.strictEqual(fitScale(100, 50, 500, 500), 1);
+});
+
+test('fitScale: picks the more restrictive dimension (whichever of width/height is tighter)', () => {
+  // 400x100 image into a 200x200 box -> width-constrained: 200/400=0.5 vs height 200/100=2(capped 1) -> 0.5
+  assert.strictEqual(fitScale(400, 100, 200, 200), 0.5);
+});
+
+test('fitScale: garbage/zero input never throws, degrades to no scaling (1)', () => {
+  assert.strictEqual(fitScale(0, 0, 500, 500), 1);
+  assert.strictEqual(fitScale(NaN, 100, 500, 500), 1);
+  assert.strictEqual(fitScale(100, 100, 0, 0), 1);
+  assert.strictEqual(fitScale(null, undefined, 500, 500), 1);
+});
+
+test('formatDisplayDate: ISO YYYY-MM-DD -> "DD Mon YYYY" (matches the card spec example)', () => {
+  assert.strictEqual(formatDisplayDate('2026-07-03'), '03 Jul 2026');
+  assert.strictEqual(formatDisplayDate('2025-12-25'), '25 Dec 2025');
+});
+
+test('formatDisplayDate: garbage/empty input -> the raw string back, never throws', () => {
+  assert.strictEqual(formatDisplayDate(''), '');
+  assert.strictEqual(formatDisplayDate(null), '');
+  assert.strictEqual(formatDisplayDate('not-a-date'), 'not-a-date');
+});
+
+test('receiptEvidence ON: a receipt page still renders correctly with the card layout (no crash), same page arithmetic', async () => {
+  const base = (await statementToPdf(model, {})).pages;
+  // both expenses receipted -> 2 card pages, no summary page (nothing missing)
+  const { buffer, pages, skippedReceipts } = await statementToPdf(model, {
+    receiptEvidence: true,
+    receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } },
+  });
+  assert.strictEqual(buffer.subarray(0, 5).toString('latin1'), '%PDF-');
+  assert.strictEqual(pages, base + 2, 'one card page per receipt, unchanged arithmetic');
   assert.strictEqual(skippedReceipts, 0);
 });
