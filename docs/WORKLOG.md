@@ -1,5 +1,17 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-12 · Claude (Sonnet, for Barat) · qa/pr-s-statement-row-overflow — Petty Cash Statement PDF: fix stray "TOTAL"/"0.00" fragments on near-blank pages (row split across a page boundary)
+
+- **Files:** `lib/statementPdf.js` (`tableRow` overflow guard). Tests: `tests/statementPdf.test.js` (+1).
+- **Bug (Owner-reported, screenshots):** on a multi-page statement, near-blank pages appeared carrying a lone "TOTAL" (mid-page) or "0.00" (right-aligned) with a stray empty box — the summary table looked broken.
+- **Root cause (found by reading + reproduced by rendering):** in `drawStatement`, only the Section-B **data** rows are wrapped in `pageBreak()` (which adds a page + repeats the column header). The category **TOTAL** rows, the **SUBTOTAL** row, and the **footer** (A. TOTAL CASH IN-HAND / B. TOTAL EXPENDITURE / BALANCE) are drawn by bare `tableRow()` calls with **no** overflow guard. When one of those landed within `ROW_H` of the page bottom, pdfkit drew the cell borders off the bottom of the current page but flung the cell **text** (`TOTAL`, `0.00`) onto a fresh page — the stray fragment. Data-dependent: only shows once the statement is long enough to overflow (the real 10-category chart of accounts + pad rows does; the 3-category test model didn't, which is why it slipped through).
+- **Fix (one guard, design untouched):** `tableRow` now starts a fresh page BEFORE drawing if the row wouldn't fit (`ctx.y + ROW_H > PAGE_BOTTOM`). Every row — total, subtotal, footer — now renders intact on one page. The data rows are unaffected (their `pageBreak()` already ran, so `ctx.y` is at `MARGIN` and the new guard is a no-op there — no double page, header-repeat still works). Zero layout change when a row already fits (the common case).
+- **Verified visually + tests:** rendered the previously-fragmenting case (10 categories, padRows sweep 0–8) to page images before/after — confirmed the stray "TOTAL"/"0.00" fragment pages are gone and every total/footer row is intact, sign-off still on its own clean page. Full suite **1906/1906** (hermetic; +1 structural regression test: a long multi-page statement renders one valid PDF with a bounded page count — catches any re-introduction of runaway fragment pages; pixel-level "no orphaned TOTAL" stays a visual check per this file's own convention).
+- **What's next:** merge (Owner-directed this session) → auto-deploys. Receipt-card work (PR #216) already live; this stacks cleanly on top (touches only `tableRow`, disjoint from the evidence-page code).
+- **Assumptions:** none — additive guard, no data/schema/route change.
+
+---
+
 ## 2026-07-12 · Claude (Sonnet, for Barat) · qa/pr-r-receipt-card-redesign — Petty Cash Statement PDF: receipt appendix redesigned as bordered ID-cards (Owner request), fixes small-photo upscale blur
 
 - **Files:** `lib/statementPdf.js` (`drawEvidencePage` rewritten; new `fitScale`, `formatDisplayDate`, `evidenceDetailLines` — first two exported/node-tested). Tests: `tests/statementPdf.test.js` (+7).
