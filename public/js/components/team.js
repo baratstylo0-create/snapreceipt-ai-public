@@ -185,11 +185,30 @@
     // card's user icon (ADR-025 amendment, Owner-approved 2026-07-11 QA round). Same
     // panel either way; `state.newCredMode` ('created' | 'viewed') only changes the
     // header copy — the "shown only once" warning is misleading once it's re-fetchable.
-    function renderCredPanel(host) {
-      if (!state.newCred) return;
+    // Renders as a centered modal popup (Owner request 2026-07-12) — same overlay/card
+    // convention as activity.js's receipt drawer (.act-drawer-host/.act-drawer) — instead
+    // of inline at the top of the page, which forced a scroll up to see it.
+    var credOverlayEl = null;
+
+    function closeCredOverlay() {
+      if (credOverlayEl && credOverlayEl.parentNode) credOverlayEl.parentNode.removeChild(credOverlayEl);
+      credOverlayEl = null;
+    }
+
+    function dismissCredPanel() {
+      state.newCred = null;
+      state.newCredMode = null;
+      state.newCredBranchId = null;
+      render();
+    }
+
+    function buildCredPanel() {
       var c = state.newCred;
       var viewing = state.newCredMode === 'viewed';
       var panel = el('div', 'team-cred-panel');
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-modal', 'true');
+      panel.setAttribute('aria-label', viewing ? (c.office + ' credentials') : 'Branch created');
 
       var head = el('div', 'team-cred-head');
       head.appendChild(textEl('div', 'team-cred-title', viewing ? (c.office + ' — credentials') : 'Branch created — save these now'));
@@ -208,6 +227,11 @@
         }).catch(function () { /* clipboard denied — the values are still visible in the panel */ });
       });
       head.appendChild(copyBtn);
+      var closeX = el('button', 'team-cred-close'); closeX.type = 'button';
+      closeX.setAttribute('aria-label', 'Close');
+      Escape.setText(closeX, '×');
+      closeX.addEventListener('click', dismissCredPanel);
+      head.appendChild(closeX);
       panel.appendChild(head);
 
       if (!viewing) {
@@ -270,9 +294,22 @@
       }
 
       var dismiss = ghostBtn(viewing ? 'Close' : 'I’ve saved this — dismiss');
-      dismiss.addEventListener('click', function () { state.newCred = null; state.newCredMode = null; state.newCredBranchId = null; render(); });
+      dismiss.addEventListener('click', dismissCredPanel);
       panel.appendChild(dismiss);
-      host.appendChild(panel);
+      return panel;
+    }
+
+    // Opens/updates/closes the modal overlay to match state.newCred — called from render()
+    // so every code path that sets state.newCred (branch creation, view-login, reset
+    // password) shows the popup with no extra wiring at each call site.
+    function syncCredOverlay() {
+      if (!state.newCred) { closeCredOverlay(); return; }
+      closeCredOverlay();
+      var overlay = el('div', 'team-cred-overlay');
+      overlay.appendChild(buildCredPanel());
+      overlay.addEventListener('click', function (ev) { if (ev.target === overlay) dismissCredPanel(); });
+      document.body.appendChild(overlay);
+      credOverlayEl = overlay;
     }
 
     // ---- add branch form (admin only) ----
@@ -452,12 +489,11 @@
       document.body.appendChild(overlay);
     }
 
-    // ---- one branch node (admin: full node + view-login + remove) ----
-    // Wrapped in a .team-node so the CSS-only spine/elbow connector links it to the org
-    // root. Merges the QA-round card chrome (view-login button, delete-confirmation modal)
-    // with the org-tree reshape (node wrapper, "No clerk yet" fallback, company chip).
+    // ---- one branch card (admin: full card + view-login + remove) ----
+    // A direct grid cell (Owner request 2026-07-12: 3 cards per row instead of a single
+    // vertical spine) — merges the QA-round card chrome (view-login button,
+    // delete-confirmation modal) with the "No clerk yet" fallback + company chip.
     function renderBranchNode(host, b) {
-      var node = el('div', 'team-node');
       var card = el('div', 'team-branch-card team-branch-node' + (b.active ? '' : ' is-inactive'));
       var head = el('div', 'team-branch-head');
       var nameCol = el('div', 'team-branch-name-col');
@@ -503,8 +539,7 @@
 
       card.appendChild(textEl('div', 'team-staff-title', 'Staff'));
       renderStaffList(card, b.id);
-      node.appendChild(card);
-      host.appendChild(node);
+      host.appendChild(card);
     }
 
     function render() {
@@ -513,7 +548,7 @@
         admin ? 'Manage your branches, their clerks, and each branch’s staff directory.'
           : 'Manage your branch’s staff directory.'));
 
-      renderCredPanel(wrap);
+      syncCredOverlay();
 
       if (state.error) {
         wrap.appendChild(textEl('p', 'team-error', state.error));
@@ -542,9 +577,9 @@
           wrap.appendChild(coSection);
         }
 
-        // The org-hierarchy tree: an organisation root node at the top, then a vertical
-        // spine down which every branch — and the add-branch affordance — hangs off a
-        // CSS-only elbow connector. Scales to any branch count and stacks on mobile.
+        // An organisation root banner at the top, then every branch — and the add-branch
+        // affordance — laid out as a grid (Owner request 2026-07-12: 3 cards per row,
+        // was a single vertical spine with elbow connectors that read as too tall/narrow).
         var tree = el('div', 'team-tree');
         var root = el('div', 'team-root');
         root.appendChild(textEl('div', 'team-root-kicker', 'Organisation'));
@@ -552,22 +587,20 @@
         root.appendChild(textEl('div', 'team-root-sub', 'Admin · sees every branch'));
         tree.appendChild(root);
 
-        var spine = el('div', 'team-spine');
+        var grid = el('div', 'team-branch-grid');
         var list = sortedBranches(state.branches);
         if (!list.length) {
-          spine.appendChild(textEl('p', 'team-tree-empty muted', 'No branches yet — add your first below.'));
+          grid.appendChild(textEl('p', 'team-tree-empty muted', 'No branches yet — add your first below.'));
         } else {
-          list.forEach(function (b) { renderBranchNode(spine, b); });
+          list.forEach(function (b) { renderBranchNode(grid, b); });
         }
-        // Add-branch node always sits at the tail of the spine (tree-native affordance);
-        // it expands the existing add-branch form → unchanged POST + credential flow.
-        var addNode = el('div', 'team-node team-node--add');
+        // Add-branch tile always sits at the tail of the grid; it expands the existing
+        // add-branch form → unchanged POST + credential flow.
         var addBox = el('div', 'team-add-box');
         addBox.appendChild(textEl('div', 'team-node-add-title', 'Add a branch'));
         renderAddBranch(addBox);
-        addNode.appendChild(addBox);
-        spine.appendChild(addNode);
-        tree.appendChild(spine);
+        grid.appendChild(addBox);
+        tree.appendChild(grid);
         wrap.appendChild(tree);
       } else {
         var ownId = deps.session && deps.session.branch_id;
