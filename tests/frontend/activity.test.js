@@ -17,7 +17,7 @@ const {
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
-  receiptErrorMessage,
+  receiptErrorMessage, statusLabel, decisionErrorText,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -121,6 +121,40 @@ test('receiptErrorMessage: any other status (or no status) keeps the generic ret
   assert.strictEqual(receiptErrorMessage({ status: 502 }), 'Could not load the receipt. Please try again shortly.');
   assert.strictEqual(receiptErrorMessage(undefined), 'Could not load the receipt. Please try again shortly.');
   assert.strictEqual(receiptErrorMessage({}), 'Could not load the receipt. Please try again shortly.');
+});
+
+// --- statusLabel (Owner 2026-07-12: raw snake_case "needs_review" leaked into the UI) --
+test('statusLabel: known machine statuses map to human labels ("needs_review" -> "Need Review")', () => {
+  assert.strictEqual(statusLabel('needs_review'), 'Need Review');
+  assert.strictEqual(statusLabel('saved'), 'Saved');
+  assert.strictEqual(statusLabel('approved'), 'Approved');
+  assert.strictEqual(statusLabel('rejected'), 'Rejected');
+  assert.strictEqual(statusLabel('awaiting_category'), 'Awaiting Category');
+});
+
+test('statusLabel: an unknown status is Title-Cased from its raw value; empty/garbage never throws', () => {
+  assert.strictEqual(statusLabel('some_new_state'), 'Some New State');
+  assert.strictEqual(statusLabel(''), '');
+  assert.strictEqual(statusLabel(null), '');
+  assert.strictEqual(statusLabel(undefined), '');
+});
+
+// --- decisionErrorText (Owner 2026-07-12: Approve failed with a bare "Action failed", --
+// hiding the real 403 valve reason "the branch clerk decides first...") ------------------
+test('decisionErrorText: surfaces the server\'s specific error message when present', () => {
+  assert.strictEqual(
+    decisionErrorText({ status: 403, body: { error: 'the branch clerk decides first — the admin valve opens 7 days after flagging' } }),
+    'the branch clerk decides first — the admin valve opens 7 days after flagging');
+  assert.strictEqual(
+    decisionErrorText({ status: 409, body: { error: 'expense is not pending review (status=approved)' } }),
+    'expense is not pending review (status=approved)');
+});
+
+test('decisionErrorText: falls back to the generic line when there is no server message', () => {
+  assert.strictEqual(decisionErrorText(undefined), 'Action failed. Please try again.');
+  assert.strictEqual(decisionErrorText({}), 'Action failed. Please try again.');
+  assert.strictEqual(decisionErrorText({ status: 502, body: {} }), 'Action failed. Please try again.');
+  assert.strictEqual(decisionErrorText({ body: { error: 42 } }), 'Action failed. Please try again.');
 });
 
 // --- reviewMetaParts (review-queue card: receipt details, Owner 2026-07-10) --

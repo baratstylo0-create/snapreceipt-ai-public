@@ -34,6 +34,38 @@
   // OCR pipeline, not something a person should manually switch a row into.
   var STATUS_OPTIONS = ['saved', 'needs_review', 'approved', 'rejected'];
 
+  // statusLabel(status) -> a human-readable label for a raw DB status string. The DB stores
+  // snake_case machine values ('needs_review', 'awaiting_category'); showing those verbatim in
+  // the UI reads like a leaked internal (Owner request 2026-07-12: "needs_review" should read
+  // "Need Review"). Known values get a hand-picked label; anything unknown degrades to a
+  // Title-Cased version of the raw value (never throws, never shows a blank).
+  var STATUS_LABELS = {
+    saved: 'Saved',
+    needs_review: 'Need Review',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    awaiting_category: 'Awaiting Category',
+    awaiting_remark: 'Awaiting Remark',
+  };
+  function statusLabel(status) {
+    var raw = status == null ? '' : String(status);
+    if (STATUS_LABELS[raw]) return STATUS_LABELS[raw];
+    if (!raw) return '';
+    return raw.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  // decisionErrorText(err) -> the message to show when an Approve/Reject POST fails. The review
+  // API returns a SPECIFIC, actionable reason (e.g. 403 "the branch clerk decides first — the
+  // admin valve opens 7 days after flagging", or 409 "expense is not pending review") — the old
+  // catch threw all of that away and showed a bare "Action failed", leaving the user with no idea
+  // WHY (Owner report 2026-07-12: "why did approve fail?"). Surface the server's own message when
+  // present; fall back to the generic line only when there's nothing specific (network/5xx).
+  function decisionErrorText(err) {
+    var msg = err && err.body && err.body.error;
+    if (msg && typeof msg === 'string') return msg;
+    return 'Action failed. Please try again.';
+  }
+
   // DYNAMIC CATEGORIES (bug fix): the category list is no longer a hardcoded,
   // driftable 5-name stub — it now comes live from GET /api/config's
   // `categories` field (sourced from lib/categorize.js's real ~18-category
@@ -631,7 +663,7 @@
     var statusSel = el('select', 'act-filter act-filter--status');
     statusSel.setAttribute('aria-label', 'Filter by status');
     ['all'].concat(STATUS_OPTIONS).forEach(function (s) {
-      var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? 'All statuses' : s); statusSel.appendChild(o);
+      var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? 'All statuses' : statusLabel(s)); statusSel.appendChild(o);
     });
     statusSel.value = state.filterStatus || 'all';
     statusSel.addEventListener('change', function () { onChange({ filterStatus: statusSel.value, page: 1 }); });
@@ -740,7 +772,7 @@
   function buildStatusCell(tag, r, categories, handlers) {
     var cell = el(tag, tag === 'td' ? 'act-td act-td--status' : 'act-card-status act-td--status');
     var text = el('span', 'act-status-text');
-    Escape.setText(text, r.status);
+    Escape.setText(text, statusLabel(r.status));
     cell.appendChild(text);
     if (!isRejected(r)) return cell;
 
@@ -990,7 +1022,7 @@
         // keep that as a selectable option too so opening the drawer never silently
         // reassigns it to 'saved' just because it wasn't in the list.
         var opts = STATUS_OPTIONS.indexOf(cur) === -1 ? STATUS_OPTIONS.concat([cur]) : STATUS_OPTIONS;
-        opts.forEach(function (s) { var o = el('option'); o.value = s; Escape.setText(o, s); input.appendChild(o); });
+        opts.forEach(function (s) { var o = el('option'); o.value = s; Escape.setText(o, statusLabel(s)); input.appendChild(o); });
         input.value = cur;
       } else {
         input = el('input', 'act-field-input');
@@ -1566,7 +1598,7 @@
                 if (idx !== -1) state.rows[idx].status = decision === 'approve' ? 'approved' : 'rejected';
                 renderReview(); renderTable();
               })
-              .catch(function () { Escape.setText(st, 'Action failed. Please try again.'); });
+              .catch(function (err) { Escape.setText(st, decisionErrorText(err)); });
           },
         }));
       });
@@ -1642,6 +1674,8 @@
     receiptErrorMessage: receiptErrorMessage,
     reviewMetaParts: reviewMetaParts,
     normaliseViewMode: normaliseViewMode,
+    statusLabel: statusLabel,
+    decisionErrorText: decisionErrorText,
     // render (browser)
     mount: mount,
   };
