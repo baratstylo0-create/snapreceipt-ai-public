@@ -44,3 +44,39 @@ Wired `lib/groq.js`'s fall-through against your `lib/groqkeys.js` — `feat/bara
 - **(3) supersede-not-union** — matched your `.env.example`; no doc change needed. ✓
 
 Factored the duplicated 4-attempt loop into one shared `callGroq()` runner (removes the groqChat/groqChatTools copy-paste as a bonus). **Single-key / `GROQ_KEYS`-unset is byte-for-byte the old behavior** — all 6 of your existing groq tests stay green, timings unchanged. +5 rotation tests (429→different key no-sleep, no key retried twice/round, exhaustion→backoff, single-key unchanged, happy path). 668/668. ADR-016 is complete once this merges — pool ceiling ×(pool size) at $0.
+
+---
+
+## 2026-07-12 · Claude (for Barat) · needs Premala VPS deploy + restart — receipt photos merged, live check blocked without VPS access
+
+Owner reported receipts sent to the bot as an **album** (several photos at once) or as a **PDF** save fine (merchant/amount/category correct) but show **no photo** on the dashboard, and no photo in PDF exports.
+
+**Root cause (confirmed by code, not guessed):** of the 4 ways a receipt gets in, only 2 stored the image file — single photo (`expenseFromPhoto`) and dashboard bulk-upload (`routes/upload.js`). The **Telegram album** path (`flushGroup`) and **Telegram PDF** path (`handlePdfDocument`) never called any storage upload — their per-image meta only set `receipt_file_unique_id`, never `receipt_url`. So those rows saved with `receipt_url = null`, and both the dashboard thumbnail and PDF-export receipt-append key off `receipt_url` — null = no photo, silently, everywhere. Not a bucket problem — the single-photo path proves the bucket works fine.
+
+**Fixed in [PR #198](https://github.com/Jeevan1811/receipt-analyser-saas/pull/198) — already merged to `main`.** Mirrors the proven `routes/upload.js` pattern: `flushGroup` now stores each album image via `downloadAndStoreReceiptImage`, `handlePdfDocument` now uploads each rasterised page via `uploadReceiptImage`, both threaded per-image into `runBatch`'s `metaForImage` so `assembleExpense` persists the real `receipt_url`. Fail-safe (null on failure → row still saves imageless, never throws). Zero frontend/export-code changes needed — once `receipt_url` exists, the dashboard Cards view and PDF exports pick it up automatically. 1856/1856 tests green, hermetic.
+
+**What I need from you:** this needs to go live on the Premala VPS (31.97.70.50) — pull latest `main`, restart the bot process so it picks up the new `flushGroup`/`handlePdfDocument` code. I don't have VPS access, so I can't deploy or verify this live myself.
+
+**Verification once deployed:** send an album of 2-3 receipts (or one PDF receipt) to the live bot → open the dashboard Cards view → each new card should show its photo thumbnail → export a PDF → photos should be attached.
+
+**One honest caveat:** receipts saved BEFORE this deploy (their `receipt_url` is already null in the DB) can't be retro-filled — the image bytes were never stored. They'd need to be re-sent (as a single photo, or re-sent as an album now that it's fixed) to get a photo.
+
+Also flagging: [PR #197](https://github.com/Jeevan1811/receipt-analyser-saas/pull/197) (dupedit menu: Delete turns the same message into confirm→deleted, instead of 3 separate bubbles) is still open, whenever you get a chance to look.
+
+---
+
+## 2026-07-12 · Claude (for Barat) · live-tested PR #198 on the VPS — new bug found, need your server logs
+
+Thanks for deploying #198 + #197 — both live-tested and confirmed working for what they cover:
+
+- **#197 (one-message delete flow):** confirmed live via the dashboard (merged by you, good).
+- **#198 (album/PDF photo storage):** Owner sent a fresh test album to the live bot. Confirmed **progress**: the new rows (RC-2026-0070/0071/0072) now genuinely have `receipt_url` set — before this deploy, cards with no photo showed **no thumbnail box at all** (no `receipt_url`). Now they show a photo box, so the storage upload is happening. **But** the box says **"Could not load the receipt."** — a new, narrower failure at the *serve-back* step, not the save step.
+
+**What I traced (code-only, I don't have VPS access so I can't see live logs):**
+- That message (`activity.js:510`) only fires when `Api.fetchBlob('/receipt/by-id/:id')` gets a **rejected** response — not silently missing, an actual non-2xx or thrown error.
+- `routes/receipt.js`'s `/receipt/by-id/:id` returns 404 if `fetchReceiptObject(row.receipt_url)` comes back null, or 502 if anything in the handler throws.
+- `fetchReceiptObject` (`lib/storage.js:69`) GETs the object from Supabase Storage using the service key and logs `console.error('[storage] fetch', e.message)` on failure.
+
+**Found a real bug while tracing this (separate from the root cause, but worth fixing regardless):** `lib/http.js`'s `hreq()` never checks `r.ok`/`r.status` — for the `encoding:'arraybuffer'` path specifically, it does `Buffer.from(await r.arrayBuffer())` **no matter what HTTP status came back**. So a 4xx/5xx from Supabase Storage returns a non-empty "buffer" (the error body's bytes) instead of throwing/failing — `fetchReceiptObject`'s `if (!buf) return null` never catches that case. Didn't touch this yet — wanted to flag it, not guess-fix a shared low-level helper without seeing what's actually happening on your box first.
+
+**What I need from you:** after the Owner sends a test album again, can you grep the live server's stdout/PM2 log for `[storage] fetch` or `[receipt by-id]` right after? That'll tell us in one look whether it's a bucket/permissions issue (wrong `SB_KEY` — anon vs service_role?), a missing bucket, or something else. Happy to build whichever fix it turns out to be once we know.
