@@ -89,6 +89,32 @@ test('every receipted row still appends its page, regardless of statement-line v
   assert.strictEqual(skippedReceipts, 0);
 });
 
+// --- Long statement page-overflow (stray-fragment bug) -----------------------------------
+// A statement with many categories + pad rows overflows past one page. The category TOTAL,
+// SUBTOTAL and footer rows are NOT wrapped in pageBreak() (only the data rows are), so
+// before the tableRow overflow guard they'd split — cell borders on one page, the "TOTAL"/
+// "0.00" text flung onto a near-blank next page. This renders that exact shape and asserts
+// the doc is still a single valid multi-page PDF (no crash, no runaway blank pages). The
+// pixel-level "no orphaned TOTAL" check is a visual diff (per this file's header note), done
+// on a real generated PDF; this is the structural backstop that the overflow path stays sane.
+
+test('a long, multi-page statement renders one valid PDF without runaway fragment pages', async () => {
+  const cats = ['Petrol/Diesel', 'Touch-n-Go', 'Entertainment', 'Printing', 'Sundry', 'Travelling', 'Accommodation', 'Hardware', 'Parking', 'Others'];
+  const big = buildStatementModel({
+    companyName: 'Placeholder Trading Sdn Bhd', branchLabel: 'QA Testing', preparedBy: 'Barat', period: '2026-07',
+    categories: cats, currency: 'MYR', showStaffColumn: true, showBranchColumn: true, balanceBf: 0,
+    expenses: [{ id: 'e1', amount: 50, category: 'Others', expense_date: '2026-07-10', merchant: 'Bank Islam', branch_id: 'b1', staff_user_id: 'u1' }],
+    staffNames: { u1: 'Barat' }, branchNames: { b1: 'QA Testing' }, padRows: 6,
+    signoff: { prepared: true, checked: false, approved: true },
+  });
+  const { buffer, pages } = await statementToPdf(big, {});
+  assert.strictEqual(buffer.subarray(0, 5).toString('latin1'), '%PDF-');
+  assert.ok(pages >= 2, 'this dataset genuinely spans multiple pages');
+  // A sane upper bound: even worst-case one row per page couldn't exceed the total row count.
+  // Catches a regression that re-introduces runaway blank/fragment pages.
+  assert.ok(pages <= 6, 'no runaway fragment pages (got ' + pages + ')');
+});
+
 // --- Photo appendix DATE ordering (all-branches export follow-up) ------------------------
 // The PDF renderer's page-by-page pixel content isn't practically introspectable in a unit
 // test, so the actual reordering logic is exported as a pure function (sortRowsByDate) and
