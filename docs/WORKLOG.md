@@ -1,5 +1,18 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-t-statement-footer-gap — Petty Cash Statement PDF: SUBTOTAL and the footer now read as ONE continuous table, not two
+
+- **Files:** `lib/statementPdf.js` (`drawStatement`, one gap replaced).
+- **Owner feedback (screenshot comparison against a real client Excel sample):** the SUBTOTAL (green) row and the footer block (A. TOTAL CASH IN-HAND / B. TOTAL EXPENDITURE / BALANCE) looked like two separate small tables, with a floating gap in between — the reference sample has them as one unbroken bordered table. Two follow-up decisions confirmed with the Owner: **keep** the existing grey/yellow/green fills (colour wasn't the complaint, the gap was); scope to the **PDF only** (`.xlsx` export unchanged).
+- **Root cause:** `ctx.y += 10` between the SUBTOTAL row and the footer rows was a raw, unbordered vertical gap — visually splitting the table in two, even though every row before and after it is still logically the same table.
+- **Fix:** replaced the raw gap with one bordered blank row (`tableRow(ctx, {})` — the same pattern already used for category pad rows), so the table border stays continuous straight through SUBTOTAL → blank spacer → footer, exactly like the reference. One line; every other spacing/section-heading gap (e.g. between Section A and Section B, which genuinely are two different tables in the reference too) is untouched.
+- **Verified visually:** rendered a real 10-category statement to a page image before/after — confirmed SUBTOTAL now flows directly into the footer as one unbroken bordered block.
+- **Tests: full suite 1906/1906**, no regressions (page arithmetic unaffected — swapping a raw gap for one bordered row doesn't add/remove rows).
+- **What's next:** merge (Owner-directed) → auto-deploys.
+- **Assumptions:** none — matches the Owner's explicit scope choices (colour stays, PDF-only).
+
+---
+
 ## 2026-07-12 · Claude (Sonnet, for Barat) · qa/pr-s-statement-row-overflow — Petty Cash Statement PDF: fix stray "TOTAL"/"0.00" fragments on near-blank pages (row split across a page boundary)
 
 - **Files:** `lib/statementPdf.js` (`tableRow` overflow guard). Tests: `tests/statementPdf.test.js` (+1).
