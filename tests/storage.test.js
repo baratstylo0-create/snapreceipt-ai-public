@@ -63,3 +63,28 @@ test('fetchReceiptObject: a throwing hreq -> null (never escapes)', async () => 
   const hreq = async () => { throw new Error('boom'); };
   assert.strictEqual(await storage.fetchReceiptObject('a/b.png', { deps: { hreq } }), null);
 });
+
+// probeStorage — readiness reachability check (2026-07-11: added to make a VPS-side storage
+// fault visible via `curl /ready` when receipt reads 404 but the code/data are fine).
+test('probeStorage: bucket-metadata read with our bucket id -> { ok:true }', async () => {
+  const hreq = async (args) => {
+    assert.match(args.url, /\/storage\/v1\/bucket\/receipts$/);
+    assert.strictEqual(args.json, true); // text/json path (must NOT throw on a non-2xx)
+    return { id: 'receipts', name: 'receipts', public: false };
+  };
+  assert.deepStrictEqual(await storage.probeStorage({ deps: { hreq } }), { ok: true, status: 200 });
+});
+
+test('probeStorage: an error body (no bucket id) -> { ok:false } with a short PII-free detail', async () => {
+  const hreq = async () => ({ statusCode: '403', error: 'Unauthorized', message: 'permission denied' });
+  const r = await storage.probeStorage({ deps: { hreq } });
+  assert.strictEqual(r.ok, false);
+  assert.ok(typeof r.detail === 'string' && r.detail.length <= 120);
+});
+
+test('probeStorage: a throwing hreq -> { ok:false }, never escapes', async () => {
+  const hreq = async () => { throw new Error('ETIMEDOUT'); };
+  const r = await storage.probeStorage({ deps: { hreq } });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.detail, /ETIMEDOUT/);
+});
