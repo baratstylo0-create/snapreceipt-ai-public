@@ -17,7 +17,7 @@ const {
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
-  receiptErrorMessage,
+  receiptErrorMessage, reviewDecisionError,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -121,6 +121,41 @@ test('receiptErrorMessage: any other status (or no status) keeps the generic ret
   assert.strictEqual(receiptErrorMessage({ status: 502 }), 'Could not load the receipt. Please try again shortly.');
   assert.strictEqual(receiptErrorMessage(undefined), 'Could not load the receipt. Please try again shortly.');
   assert.strictEqual(receiptErrorMessage({}), 'Could not load the receipt. Please try again shortly.');
+});
+
+// --- reviewDecisionError (Owner-reported 2026-07-12: Approve/Reject showed "action fail") --
+// The review buttons now disable on click (re-entrancy guard) so a double-click / Approve-then-
+// Reject can't fire a second POST. When one does slip through (or another tab/user decided first),
+// the backend returns 409 — which used to render the scary generic "Action failed" even though the
+// decision actually succeeded. reviewDecisionError maps the thrown { status } to {message, resync}:
+// 409 -> quietly re-sync the queue; 401/403 -> specific guidance; anything else -> generic retry.
+// Pure so the mapping is unit-testable without a fetch/DOM (mirrors receiptErrorMessage).
+
+test('reviewDecisionError: 409 (already decided) re-syncs the queue instead of showing a failure', () => {
+  const out = reviewDecisionError({ status: 409 });
+  assert.strictEqual(out.resync, true, '409 must trigger a queue re-sync, not a dead-end error');
+  assert.match(out.message, /already decided/i);
+});
+
+test('reviewDecisionError: 401 / 403 get specific, non-generic guidance and do NOT re-sync', () => {
+  const s401 = reviewDecisionError({ status: 401 });
+  assert.strictEqual(s401.resync, false);
+  assert.match(s401.message, /session expired/i);
+  const s403 = reviewDecisionError({ status: 403 });
+  assert.strictEqual(s403.resync, false);
+  assert.match(s403.message, /permission/i);
+});
+
+test('reviewDecisionError: any other status (400/404/502/none) keeps the generic retry, no re-sync', () => {
+  [400, 404, 502].forEach((status) => {
+    const out = reviewDecisionError({ status });
+    assert.strictEqual(out.resync, false);
+    assert.strictEqual(out.message, 'Action failed. Please try again.');
+  });
+  // tolerates a thrown value with no status / a bare network error, never throws
+  assert.doesNotThrow(() => reviewDecisionError(undefined));
+  assert.strictEqual(reviewDecisionError(undefined).message, 'Action failed. Please try again.');
+  assert.strictEqual(reviewDecisionError({}).resync, false);
 });
 
 // --- reviewMetaParts (review-queue card: receipt details, Owner 2026-07-10) --
