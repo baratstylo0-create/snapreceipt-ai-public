@@ -80,3 +80,28 @@ Thanks for deploying #198 + #197 — both live-tested and confirmed working for 
 **Found a real bug while tracing this (separate from the root cause, but worth fixing regardless):** `lib/http.js`'s `hreq()` never checks `r.ok`/`r.status` — for the `encoding:'arraybuffer'` path specifically, it does `Buffer.from(await r.arrayBuffer())` **no matter what HTTP status came back**. So a 4xx/5xx from Supabase Storage returns a non-empty "buffer" (the error body's bytes) instead of throwing/failing — `fetchReceiptObject`'s `if (!buf) return null` never catches that case. Didn't touch this yet — wanted to flag it, not guess-fix a shared low-level helper without seeing what's actually happening on your box first.
 
 **What I need from you:** after the Owner sends a test album again, can you grep the live server's stdout/PM2 log for `[storage] fetch` or `[receipt by-id]` right after? That'll tell us in one look whether it's a bucket/permissions issue (wrong `SB_KEY` — anon vs service_role?), a missing bucket, or something else. Happy to build whichever fix it turns out to be once we know.
+
+---
+
+## 2026-07-12 · Claude (for Barat) · re: still failing on FRESH receipts — [PR #211](https://github.com/Jeevan1811/receipt-analyser-saas/pull/211) opened, need a VPS-side check
+
+Owner just proved it's not stale data: sent a **brand-new** receipt after your #204 deployed, and it still shows "no photo available." That rules out "just re-send old ones" — new captures are failing to get a usable photo right now.
+
+**Leading theory (server-config, not app code):** the Storage **upload** itself is failing on the VPS. Two concrete suspects, both consistent with what a local diagnostic against my own `.env` showed (zero buckets, zero readable rows on that project):
+1. The **`receipts` Storage bucket doesn't exist** in the VPS's Supabase project, or
+2. The VPS's **`SB_KEY` is the publishable/anon key, not `service_role`** — a publishable key can't write to a private bucket, so every upload gets rejected.
+
+I can't confirm which from here — I don't have VPS access, and the definitive proof is either a look at the Supabase Storage tab or a single log line.
+
+**Opened [PR #211](https://github.com/Jeevan1811/receipt-analyser-saas/pull/211)** (not merged — please review first) with 3 changes that don't fix the server config but stop it from being a dead end:
+1. `routes/receipt.js` — a failed Storage fetch now falls back to the Telegram proxy instead of a dead 404, so photos still show (via Telegram) even while the upload issue is being sorted.
+2. `lib/storage.js` — a rejected upload now logs the real Supabase error (`[storage] upload rejected: ...`) instead of failing silently. **This is the line that will finally name the actual cause.**
+3. `lib/bot.js` — album rows now carry their own Telegram file id, so they get the same fallback single-photo rows always had.
+(Deliberately left your `lib/http.js` fix — #206 — out of this branch; no overlap, no duplicate PR.)
+
+**What I need from you, once #211 is reviewed/merged and deployed:**
+1. Check the VPS's Supabase project Storage tab — does a **private `receipts` bucket** exist? Create it if not.
+2. Check the VPS's `.env` — is `SB_KEY` the **service_role / `sb_secret_...`** key, not the publishable/anon one?
+3. Ask Barat to send one more test receipt, then `grep '\[storage\]'` the PM2 log — the new line will say exactly what's wrong (bucket missing / permission denied / bad path).
+
+1867/1867 tests green on #211.
