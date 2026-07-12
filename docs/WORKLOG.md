@@ -1,5 +1,21 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-12 · Claude (Sonnet, for Barat) · qa/pr-r-receipt-card-redesign — Petty Cash Statement PDF: receipt appendix redesigned as bordered ID-cards (Owner request), fixes small-photo upscale blur
+
+- **Files:** `lib/statementPdf.js` (`drawEvidencePage` rewritten; new `fitScale`, `formatDisplayDate`, `evidenceDetailLines` — first two exported/node-tested). Tests: `tests/statementPdf.test.js` (+7).
+- **Owner feedback on the LIVE PDF (not a fresh request — a revision of #200's "match client sample" redesign, `88542cc`):** the full-bleed "one big image + thin caption strip at the bottom" layout looked like "an image dump, not an accounting report," and pdfkit's `fit:[w,h]` option **upscales** a photo smaller than its box — a small receipt photo was being stretched blurry. Full Owner spec (verbatim, pasted as the build instruction): bordered card per receipt, title "Receipt #N", a details block (Date/Vendor/Amount/Branch/Staff) up top, the photo in its own bordered box **never stretched past its real size**, ref number underneath.
+- **What changed (evidence mode only — `routes/statement.js`'s call site; `drawPlainReceiptPage`/manageExport.js's plain path is untouched, per the Owner's explicit "will not touch" list):**
+  1. **The card:** `doc.roundedRect(...).stroke()` frames the whole page content area; title + details block + a separately-bordered photo box + centered "Ref: <id>" all drawn inside it.
+  2. **The blur fix — `fitScale(imgW, imgH, boxW, boxH)`:** `pdfkit`'s built-in `fit` option scales an image to *fill* the box regardless of direction (upscaling a small image). This computes the scale itself via `doc.openImage()` (gets real pixel dimensions) and **caps at 1** — a big photo still shrinks to fit; a small photo is drawn at its real size instead of blown up. Pure, exported, unit-tested directly (the one piece of this that's meaningfully testable — page-arithmetic is exercised as before, but pixel-level layout still isn't, per this file's own existing test-file note that "the Owner does the final visual diff").
+  3. **Higher-DPI for PDF-source receipts:** the evidence-mode photo box is smaller than a full page, so a PDF-sourced receipt (rasterised via `lib/pdf.js`) is now rendered at `EVIDENCE_PDF_DPI=220` instead of the default 150 when `receiptEvidence` is on — plain mode's DPI is unchanged.
+  4. **Not done (flagged, not hidden):** no auto-rotation for sideways photos — a real, separate piece of work, out of scope for this pass.
+- **Verified by actually looking at it, not just tests** (tests can't "see" a layout): generated a real sample PDF with a genuinely small photo (80×60) and a genuinely large one (1800×2400), rasterised both pages to PNG, and visually confirmed — bordered rounded card, correct title/details/ref, small photo at its real (unstretched) size, big photo shrunk to fit within its box. Screenshots reviewed inline before shipping.
+- **Tests: full suite 1905/1905** (hermetic, no `.env`; +7 net new, zero regressions — all 14 pre-existing `statementPdf.test.js` tests needed no changes since page-count arithmetic is unchanged by the card redesign).
+- **What's next:** PR to Jeevan for review — **not self-merged**, per the Owner's own explicit instruction in the build spec ("I won't merge it myself").
+- **Assumptions:** none beyond the Owner's own written spec, followed literally (card style, field order, "no extra editing").
+
+---
+
 ## 2026-07-11/12 · Claude (Sonnet, for Barat/Jeevan) · diag/jeevan-ready-storage-probe + diag/jeevan-ready-object-probe + fix/jeevan-hreq-arraybuffer-status — root-caused the live "Could not load the receipt" reports down to zero remaining hypotheses; VPS proven able to download real receipt images end-to-end
 
 - **Context — Barat found a real bug.** After #198 (album/PDF photo storage) and #204 (clearer error wording) shipped, the Owner still saw "Could not load the receipt" on a brand-new receipt. Barat traced it to `lib/http.js`'s `hreq()`: the `encoding:'arraybuffer'` path (used for every Supabase Storage / Telegram binary fetch) returned `r.arrayBuffer()` unconditionally — a 4xx/5xx error body (JSON) was silently handed back AS IF it were valid image bytes. Effect: a broken thumbnail with **no log line at all**, and the real Storage/Telegram error was invisible to every caller's own catch block.
