@@ -39,6 +39,25 @@
   function getRateLimit() { return _rate; }
   function onRateLimit(cb) { if (typeof cb === 'function') _rateSubs.push(cb); }
 
+  // --- session-expiry notification (2026-07-11 live incident) -----------------
+  // Every dashboard view calls through apiFetch/fetchBlob, so this is the ONE place
+  // a dead session can be caught for every caller at once, instead of each view's own
+  // .catch rendering its own generic "could not load" message with no way for the user
+  // to tell "server hiccup" from "you're logged out" (that's exactly what happened live:
+  // the session's 12h TTL lapsed and every panel failed identically until a manual
+  // logout+login — the app gave no sign that logging in again was the fix).
+  // Deliberately narrow: only notify when a bearer token was actually attached to the
+  // FAILING request. That is what tells a real "your session died" 401 (a token was sent
+  // and rejected) apart from an expected, unauthenticated 401 like a wrong-password
+  // POST /api/login attempt (no token exists yet — that 401 is normal login-form
+  // feedback, not a session death, and must not yank the login form out from under
+  // someone mid-attempt).
+  var _authExpiredSubs = [];
+  function onAuthExpired(cb) { if (typeof cb === 'function') _authExpiredSubs.push(cb); }
+  function notifyAuthExpired() {
+    for (var i = 0; i < _authExpiredSubs.length; i++) { try { _authExpiredSubs[i](); } catch (e) { /* a bad subscriber never breaks fetch */ } }
+  }
+
   // Fetch a same-origin /api path. opts is a standard fetch init; we layer on
   // Accept + optional Authorization and JSON body handling. Returns parsed JSON
   // (or text) on 2xx; throws { status, body } otherwise.
@@ -64,7 +83,10 @@
       var ct = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
       var parse = ct.indexOf('application/json') !== -1 ? res.json() : res.text();
       return parse.then(function (body) {
-        if (!res.ok) throw { status: res.status, body: body };
+        if (!res.ok) {
+          if (res.status === 401 && headers.Authorization) notifyAuthExpired();
+          throw { status: res.status, body: body };
+        }
         return body;
       });
     });
@@ -85,6 +107,7 @@
     return fetch(path, init).then(function (res) {
       readRateHeaders(res);
       if (!res.ok) {
+        if (res.status === 401 && headers.Authorization) notifyAuthExpired();
         return res.text().then(function (body) { throw { status: res.status, body: body }; }, function () {
           throw { status: res.status, body: null };
         });
@@ -94,5 +117,5 @@
   }
 
   return { apiFetch: apiFetch, fetchBlob: fetchBlob, setToken: setToken, getToken: getToken,
-    getRateLimit: getRateLimit, onRateLimit: onRateLimit };
+    getRateLimit: getRateLimit, onRateLimit: onRateLimit, onAuthExpired: onAuthExpired };
 });

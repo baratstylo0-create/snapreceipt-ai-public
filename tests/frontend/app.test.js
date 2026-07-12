@@ -205,6 +205,37 @@ test('setDefaultView: a sessionStorage write failure never throws', () => {
   } finally { delete global.self.sessionStorage; }
 });
 
+// --- handleAuthExpired ---------------------------------------------------------
+// Live incident, 2026-07-11: an expired session (401) left every dashboard panel
+// showing its own dead-end "could not load" message, with nothing telling the user
+// a fresh login would fix it. handleAuthExpired (wired to Api.onAuthExpired in
+// boot()) is the recovery: clear the dead token/session, leave a one-shot flag so
+// the next boot can show a clear message, and reload — done ONCE even if several
+// panels 401 around the same moment (they would otherwise race to reload repeatedly).
+
+test('handleAuthExpired: clears the token+session, leaves the one-shot expired flag, and only runs once', () => {
+  const store = fakeStorage();
+  global.self.sessionStorage = store;
+  store.setItem('dashboard_token', 'stale-token');
+  store.setItem('session_info', JSON.stringify({ role: 'clerk', branch_id: 'b1', display_name: 'QA Tester' }));
+  const Api = require('../../public/js/api');
+  Api.setToken('stale-token');
+
+  App.handleAuthExpired();
+  assert.strictEqual(store.getItem('dashboard_token'), null, 'dead token cleared');
+  assert.strictEqual(store.getItem('session_info'), null, 'dead session identity cleared');
+  assert.strictEqual(store.getItem('auth_expired_notice'), '1', 'one-shot flag left for the next boot');
+  assert.strictEqual(Api.getToken(), null, 'Api stops attaching the dead token to further requests');
+
+  // A second notification (e.g. Activity's 401 landing right after Overview's) must be a no-op —
+  // proves the guard, not just that clearing is idempotent.
+  store.setItem('dashboard_token', 'should-not-be-touched-by-a-second-call');
+  App.handleAuthExpired();
+  assert.strictEqual(store.getItem('dashboard_token'), 'should-not-be-touched-by-a-second-call');
+
+  delete global.self.sessionStorage;
+});
+
 // --- module surface ----------------------------------------------------------
 
 test('App exposes storedAutoMode and setAutoMode', () => {
@@ -221,4 +252,8 @@ test('App exposes toggleTheme, applyTheme, and setTheme', () => {
 test('App exposes storedDefaultView and setDefaultView', () => {
   assert.strictEqual(typeof App.storedDefaultView, 'function');
   assert.strictEqual(typeof App.setDefaultView, 'function');
+});
+
+test('App exposes handleAuthExpired', () => {
+  assert.strictEqual(typeof App.handleAuthExpired, 'function');
 });
