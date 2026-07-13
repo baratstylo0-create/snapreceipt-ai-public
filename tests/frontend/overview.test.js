@@ -10,7 +10,22 @@ const {
   smoothPathD, donutSlicePath, normaliseCategoryKey, resolveCategoryOverride, COLOR_PRESETS,
   categoryCountBreakdown, formatDateRange, yearlyBreakdown, overviewSegments,
   automationImpactModel, metricsPeriod, metricsPath,
+  branchFilterOptions, branchQueryValue, appendBranchQuery,
 } = require('../../public/js/components/overview');
+
+test('overview branch helpers keep admin options and server query scoping explicit', () => {
+  const branches = [{ id: 'b1', office: 'North' }, { id: 'b2', office: 'South' }];
+  assert.deepStrictEqual(branchFilterOptions(branches, true), [
+    { value: 'all', label: 'All branches' },
+    { value: 'mine', label: 'My uploads' },
+    { value: 'b1', label: 'North' },
+    { value: 'b2', label: 'South' },
+  ]);
+  assert.deepStrictEqual(branchFilterOptions(branches, false), []);
+  assert.strictEqual(branchQueryValue('mine', { branch_id: 'b1' }), 'b1');
+  assert.strictEqual(branchQueryValue('all', { branch_id: 'b1' }), null);
+  assert.strictEqual(appendBranchQuery('/api/reports?period=year', 'mine', { branch_id: 'b1' }), '/api/reports?period=year&branch=b1');
+});
 
 test('overviewSegments: Reports is folded under Overview as Summary | Trends', () => {
   assert.deepStrictEqual(overviewSegments(), [

@@ -37,6 +37,35 @@
     ];
   }
 
+  function branchFilterOptions(branches, isAdmin) {
+    if (!isAdmin) return [];
+    var out = [
+      { value: 'all', label: 'All branches' },
+      { value: 'mine', label: 'My uploads' },
+    ];
+    (Array.isArray(branches) ? branches : []).forEach(function (branch) {
+      if (!branch || branch.id === undefined || branch.id === null || String(branch.id) === '') return;
+      out.push({ value: String(branch.id), label: branch.office ? String(branch.office) : String(branch.id) });
+    });
+    return out;
+  }
+
+  function branchQueryValue(filter, session) {
+    if (!filter || filter === 'all') return null;
+    if (filter === 'mine') {
+      var own = session && session.branch_id !== undefined && session.branch_id !== null ? String(session.branch_id) : '';
+      return own || null;
+    }
+    return String(filter);
+  }
+
+  function appendBranchQuery(path, filter, session) {
+    var branch = branchQueryValue(filter, session);
+    if (!branch) return String(path || '');
+    var base = String(path || '');
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + 'branch=' + encodeURIComponent(branch);
+  }
+
   // ---- automation-impact metrics (C4 UI) ---------------------------------
 
   function finiteOrNull(v) {
@@ -341,15 +370,15 @@
   // buckets every year in the data side-by-side (2018-01, 2023-12, 2024-04, 2026-05…) —
   // meaningless at a glance. The Reports screen's Year tab is where other years are
   // explored; the Overview is "this year so far". Pure, injectable clock for testing.
-  function overviewReportsPath(now) {
+  function overviewReportsPath(now, filter, session) {
     var y = new Date(typeof now === 'number' ? now : Date.now()).getFullYear();
-    return '/api/reports?period=month&from=' + y + '-01-01&to=' + y + '-12-31';
+    return appendBranchQuery('/api/reports?period=month&from=' + y + '-01-01&to=' + y + '-12-31', filter, session);
   }
 
   // All-time (no date bounds) — powers the "Total spending until now" box.
-  // Deliberately UNSCOPED (unlike overviewReportsPath), since "until now" means
-  // every expense ever recorded, not just this year.
-  function allTimeReportsPath() { return '/api/reports?period=year'; }
+  // It remains account-wide for All branches, or carries the selected branch
+  // for an admin's My uploads/specific-branch view.
+  function allTimeReportsPath(filter, session) { return appendBranchQuery('/api/reports?period=year', filter, session); }
 
   // ---- pure geometry -------------------------------------------------------
 
@@ -935,6 +964,17 @@
     var shell = el('div', 'ov-shell');
     section.appendChild(shell);
 
+    var isAdmin = !!(opts.session && opts.session.role === 'admin');
+    var branchState = { filter: isAdmin ? 'mine' : 'all', branches: [], loaded: false };
+    var branchSelect = null;
+    if (isAdmin) {
+      var branchToolbar = el('div', 'ov-filter-toolbar');
+      branchSelect = el('select', 'ov-branch-filter');
+      branchSelect.setAttribute('aria-label', 'Filter by branch');
+      branchToolbar.appendChild(branchSelect);
+      shell.appendChild(branchToolbar);
+    }
+
     var metricsHost = el('div', 'ov-metrics-host');
     shell.appendChild(metricsHost);
 
@@ -981,6 +1021,27 @@
       renderMetricsBand(metricsHost, metricsState.model, opts.session, metricsState.period,
         function (value) { loadMetrics(value); }, metricsState.detailsOpen,
         function () { metricsState.detailsOpen = !metricsState.detailsOpen; renderMetrics(); });
+    }
+
+    function renderBranchFilter() {
+      if (!branchSelect) return;
+      clear(branchSelect);
+      branchFilterOptions(branchState.branches, isAdmin).forEach(function (option) {
+        var item = el('option', 'ov-branch-option');
+        item.value = option.value;
+        Escape.setText(item, option.label);
+        branchSelect.appendChild(item);
+      });
+      branchSelect.value = branchState.filter;
+    }
+
+    function loadBranches() {
+      if (!isAdmin || branchState.loaded || !apiFetch) return Promise.resolve();
+      branchState.loaded = true;
+      return apiFetch('/api/branches').then(function (payload) {
+        branchState.branches = payload && Array.isArray(payload.branches) ? payload.branches : [];
+        renderBranchFilter();
+      }).catch(function () { renderBranchFilter(); });
     }
 
     function loadMetrics(periodValue) {
@@ -1075,19 +1136,19 @@
       }).catch(function () { /* keep the localStorage cache we already rendered */ });
     }
 
-    function load() {
-      if (state.loading || state.loaded || !apiFetch) return;
+    function load(force) {
+      if (state.loading || (!force && state.loaded) || !apiFetch) return;
       state.loading = true;
       clear(container);
       container.appendChild(renderMessage('ov-loading muted', 'Loading overview…'));
-      // Year-scoped report drives the chart/KPIs; the all-time (unscoped,
-      // period=year) report supplies the "Overall spending until now" box —
+      // Year-scoped report drives the chart/KPIs; the all-time (period=year)
+      // report supplies the "Overall spending until now" box —
       // its `.total` for the big number, its per-year `.buckets` for the
       // "past years" list underneath. Fetched in parallel, non-fatal if it
       // fails (the rest of the Overview still renders; the all-time card
       // just doesn't show).
-      var allTimePromise = apiFetch(allTimeReportsPath()).catch(function () { return null; });
-      apiFetch(overviewReportsPath()).then(function (reports) {
+      var allTimePromise = apiFetch(allTimeReportsPath(branchState.filter, opts.session)).catch(function () { return null; });
+      apiFetch(overviewReportsPath(undefined, branchState.filter, opts.session)).then(function (reports) {
         return allTimePromise.then(function (allTime) {
           state.loading = false;
           state.loaded = true;
@@ -1099,15 +1160,46 @@
       }).catch(function () {
         state.loading = false;
         // Leave loaded=false so a later revisit can retry.
-        clear(container);
-        container.appendChild(renderMessage('ov-error', 'Could not load your overview. Please try again shortly.'));
+        if (!state.lastReports) {
+          clear(container);
+          container.appendChild(renderMessage('ov-error', 'Could not load your overview. Please try again shortly.'));
+        } else {
+          renderInto(container, state.lastReports, state.lastAllTime, donutOpts);
+        }
       });
     }
+
+    var refreshTimer = null;
+    function visible() { return typeof document === 'undefined' || document.visibilityState !== 'hidden'; }
+    function refreshIfVisible() { if (visible()) load(true); }
+    function onVisibilityChange() { if (visible()) refreshIfVisible(); }
+    function startLiveUpdates() {
+      if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('focus', refreshIfVisible);
+      if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', onVisibilityChange);
+      if (typeof setInterval === 'function') refreshTimer = setInterval(refreshIfVisible, 25000);
+    }
+    function stopLiveUpdates() {
+      if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
+      refreshTimer = null;
+      if (typeof window !== 'undefined' && window.removeEventListener) window.removeEventListener('focus', refreshIfVisible);
+      if (typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (reportInst && typeof reportInst.destroy === 'function') reportInst.destroy();
+    }
+    if (branchSelect) {
+      branchSelect.addEventListener('change', function () {
+        branchState.filter = branchSelect.value || 'all';
+        state.loaded = false;
+        load();
+      });
+    }
+    renderBranchFilter();
 
     // Metrics are independent of the Reports tab and fetch once on mount;
     // period changes call loadMetrics directly. No polling belongs to C4 (C7).
     renderMetrics();
     loadMetrics();
+    loadBranches();
+    startLiveUpdates();
 
     return {
       el: shell,
@@ -1116,6 +1208,7 @@
         else load();
       },
       renderInto: function (r, allTime) { state.lastReports = r; state.lastAllTime = allTime; renderInto(container, r, allTime, donutOpts); },
+      destroy: stopLiveUpdates,
     };
   }
 
@@ -1140,6 +1233,9 @@
     formatPercent: formatPercent,
     overviewReportsPath: overviewReportsPath,
     allTimeReportsPath: allTimeReportsPath,
+    branchFilterOptions: branchFilterOptions,
+    branchQueryValue: branchQueryValue,
+    appendBranchQuery: appendBranchQuery,
     // pure geometry
     smoothPathD: smoothPathD,
     donutSlicePath: donutSlicePath,
