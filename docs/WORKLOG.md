@@ -1,5 +1,16 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-w-todaybills-delete-list-nextdone — QA doc: list-delete bills numbers + Next/Done workflow (2 of 4 reported issues; other 2 are Telegram-client behavior, not bot code)
+
+- **Files:** `lib/bot.js` (`tryResolveBillDelete` rewritten to accept a list, `handleCallbackQuery` gets `delnum:next`/`delnum:done`). Tests: `tests/bot.business.todaybills.test.js` (+9).
+- **Context:** QA doc (4 bugs, screenshots) forwarded by the user. Only 2 of the 4 are bot-code bugs; the other 2 (Telegram's menu button in the text-input bar intermittently disappearing; the device back button not closing Telegram's own menu) are Telegram client-app behavior — the bot server has no hook into either, so they're out of scope here and were NOT touched. Flagged back to the user rather than faking a fix.
+- **Fix 1 — list input:** typing "1, 2, 4, 8" after tapping 🗑️ Delete a bill used to fail the old `/^\d+$/` single-number check and silently fall through to the main-menu keyword router. Now a comma/space-separated list is recognised (`/^\d+(?:[\s,]+\d+)*$/`), de-duplicated, and every number is resolved — each with its own outcome line (deleted / already gone / not the submitter / no such number) in one combined reply. Single-number replies keep byte-identical wording to the pre-existing flow (only gains a keyboard, see below) — zero behavior change for that path, verified by the pre-existing test suite passing unmodified.
+- **Fix 2 — Next/Done loop:** any successful delete (single or as part of a list) now attaches a ➡️ Next / ✅ Done inline keyboard. **Next** re-arms the same chat (same `delnum:ask` code path) for another round of typing, WITHOUT resetting the running per-session `deleted` list. **Done** posts a numbered summary of everything deleted this session and clears the pending entry (same single-use safety property as before — a stray later number can't delete anything without a fresh 📋 Today Bills tap).
+- **Tests: full suite 1954/1954** (`.env` moved aside/restored; +9 net new, zero regressions — every pre-existing delete-flow test, including the #139 single-use safety test, passes unmodified).
+- **Scope:** business mode only (`pendingBillDelete`/`delnum:*` never existed in personal mode); personal mode's per-bill ❌ flow (`delask:`) is untouched.
+
+---
+
 ## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-v-lineitem-edgecases — Harden line-item extraction against edge cases Codex's C2 will depend on (Jeevan-directed, de-risks the statement/reports category split)
 
 - **Files:** `lib/ocr.js` (`assembleExpense`'s line-item block — reconciliation guard added). Tests: `tests/ocr.lineitems.test.js` (+9).
