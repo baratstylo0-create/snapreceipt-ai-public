@@ -1813,6 +1813,13 @@
   3. Then begin OCR-coupled feature work off the modularized base (ARCHITECTURE §3 frozen interfaces).
 - **Assumptions:** Groq inference-only posture (ADR-002) still to be reconfirmed against current Groq terms.
 
+## 2026-07-13 Codex - codex/c5-submit-signal - C5 month-ready signal in Manage Data editor
+
+- **Files:** `public/js/components/grid.js`, `tests/frontend/grid.test.js`.
+- **What changed:** Relocated the flag-gated clerk submit/withdraw action into the Manage Data editor. Admins now see a Ready to close list for the selected month, with branch labels and direct Excel/PDF statement export actions. Existing Payments submission code and the server endpoints remain intact; no file handoff or email was added.
+- **Tests:** Focused Grid suite 27/27; full serial suite 1990/1990 (`.env` moved aside/restored).
+- **Next:** Run the full `.env`-aside suite, then push/open the C5 PR for review; do not merge.
+
 ## 2026-07-13 Codex - codex/c7-overview-reports - C7 admin report filters + live refresh
 
 - **Files:** `public/js/components/overview.js`, `public/js/components/reports.js`, frontend tests.
