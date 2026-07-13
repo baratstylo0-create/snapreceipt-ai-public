@@ -147,6 +147,7 @@ module.exports = function mountManageExport(app) {
           branchStaff: true,
           branchNames: maps.branchNames,
           staffNames: maps.staffNames,
+          categories: (fieldSpec && Array.isArray(fieldSpec.categories)) ? fieldSpec.categories : undefined,
           receiptLinks,
           embedReceipts: false,
         });

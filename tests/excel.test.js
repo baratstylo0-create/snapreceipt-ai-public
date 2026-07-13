@@ -328,3 +328,12 @@ test('buildWorkbook: the Amount column is wide enough for the Total row\'s forma
   assert.ok(amountCol.width >= 'RM1,171.28'.length,
     'Amount column (' + amountCol.width + ') must be at least as wide as the Total\'s rendered text');
 });
+
+test('summarize: line-item categories split summary totals while bill count stays per receipt', () => {
+  const s = summarize([{ amount: 80, category: 'Food', expense_date: '2026-07-01', line_items: [
+    { amount: 50, category: 'Food' }, { amount: 30, category: 'Petrol' },
+  ] }], { categories: ['Food', 'Petrol', 'Others'] });
+  assert.deepStrictEqual(s.categories.map((c) => [c.name, c.total, c.count]), [['Food', 50, 1], ['Petrol', 30, 1]]);
+  assert.strictEqual(s.total, 80);
+  assert.strictEqual(s.count, 1);
+});

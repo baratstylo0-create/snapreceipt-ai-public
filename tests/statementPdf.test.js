@@ -103,7 +103,7 @@ test('a long, multi-page statement renders one valid PDF without runaway fragmen
   const big = buildStatementModel({
     companyName: 'Placeholder Trading Sdn Bhd', branchLabel: 'QA Testing', preparedBy: 'Barat', period: '2026-07',
     categories: cats, currency: 'MYR', showStaffColumn: true, showBranchColumn: true, balanceBf: 0,
-    expenses: [{ id: 'e1', amount: 50, category: 'Others', expense_date: '2026-07-10', merchant: 'Bank Islam', branch_id: 'b1', staff_user_id: 'u1' }],
+    expenses: cats.map((category, i) => ({ id: 'e' + i, amount: 50, category, expense_date: '2026-07-' + String(10 + i).padStart(2, '0'), merchant: 'Bank Islam ' + i, branch_id: 'b1', staff_user_id: 'u1' })),
     staffNames: { u1: 'Barat' }, branchNames: { b1: 'QA Testing' }, padRows: 6,
     signoff: { prepared: true, checked: false, approved: true },
   });
@@ -199,6 +199,17 @@ test('receiptEvidence ON: a real image receipt still renders fine (no crash), sa
   });
   assert.strictEqual(pages, base + 2);
   assert.strictEqual(skippedReceipts, 0);
+});
+
+test('line-item split: one physical receipt still gets exactly one evidence page', async () => {
+  const splitModel = buildStatementModel({
+    companyName: 'X', branchLabel: 'HQ', period: '2025-10', categories: ['Food', 'Tickets'], currency: 'MYR',
+    expenses: [{ id: 'mixed', amount: 80, category: 'Food', voucher_no: 'RC-42', expense_date: '2025-10-01', merchant: 'Market',
+      line_items: [{ amount: 50, category: 'Food' }, { amount: 30, category: 'Tickets' }] }],
+  });
+  const base = (await statementToPdf(splitModel, {})).pages;
+  const out = await statementToPdf(splitModel, { receiptEvidence: true, receipts: { mixed: { buffer: tinyPng(), ext: 'png' } } });
+  assert.strictEqual(out.pages, base + 1, 'split statement rows must not duplicate the physical evidence page');
 });
 
 // --- ID-card redesign (Owner request, replaces the full-bleed "image dump" appendix): a
