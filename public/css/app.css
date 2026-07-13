@@ -2591,6 +2591,14 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 .ledger-cell.is-editable { cursor: pointer; }
 .ledger-cell.is-editable:hover { background: rgba(91, 157, 255, 0.08); }
 .ledger-cell.is-editing { padding: 4px 8px; }
+/* QA 2026-07-13 (Untitled document.md): "which fields are editable?" was unclear in Edit
+   Mode — a green cue on the editable columns answers it. Additive only (new selectors,
+   existing rules above untouched) so this can't collide with any other in-flight CSS
+   change to this file. Reuses --moss, the same green already used for the "Editing
+   enabled" badge (.ledger-badge--edit), so it reads as one consistent "edit is on" cue. */
+.ledger-table.is-editing th { color: var(--moss); }
+.ledger-table.is-editing .ledger-cell.is-editable { border-left: 3px solid var(--moss); background: var(--moss-bg); }
+.ledger-table.is-editing .ledger-cell.is-editable:hover { background: var(--moss-bg); filter: brightness(0.96); }
 .ledger-cell-input {
   width: 100%; padding: 6px 8px; font: inherit; font-size: 13.5px; color: var(--txt); background: var(--bg);
   border: 1px solid var(--accent); border-radius: 6px;
