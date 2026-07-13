@@ -1,5 +1,12 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-13 · Codex · codex/c4-ui-metrics — C4 Overview automation-impact band
+
+- **Files:** `public/js/components/overview.js`, `tests/frontend/overview.test.js`.
+- **What changed:** Added the top Automation impact band with current-month period control, configured time-saved assumption, client tiles, and admin-only details. Metrics fetch is additive and non-blocking; unavailable statement counts are omitted and failures stay quiet. Reports backend was not touched.
+- **Tests:** Full serial suite 1979/1979 (`.env` moved aside/restored); focused Overview suite 50/50.
+- **Next:** Push branch and open C4-UI PR for Owner review; do not merge.
+
 ## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-x-menu-keyboard-web-nudge — Telegram Web still drops the persistent menu keyboard even with is_persistent:true; mitigate by re-sending it more often
 
 - **Files:** `lib/bot.js` (`handleTodayExpenses`, `handleWeeklyRecord`, the `🧭 Bot Guide` reply, and the "didn't catch that" fallback in `handleUpdate` now pass `MAIN_MENU_KEYBOARD` as their reply markup — previously sent with none). Tests: `tests/bot.menu.test.js` (+4).
