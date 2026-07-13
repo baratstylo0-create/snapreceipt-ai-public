@@ -21,7 +21,7 @@ function baseDeps(over = {}) {
   const edited = [];
   return {
     deps: {
-      tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
+      tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); return { ok: true }; },
       tgEditMessage: async (chatId, messageId, text) => { edited.push({ chatId, messageId, text }); },
       tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
       sbSelect: async () => [],

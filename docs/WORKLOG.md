@@ -1,5 +1,17 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-y-stuck-batch-final-reply — Album batch "stuck" with no error: root-caused + safety-net fix (plan mode diagnosis, then user-directed implementation)
+
+- **Files:** `lib/bot.js` (new `sendFinal()` helper + `[group flush:start]`/`[group flush:done]` structured logs in `flushGroup`). Tests: `tests/bot.flushgroup-guard.test.js` (+4), plus 5 pre-existing test files' `tgSend` fakes fixed to return a realistic success shape (`tests/bot.batch.test.js`, `tests/bot.batch.photostorage.test.js`, `tests/bot.business.staffscope.test.js`, `tests/bot.hardening.qa.test.js`, `tests/bot.flushgroup-guard.test.js` itself).
+- **Symptom (live QA screenshot):** an album's "Got your receipts — reading them all now…" ack arrived, then silence — no summary, no error, ever.
+- **Diagnosis (plan mode, read-only):** `flushGroup`'s try/catch only guards against a THROW, and every terminal reply already existed and looked complete — but `tgSend` (lib/telegram.js) **never throws**: it swallows a Telegram/network failure internally and just `console.error`s, returning `undefined`. So a lost final message was structurally invisible to flushGroup's own error handling — indistinguishable from "stuck forever" on the user's side. Separately: the whole album buffer (`groups`, an in-memory Map) has zero persistence or boot-recovery, so a `pm2 restart` mid-flush (this session restarted the bot twice, for PR #227/#229) silently strands an album with no trace at all — a second, structural cause that a code-only fix cannot close (would need a durable `pending_batches` record; scoped out, flagged to the user, explicitly not built here).
+- **Fix — safety net (not the durable fix):** `sendFinal()` checks `tgSend`'s own return value for flushGroup's three TERMINAL replies (download-fail / the main summary / the catch-all error) and retries once after a short delay before giving up — bounded to exactly one retry, not a queue. Added `[group flush:start]`/`[group flush:done]` logs (groupId, chatId, image count, saved/skipped/failed counts, elapsed ms) so a future "bot got stuck" report can be checked against server logs — did flush:start even fire for that groupId? Did it reach flush:done?
+- **Regression risk found + fixed while wiring this in:** the new retry schedules its delay via `deps.setTimeout` — several existing test files fake `setTimeout` (a non-draining single-pass queue, for the debounce timer) AND have their `tgSend` fakes implicitly return `undefined` (no explicit return statement). Both together deadlocked those tests: a retry timer gets queued from inside an already-awaited fake-timer callback that can't be re-entered to drain it. Root-caused via `git stash`-free direct testing, fixed by making each affected fake return `{ ok: true }` (its real intended semantics — these tests are checking WHAT was sent, not resilience/retry behavior). The new `tryFinal` tests use REAL timers with 1ms delays instead of the hand-rolled fake queue, sidestepping the same class of deadlock for good.
+- **Tests: full suite 1980/1980** (`.env` moved aside/restored; +4 net new in bot.flushgroup-guard.test.js covering retry-once-on-failure, no-retry-on-success, and the start/done logs; zero regressions; the previously-hanging combination now runs the 93 affected tests in <1s).
+- **What's next — explicitly NOT done, flagged to Owner:** the restart-loss cause (in-memory `groups` Map with no persistence) is not fixed by this PR. A durable fix (a `pending_batches` table + recover-on-next-update sweep) was scoped in the plan file but deliberately held back — this PR is the safety-net-only option, chosen by the user directly rather than the "durable" or "both, staged" alternatives offered.
+
+---
+
 ## 2026-07-13 · Codex · codex/c4-ui-metrics — C4 Overview automation-impact band
 
 - **Files:** `public/js/components/overview.js`, `tests/frontend/overview.test.js`.
@@ -13,6 +25,8 @@
 - **What changed:** Admin Activity defaults to **My uploads**, adds client-side All branches/branch filters, resolves branch and staff IDs to directory labels with raw-ID fallbacks, and adds Branch/Staff metadata to admin table/cards. Clerks remain unchanged. Directory data is fetched only for admins and cached per mount.
 - **Tests:** Full serial suite 1980/1980 (`.env` moved aside/restored); focused Activity suite 95/95.
 - **Next:** Push branch and open C6 PR for Owner review; do not merge.
+
+---
 
 ## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-x-menu-keyboard-web-nudge — Telegram Web still drops the persistent menu keyboard even with is_persistent:true; mitigate by re-sending it more often
 
