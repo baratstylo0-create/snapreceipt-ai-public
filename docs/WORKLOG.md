@@ -1,5 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-x-menu-keyboard-web-nudge — Telegram Web still drops the persistent menu keyboard even with is_persistent:true; mitigate by re-sending it more often
+
+- **Files:** `lib/bot.js` (`handleTodayExpenses`, `handleWeeklyRecord`, the `🧭 Bot Guide` reply, and the "didn't catch that" fallback in `handleUpdate` now pass `MAIN_MENU_KEYBOARD` as their reply markup — previously sent with none). Tests: `tests/bot.menu.test.js` (+4).
+- **Context:** User reported (with a screenshot of Telegram Web) that the persistent menu bar had vanished again — same bug as issue #162 D12 (2026-07-09), which added `is_persistent:true` and was Owner-confirmed fixed at the time. Root cause of the *recurrence*: `is_persistent` is only a request to the client; it does not guarantee the keyboard stays visible, and Telegram Web is known to sometimes drop/collapse it anyway — this is a Telegram client-side bug, not something bot code can force. No further server-side lever exists to *guarantee* it stays up.
+- **Mitigation (not a guaranteed fix):** the bot previously sent `MAIN_MENU_KEYBOARD` only once, on `/start` (or on binding for business chats). Every other reply went out with NO keyboard at all, so once Telegram Web dropped it, nothing nudged it back until the user typed `/start` again. Now, every reply that doesn't already carry its own keyboard (Today Expenses, Weekly Record, Bot Guide, and the generic "didn't catch that" fallback) re-attaches `MAIN_MENU_KEYBOARD`. Same buttons, no visible change to a client that's rendering it correctly — but gives a client that dropped it several more chances per session to redraw it, without the user needing to remember `/start`. `handleTodayBills` was left untouched — both its business and personal replies already carry a different (inline) keyboard for deleting bills, and Telegram only allows one `reply_markup` per message.
+- **Tests: full suite 1958/1958** (`.env` moved aside/restored; +4 net new, zero regressions).
+- **Caveat flagged to the user:** if Telegram Web still drops it after this, the manual workaround is tapping the small keyboard icon next to the message box — that's a Telegram Web UI quirk, outside what this bot can control server-side.
+
+---
+
 ## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-w-todaybills-delete-list-nextdone — QA doc: list-delete bills numbers + Next/Done workflow (2 of 4 reported issues; other 2 are Telegram-client behavior, not bot code)
 
 - **Files:** `lib/bot.js` (`tryResolveBillDelete` rewritten to accept a list, `handleCallbackQuery` gets `delnum:next`/`delnum:done`). Tests: `tests/bot.business.todaybills.test.js` (+9).
