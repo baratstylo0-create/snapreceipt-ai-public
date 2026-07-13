@@ -192,6 +192,42 @@ test('handleUpdate: /start attaches the persistent menu keyboard', async () => {
   assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
 });
 
+// --- QA-reported: Telegram Web sometimes drops the persistent menu keyboard entirely
+// (is_persistent is only a request — the client can still ignore it). None of these replies
+// already carry their own keyboard, so each one re-attaches MAIN_MENU_KEYBOARD as a passive
+// nudge — same buttons, no visible change, just another chance for the client to redraw it. --
+
+test('handleTodayExpenses: re-attaches the persistent menu keyboard (no other keyboard on this message)', async () => {
+  const { deps, sent } = baseDeps({
+    sbSelect: async () => [{ amount: 10, currency: 'MYR' }],
+  });
+  await handleTodayExpenses(1, deps);
+  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+});
+
+test('handleWeeklyRecord: re-attaches the persistent menu keyboard', async () => {
+  const { deps, sent } = baseDeps({
+    sbSelect: async () => [{ amount: 100, currency: 'MYR' }],
+  });
+  await handleWeeklyRecord(1, deps);
+  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+});
+
+test('handleUpdate: "🧭 Bot Guide" also re-attaches the persistent menu keyboard', async () => {
+  const sent = [];
+  const deps = { sbSelect: async () => [], tgSend: async (chatId, text, replyMarkup) => { sent.push({ text, replyMarkup }); } };
+  await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: '🧭 Bot Guide' } }, deps);
+  assert.strictEqual(sent[0].text, BOT_GUIDE_TEXT);
+  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+});
+
+test('handleUpdate: the "didn\'t catch that" fallback also re-attaches the persistent menu keyboard', async () => {
+  const sent = [];
+  const deps = { sbSelect: async () => [], tgSend: async (chatId, text, replyMarkup) => { sent.push({ text, replyMarkup }); } };
+  await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: 'blah blah unrecognised' } }, deps);
+  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+});
+
 // Issue #162 D12 (live QA): the menu only showed on mobile, not Telegram Desktop/Web.
 // Without is_persistent:true, non-mobile clients collapse a ReplyKeyboardMarkup behind
 // an icon the user must tap; mobile shows it automatically. is_persistent:true closes
