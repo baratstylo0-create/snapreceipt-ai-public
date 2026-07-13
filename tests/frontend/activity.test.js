@@ -18,6 +18,8 @@ const {
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
   receiptErrorMessage, statusLabel, decisionErrorText, mixedCategoryLabel, lineItemDetails,
+  branchNamesFromResponse, staffNamesFromResponse, activityBranchOptions,
+  displayBranchName, displayStaffName,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -878,4 +880,69 @@ test('lineItemDetails returns safe drawer fields without mutating line_items', (
   ]);
   assert.deepStrictEqual(lineItemDetails(row({ line_items: [] })), []);
   assert.deepStrictEqual(lineItemDetails(null), []);
+});
+
+// --- admin Activity branch/staff clarity (QA C6) --------------------------
+
+test('filterSortPage applies the admin branch filter and My uploads scope', () => {
+  const rows = [
+    row({ id: 'own', branch_id: 'b1' }),
+    row({ id: 'other', branch_id: 'b2' }),
+    row({ id: 'legacy', branch_id: null }),
+  ];
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'mine', sessionBranchId: 'b1' }).rows.map((r) => r.id),
+    ['own'],
+  );
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'b2', sessionBranchId: 'b1' }).rows.map((r) => r.id),
+    ['other'],
+  );
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'all', sessionBranchId: 'b1' }).rows.map((r) => r.id),
+    ['own', 'other', 'legacy'],
+  );
+});
+
+test('filterSortPage My uploads matches an unassigned admin branch without hiding the row', () => {
+  const rows = [row({ id: 'hq', branch_id: null }), row({ id: 'branch', branch_id: 'b1' })];
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'mine', sessionBranchId: null }).rows.map((r) => r.id),
+    ['hq'],
+  );
+});
+
+test('branch/staff response maps use display labels and safe ID fallbacks', () => {
+  assert.deepStrictEqual(branchNamesFromResponse({
+    branches: [{ id: 'b1', office: 'Head Office' }, { id: 'b2', office: '' }, { id: null, office: 'bad' }],
+  }), { b1: 'Head Office', b2: 'b2' });
+  assert.deepStrictEqual(staffNamesFromResponse({
+    staff: [
+      { id: 's1', display_name: 'Alice' },
+      { id: 's2', display_name: '', username: 'bob' },
+      { id: 's3' },
+    ],
+  }), { s1: 'Alice', s2: 'bob', s3: 's3' });
+  assert.strictEqual(displayBranchName({ branch_id: 'b1' }, { b1: 'Head Office' }), 'Head Office');
+  assert.strictEqual(displayBranchName({ branch_id: 'missing' }, {}), 'missing');
+  assert.strictEqual(displayBranchName({ branch_id: null }, {}), '—');
+  assert.strictEqual(displayStaffName({ staff_user_id: 's1' }, { s1: 'Alice' }), 'Alice');
+  assert.strictEqual(displayStaffName({ staff_user_id: 'missing' }, {}), 'missing');
+  assert.strictEqual(displayStaffName({ staff_user_id: null }, {}), '—');
+});
+
+test('activityBranchOptions includes All branches, My uploads, mapped branches, and row-only IDs', () => {
+  assert.deepStrictEqual(activityBranchOptions(
+    [{ id: 'b2', office: 'Branch 2' }, { id: 'b1', office: 'Branch 1' }],
+    [row({ branch_id: 'b1' }), row({ branch_id: 'legacy' }), row({ branch_id: null })],
+    { role: 'admin', branch_id: 'b1' },
+  ), [
+    { value: 'all', label: 'All branches' },
+    { value: 'mine', label: 'My uploads' },
+    { value: 'b1', label: 'Branch 1' },
+    { value: 'b2', label: 'Branch 2' },
+    { value: 'legacy', label: 'legacy' },
+    { value: 'unassigned', label: 'Unassigned' },
+  ]);
+  assert.deepStrictEqual(activityBranchOptions([], [], { role: 'clerk', branch_id: 'b1' }), []);
 });

@@ -7,6 +7,13 @@
 - **Tests:** Full serial suite 1979/1979 (`.env` moved aside/restored); focused Overview suite 50/50.
 - **Next:** Push branch and open C4-UI PR for Owner review; do not merge.
 
+## 2026-07-13 · Codex · codex/c6-admin-activity — C6 admin Activity clarity
+
+- **Files:** `public/js/components/activity.js`, `tests/frontend/activity.test.js`.
+- **What changed:** Admin Activity defaults to **My uploads**, adds client-side All branches/branch filters, resolves branch and staff IDs to directory labels with raw-ID fallbacks, and adds Branch/Staff metadata to admin table/cards. Clerks remain unchanged. Directory data is fetched only for admins and cached per mount.
+- **Tests:** Full serial suite 1980/1980 (`.env` moved aside/restored); focused Activity suite 95/95.
+- **Next:** Push branch and open C6 PR for Owner review; do not merge.
+
 ## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-x-menu-keyboard-web-nudge — Telegram Web still drops the persistent menu keyboard even with is_persistent:true; mitigate by re-sending it more often
 
 - **Files:** `lib/bot.js` (`handleTodayExpenses`, `handleWeeklyRecord`, the `🧭 Bot Guide` reply, and the "didn't catch that" fallback in `handleUpdate` now pass `MAIN_MENU_KEYBOARD` as their reply markup — previously sent with none). Tests: `tests/bot.menu.test.js` (+4).
