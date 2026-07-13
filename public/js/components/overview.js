@@ -37,6 +37,67 @@
     ];
   }
 
+  // ---- automation-impact metrics (C4 UI) ---------------------------------
+
+  function finiteOrNull(v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Keep the server contract's null/unavailable distinction intact. In
+  // particular, a missing statement audit trail never becomes a fake zero.
+  function automationImpactModel(payload) {
+    var p = payload && typeof payload === 'object' ? payload : {};
+    var client = p.client && typeof p.client === 'object' ? p.client : {};
+    var internal = p.internal && typeof p.internal === 'object' ? p.internal : {};
+    var meta = p.meta && typeof p.meta === 'object' ? p.meta : {};
+    var statementsAvailable = meta.statementsGeneratedAvailable === true;
+    var statements = statementsAvailable ? finiteOrNull(client.statementsGenerated) : null;
+    var low = Array.isArray(internal.lowConfidenceByField) ? internal.lowConfidenceByField.map(function (r) {
+      return { field: str(r && r.field), count: toNum(r && r.count) };
+    }).filter(function (r) { return r.field !== ''; }) : [];
+    var corrected = Array.isArray(internal.mostCorrectedCategories) ? internal.mostCorrectedCategories.map(function (r) {
+      return { category: str(r && r.category), count: toNum(r && r.count) };
+    }).filter(function (r) { return r.category !== ''; }) : [];
+    return {
+      receiptsProcessed: toNum(client.receiptsProcessed),
+      noEditPct: toNum(client.noEditPct),
+      hoursSaved: toNum(client.hoursSaved),
+      statementsGenerated: statements,
+      statementsGeneratedAvailable: statementsAvailable,
+      manualMinutesPerReceipt: finiteOrNull(meta.manualMinutesPerReceipt),
+      attentionRate: toNum(internal.attentionRate),
+      avgDwellMinutes: finiteOrNull(internal.avgDwellMinutes),
+      lowConfidenceByField: low,
+      mostCorrectedCategories: corrected,
+    };
+  }
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+  // Returns the selected month plus the inclusive ISO date range accepted by
+  // GET /api/metrics. Invalid input falls back to the current local month.
+  function metricsPeriod(nowOrValue) {
+    var d;
+    if (typeof nowOrValue === 'string' && /^\d{4}-\d{2}$/.test(nowOrValue)) {
+      var parts = nowOrValue.split('-');
+      d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    } else {
+      d = new Date(typeof nowOrValue === 'number' ? nowOrValue : Date.now());
+    }
+    if (!Number.isFinite(d.getTime())) d = new Date();
+    var y = d.getFullYear(); var m = d.getMonth();
+    var value = y + '-' + pad2(m + 1);
+    var last = new Date(y, m + 1, 0).getDate();
+    return { value: value, from: value + '-01', to: value + '-' + pad2(last) };
+  }
+
+  function metricsPath(period) {
+    var p = period && typeof period === 'object' ? period : metricsPeriod();
+    return '/api/metrics?from=' + encodeURIComponent(str(p.from)) + '&to=' + encodeURIComponent(str(p.to));
+  }
+
   function str(v) { return v === null || v === undefined ? '' : String(v); }
 
   function toNum(v) {
@@ -357,6 +418,12 @@
   function el(tag, className) {
     var node = document.createElement(tag);
     if (className) node.className = className;
+    return node;
+  }
+
+  function textCell(tag, className, value) {
+    var node = el(tag, className);
+    Escape.setText(node, value);
     return node;
   }
 
@@ -725,6 +792,91 @@
     backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) close(); });
   }
 
+  function metricText(n, digits) {
+    var value = toNum(n).toFixed(digits == null ? 0 : digits);
+    return value.replace(/\.0+$/, '');
+  }
+
+  function metricTile(label, value, sub) {
+    var tile = el('div', 'ov-metric-tile');
+    tile.appendChild(textCell('span', 'ov-metric-label', label));
+    tile.appendChild(textCell('strong', 'ov-metric-value', value));
+    if (sub) tile.appendChild(textCell('span', 'ov-metric-sub muted', sub));
+    return tile;
+  }
+
+  function renderMetricsBand(host, model, session, period, onPeriodChange, detailsOpen, onDetailsToggle) {
+    if (!hasDom() || !host) return;
+    clear(host);
+    var band = el('section', 'ov-metrics-band');
+    var heading = el('div', 'ov-metrics-heading');
+    heading.appendChild(textCell('h3', 'ov-metrics-title', 'Automation impact'));
+    var periodLabel = el('label', 'ov-metrics-period-label');
+    periodLabel.appendChild(textCell('span', 'ov-metrics-period-caption', 'Period'));
+    var periodInput = el('input', 'ov-metrics-period');
+    periodInput.type = 'month';
+    periodInput.value = period && period.value ? period.value : '';
+    periodInput.setAttribute('aria-label', 'Automation impact period');
+    periodInput.addEventListener('change', function () {
+      if (typeof onPeriodChange === 'function') onPeriodChange(periodInput.value);
+    });
+    periodLabel.appendChild(periodInput);
+    heading.appendChild(periodLabel);
+    band.appendChild(heading);
+
+    if (!model) {
+      band.appendChild(textCell('p', 'ov-metrics-loading muted', ''));
+      host.appendChild(band);
+      return;
+    }
+
+    var tiles = el('div', 'ov-metrics-tiles');
+    tiles.appendChild(metricTile('Receipts processed', metricText(model.receiptsProcessed), 'in selected period'));
+    tiles.appendChild(metricTile('% needed no edit', metricText(model.noEditPct, 1) + '%', 'straight-through processing'));
+    var assumption = model.manualMinutesPerReceipt == null
+      ? 'Time-saved assumption unavailable.'
+      : 'Estimated using ' + metricText(model.manualMinutesPerReceipt, 1) + ' minutes per receipt.';
+    tiles.appendChild(metricTile('~Hours saved', metricText(model.hoursSaved, 1), assumption));
+    if (model.statementsGeneratedAvailable) {
+      tiles.appendChild(metricTile('Statements generated', model.statementsGenerated == null ? '—' : metricText(model.statementsGenerated), 'selected period'));
+    }
+    band.appendChild(tiles);
+
+    if (session && session.role === 'admin') {
+      var detailsBtn = el('button', 'ov-metrics-details-toggle');
+      detailsBtn.type = 'button';
+      detailsBtn.setAttribute('aria-expanded', detailsOpen ? 'true' : 'false');
+      Escape.setText(detailsBtn, detailsOpen ? 'Hide details' : 'Show details');
+      detailsBtn.addEventListener('click', function () { if (typeof onDetailsToggle === 'function') onDetailsToggle(); });
+      band.appendChild(detailsBtn);
+      if (detailsOpen) {
+        var details = el('div', 'ov-metrics-details');
+        details.appendChild(metricTile('Attention rate', metricText(model.attentionRate, 1) + '%'));
+        details.appendChild(metricTile('Average review dwell', model.avgDwellMinutes == null ? '—' : metricText(model.avgDwellMinutes, 1) + ' min'));
+        var low = el('div', 'ov-metrics-detail-list');
+        low.appendChild(textCell('h4', 'ov-metrics-detail-title', 'Low-confidence fields'));
+        if (!model.lowConfidenceByField.length) low.appendChild(textCell('p', 'muted', 'None recorded.'));
+        else {
+          var lowList = el('ul');
+          model.lowConfidenceByField.forEach(function (r) { lowList.appendChild(textCell('li', '', r.field + ': ' + metricText(r.count))); });
+          low.appendChild(lowList);
+        }
+        details.appendChild(low);
+        var corrected = el('div', 'ov-metrics-detail-list');
+        corrected.appendChild(textCell('h4', 'ov-metrics-detail-title', 'Most-corrected categories'));
+        if (!model.mostCorrectedCategories.length) corrected.appendChild(textCell('p', 'muted', 'None recorded.'));
+        else {
+          var correctedList = el('ul');
+          model.mostCorrectedCategories.forEach(function (r) { correctedList.appendChild(textCell('li', '', r.category + ': ' + metricText(r.count))); });
+          corrected.appendChild(correctedList);
+        }
+        details.appendChild(corrected);
+        band.appendChild(details);
+      }
+    }
+    host.appendChild(band);
+  }
+
   // Render the whole Overview into `container` from a (year-scoped) reports
   // object. `allTimeReport` is the unscoped (period=year) reports response —
   // its `.total` is every year's spend combined, and its `.buckets` (one per
@@ -783,6 +935,9 @@
     var shell = el('div', 'ov-shell');
     section.appendChild(shell);
 
+    var metricsHost = el('div', 'ov-metrics-host');
+    shell.appendChild(metricsHost);
+
     var segmentBar = el('div', 'ov-segments');
     var segmentButtons = {};
     overviewSegments().forEach(function (seg) {
@@ -820,6 +975,32 @@
     // It is mutated in place (never reassigned) so the donutOpts object closed
     // over below always sees the latest values.
     var state = { loaded: false, loading: false, lastReports: null, lastAllTime: null, colorOverrides: loadColorOverrides(), activeSegment: 'summary', trendsLoaded: false };
+    var metricsState = { period: metricsPeriod(), model: null, loading: false, detailsOpen: false };
+
+    function renderMetrics() {
+      renderMetricsBand(metricsHost, metricsState.model, opts.session, metricsState.period,
+        function (value) { loadMetrics(value); }, metricsState.detailsOpen,
+        function () { metricsState.detailsOpen = !metricsState.detailsOpen; renderMetrics(); });
+    }
+
+    function loadMetrics(periodValue) {
+      metricsState.period = metricsPeriod(periodValue || metricsState.period.value);
+      metricsState.model = null;
+      metricsState.loading = true;
+      renderMetrics();
+      if (!apiFetch) { metricsState.loading = false; return; }
+      apiFetch(metricsPath(metricsState.period)).then(function (payload) {
+        metricsState.loading = false;
+        metricsState.model = automationImpactModel(payload);
+        renderMetrics();
+      }).catch(function () {
+        // Metrics are additive UX: an outage must never replace or block the
+        // existing Overview reports/charts. Leave the quiet period shell in place.
+        metricsState.loading = false;
+        metricsState.model = null;
+        renderMetrics();
+      });
+    }
 
     function showSegment(id) {
       if (id !== 'trends') id = 'summary';
@@ -923,6 +1104,11 @@
       });
     }
 
+    // Metrics are independent of the Reports tab and fetch once on mount;
+    // period changes call loadMetrics directly. No polling belongs to C4 (C7).
+    renderMetrics();
+    loadMetrics();
+
     return {
       el: shell,
       load: function () {
@@ -937,6 +1123,9 @@
     // pure
     chartModel: chartModel,
     kpiModel: kpiModel,
+    automationImpactModel: automationImpactModel,
+    metricsPeriod: metricsPeriod,
+    metricsPath: metricsPath,
     topCategory: topCategory,
     categoryCountBreakdown: categoryCountBreakdown,
     overviewSegments: overviewSegments,
