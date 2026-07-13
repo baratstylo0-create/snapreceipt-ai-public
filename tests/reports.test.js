@@ -192,3 +192,21 @@ test('toAmount and isISO are exported for reuse by lib/excel.js (#2)', () => {
   assert.strictEqual(isISO('2026-07-01'), true);
   assert.strictEqual(isISO('2026-13-45'), false);
 });
+
+test('line-item category split: report byCategory distributes a mixed receipt while count stays per receipt', () => {
+  const r = buildReport([E('2026-06-01', 80, 'Food', {
+    line_items: [{ amount: 50, category: 'Food' }, { amount: 30, category: 'Petrol' }],
+  })], 'month', { categories: ['Food', 'Petrol', 'Others'] });
+  assert.deepStrictEqual(r.buckets[0].byCategory, { Food: 50, Petrol: 30 });
+  assert.deepStrictEqual(r.buckets[0].byCategoryCount, { Food: 1, Petrol: 1 });
+  assert.strictEqual(r.total, 80);
+  assert.strictEqual(r.count, 1);
+});
+
+test('line-item category split: off-template portions fall back and remainder reconciles', () => {
+  const r = buildReport([E('2026-06-01', 80, 'Food', {
+    line_items: [{ amount: 50.01, category: 'Food' }, { amount: 29.98, category: 'Unknown' }],
+  })], 'month', { categories: ['Food', 'Petrol', 'Others'] });
+  assert.deepStrictEqual(r.buckets[0].byCategory, { Food: 80 });
+  assert.strictEqual(r.total, 80);
+});

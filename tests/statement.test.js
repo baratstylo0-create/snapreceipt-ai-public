@@ -62,8 +62,8 @@ test('Section B: categories numbered 1..N in FieldSpec order; expenses land in t
   const expenses = [exp('e1', 50, 'Food', '2025-10-01'), exp('e2', 30, 'Tickets', '2025-10-02')];
   const m = buildStatementModel({ ...base, expenses });
   const cats = m.sectionB.categories;
-  assert.deepStrictEqual(cats.map((c) => c.n), [1, 2, 3, 4, 5]);
-  assert.deepStrictEqual(cats.map((c) => c.name), ['Tickets', 'Hotel', 'Food', 'Others', 'Hardware']);
+  assert.deepStrictEqual(cats.map((c) => c.n), [1, 2]);
+  assert.deepStrictEqual(cats.map((c) => c.name), ['Tickets', 'Food']);
   const tickets = cats.find((c) => c.name === 'Tickets');
   assert.strictEqual(tickets.rows.length, 1);
   assert.strictEqual(tickets.rows[0].amount, 30);
@@ -71,13 +71,10 @@ test('Section B: categories numbered 1..N in FieldSpec order; expenses land in t
   assert.strictEqual(tickets.subtotal, 30);
 });
 
-test('empty categories still render (with padRows) — the sample shows blank FOOD/HARDWARE blocks', () => {
+test('empty categories are omitted — a blank category block is not useful to an auditor', () => {
   const m = buildStatementModel({ ...base, expenses: [exp('e1', 50, 'Food', '2025-10-01')] });
   const hardware = m.sectionB.categories.find((c) => c.name === 'Hardware');
-  assert.ok(hardware, 'an empty category is still present');
-  assert.strictEqual(hardware.rows.length, 0);
-  assert.strictEqual(hardware.subtotal, 0);
-  assert.ok(hardware.padRows >= 1, 'blank pad rows keep the block visually sized');
+  assert.strictEqual(hardware, undefined, 'empty category sections are omitted');
 });
 
 test('unknown category falls into Others', () => {
@@ -158,4 +155,68 @@ test('deterministic: shuffled expenses produce the same row order within a categ
 test('sign-off block reflects per-company config (prepared/checked/approved)', () => {
   const m = buildStatementModel({ ...base, signoff: { prepared: true, checked: false, approved: true } });
   assert.deepStrictEqual(m.signoff, { prepared: true, checked: false, approved: true });
+});
+
+test('line-item split: two categories receive their item amounts and voucher suffixes', () => {
+  const m = buildStatementModel({ ...base, expenses: [exp('mix-2', 80, 'Food', '2025-10-04', {
+    voucher_no: 'RC-42', line_items: [
+      { description: 'Lunch', amount: 50, category: 'Food' },
+      { description: 'Fuel', amount: 30, category: 'Tickets' },
+    ],
+  })] });
+  const food = m.sectionB.categories.find((c) => c.name === 'Food');
+  const tickets = m.sectionB.categories.find((c) => c.name === 'Tickets');
+  assert.strictEqual(food.subtotal, 50);
+  assert.strictEqual(tickets.subtotal, 30);
+  assert.match(food.rows[0].description, /RC-42 \(1\/2\)/);
+  assert.match(tickets.rows[0].description, /RC-42 \(2\/2\)/);
+  assert.strictEqual(m.sectionB.subtotal, 80);
+});
+
+test('line-item split: three categories and fx-scaled decimal items reconcile exactly', () => {
+  const m = buildStatementModel({ ...base, expenses: [exp('mix-3', 100, 'Food', '2025-10-04', {
+    line_items: [
+      { amount: 33.33, category: 'Food' },
+      { amount: 33.33, category: 'Tickets' },
+      { amount: 33.34, category: 'Hotel' },
+    ],
+  })] });
+  assert.deepStrictEqual(
+    ['Food', 'Tickets', 'Hotel'].map((name) => m.sectionB.categories.find((c) => c.name === name).subtotal),
+    [33.33, 33.33, 33.34],
+  );
+  assert.strictEqual(m.sectionB.subtotal, 100);
+});
+
+test('line-item split: single-category and empty-line_items receipts remain unchanged', () => {
+  const m = buildStatementModel({ ...base, expenses: [
+    exp('single', 12, 'Food', '2025-10-01', { voucher_no: 'S-1', line_items: [{ amount: 12, category: 'Food' }] }),
+    exp('empty', 9, 'Tickets', '2025-10-02', { voucher_no: 'E-1', line_items: [] }),
+  ] });
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Food').rows[0].description, 'M-single');
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Food').subtotal, 12);
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Tickets').rows[0].description, 'M-empty');
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Tickets').subtotal, 9);
+});
+
+test('line-item split: rounding remainder goes to the largest item category', () => {
+  const m = buildStatementModel({ ...base, expenses: [exp('round', 80, 'Food', '2025-10-04', {
+    line_items: [{ amount: 50.01, category: 'Food' }, { amount: 29.98, category: 'Tickets' }],
+  })] });
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Food').subtotal, 50.02);
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Tickets').subtotal, 29.98);
+});
+
+test('line-item split: off-template and missing categories fall back to the rolled-up category', () => {
+  const m = buildStatementModel({ ...base, expenses: [exp('fallback', 80, 'Tickets', '2025-10-04', {
+    line_items: [{ amount: 50, category: 'Food' }, { amount: 20, category: 'Not in template' }, { amount: 10 }],
+  })] });
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Food').subtotal, 50);
+  assert.strictEqual(m.sectionB.categories.find((c) => c.name === 'Tickets').subtotal, 30);
+  assert.strictEqual(m.sectionB.subtotal, 80);
+});
+
+test('empty category sections are omitted once no expense contributes to them', () => {
+  const m = buildStatementModel({ ...base, expenses: [exp('only', 5, 'Food', '2025-10-01')] });
+  assert.deepStrictEqual(m.sectionB.categories.map((c) => c.name), ['Food']);
 });
