@@ -5,7 +5,29 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, submissionPeriod, submissionState, readyToCloseRows } = require('../../public/js/components/grid');
+
+test('submissionPeriod returns the local YYYY-MM month used by the submit signal', () => {
+  assert.strictEqual(submissionPeriod(new Date(2026, 6, 13)), '2026-07');
+  assert.strictEqual(submissionPeriod(new Date(2026, 0, 2)), '2026-01');
+});
+
+test('submissionState distinguishes submitted, withdrawn, and not-yet-submitted', () => {
+  assert.strictEqual(submissionState(null), 'not_submitted');
+  assert.strictEqual(submissionState({ status: 'submitted' }), 'submitted');
+  assert.strictEqual(submissionState({ status: 'withdrawn' }), 'withdrawn');
+});
+
+test('readyToCloseRows keeps submitted branches, labels them safely, and ignores withdrawn rows', () => {
+  assert.deepStrictEqual(readyToCloseRows([
+    { id: 's1', branch_id: 'b2', period: '2026-07', status: 'submitted' },
+    { id: 's2', branch_id: 'b1', period: '2026-07', status: 'withdrawn' },
+    { id: 's3', branch_id: 'b3', period: '2026-06', status: 'submitted' },
+  ], { b2: 'South' }, '2026-07'), [
+    { id: 's1', branch_id: 'b2', period: '2026-07', label: 'South' },
+  ]);
+  assert.deepStrictEqual(readyToCloseRows(null, {}), []);
+});
 
 const ROW = { id: 'e1', merchant: 'Cafe', amount: 10, expense_date: '2026-07-01', category: 'Meals & Entertainment', remark: '', updated_at: '2026-07-07T10:00:00+00:00' };
 

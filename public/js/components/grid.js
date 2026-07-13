@@ -170,6 +170,28 @@
     return out;
   }
 
+  function submissionPeriod(now) {
+    var d = now instanceof Date ? new Date(now.getTime()) : new Date(typeof now === 'number' ? now : Date.now());
+    if (!Number.isFinite(d.getTime())) d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function submissionState(submission) {
+    var status = submission && String(submission.status || '').toLowerCase();
+    return status === 'submitted' || status === 'withdrawn' ? status : 'not_submitted';
+  }
+
+  function readyToCloseRows(submissions, branchNames, period) {
+    var names = branchNames && typeof branchNames === 'object' ? branchNames : {};
+    var target = period ? String(period) : '';
+    return (Array.isArray(submissions) ? submissions : []).filter(function (row) {
+      return row && submissionState(row) === 'submitted' && (!target || String(row.period || '') === target);
+    }).map(function (row) {
+      var id = row.branch_id == null ? '' : String(row.branch_id);
+      return { id: row.id == null ? '' : String(row.id), branch_id: id, period: String(row.period || ''), label: names[id] || id || 'Unassigned branch' };
+    });
+  }
+
   // ---- DOM helpers (browser only) -----------------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -214,8 +236,11 @@
     // Activity — same shared switcher Upload's "View in Activity" button already uses.
     var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
     var session = deps.session || null;
+    var isClerk = !!(session && session.role === 'clerk');
+    var isAdmin = !!(session && session.role === 'admin');
+    var submissionOn = !!(deps.config && deps.config.branch_submission);
 
-    var state = { rows: [], loaded: false, editMode: false, search: '', page: 1 };
+    var state = { rows: [], loaded: false, editMode: false, search: '', page: 1, submission: null, submissions: [], branchNames: {} };
 
     var wrap = document.createElement('div');
     wrap.className = 'ledger';
@@ -297,6 +322,35 @@
     statementTools.appendChild(statementPdfBtn);
     wrap.appendChild(statementTools);
 
+    // -- Submit-signal (C5): move a month-ready signal into the Data editor --
+    // The legacy Payments implementation remains intact behind its feature flag;
+    // this is the new home after the Payments page is hidden.
+    var submissionWrap = null, submissionMsg = null, submissionBtn = null, withdrawBtn = null, readyList = null;
+    if (submissionOn && (isClerk || isAdmin)) {
+      submissionWrap = el('div', 'ledger-submission');
+      var submissionHeading = textEl('span', 'ledger-submission-label', isClerk ? 'Month ready' : 'Ready to close');
+      submissionWrap.appendChild(submissionHeading);
+      submissionMsg = el('span', 'ledger-submission-msg muted');
+      submissionWrap.appendChild(submissionMsg);
+      if (isClerk) {
+        submissionBtn = el('button', 'ledger-btn ledger-btn--ghost');
+        submissionBtn.type = 'button';
+        submissionBtn.addEventListener('click', submitMonth);
+        submissionWrap.appendChild(submissionBtn);
+        withdrawBtn = el('button', 'ledger-btn ledger-btn--ghost');
+        withdrawBtn.type = 'button';
+        Escape.setText(withdrawBtn, 'Withdraw');
+        withdrawBtn.hidden = true;
+        withdrawBtn.addEventListener('click', withdrawMonth);
+        submissionWrap.appendChild(withdrawBtn);
+      } else if (isAdmin) {
+        readyList = el('div', 'ledger-ready-list');
+        submissionWrap.appendChild(readyList);
+      }
+      wrap.appendChild(submissionWrap);
+    }
+    statementMonth.addEventListener('change', function () { refreshSubmissionSignal(); });
+
     // -- search --
     var searchRow = el('div', 'ledger-search-row');
     var searchInput = el('input', 'ledger-search');
@@ -367,6 +421,105 @@
       }).then(function () {
         setExportBusy(false);
       });
+    }
+
+    function selectStatementBranch(branchId, period) {
+      if (period) statementMonth.value = String(period);
+      if (!statementBranch) return;
+      refreshStatementBranches();
+      var wanted = branchId == null ? '' : String(branchId);
+      var found = false;
+      for (var i = 0; i < statementBranch.options.length; i++) {
+        if (statementBranch.options[i].value === wanted) { found = true; break; }
+      }
+      if (!found && wanted) {
+        var option = document.createElement('option');
+        option.value = wanted;
+        Escape.setText(option, state.branchNames[wanted] || wanted);
+        statementBranch.appendChild(option);
+      }
+      if (wanted) statementBranch.value = wanted;
+    }
+
+    function renderReadyList(period) {
+      if (!readyList) return;
+      clear(readyList);
+      var rows = readyToCloseRows(state.submissions, state.branchNames, period);
+      Escape.setText(submissionMsg, rows.length ? rows.length + ' branch' + (rows.length === 1 ? '' : 'es') + ' submitted.' : 'No branches submitted yet.');
+      if (!rows.length) return;
+      rows.forEach(function (row) {
+        var item = el('div', 'ledger-ready-item');
+        var label = textEl('span', 'ledger-ready-branch', row.label + ' (' + row.period + ')');
+        item.appendChild(label);
+        ['xlsx', 'pdf'].forEach(function (format) {
+          var button = el('button', 'ledger-btn ledger-btn--ghost');
+          button.type = 'button';
+          Escape.setText(button, format === 'xlsx' ? 'Export Excel' : 'Export PDF');
+          button.addEventListener('click', function () {
+            selectStatementBranch(row.branch_id, row.period);
+            doStatementExport(format);
+          });
+          item.appendChild(button);
+        });
+        readyList.appendChild(item);
+      });
+    }
+
+    function refreshSubmissionSignal() {
+      if (!submissionOn || !submissionWrap || !Api || typeof Api.apiFetch !== 'function') return;
+      var period = statementMonth.value || submissionPeriod();
+      if (!/^\d{4}-\d{2}$/.test(period)) return;
+      Api.apiFetch('/api/submissions?period=' + encodeURIComponent(period)).then(function (payload) {
+        state.submissions = payload && Array.isArray(payload.submissions) ? payload.submissions : [];
+        state.submission = state.submissions[0] || null;
+        if (isClerk) {
+          var status = submissionState(state.submission);
+          Escape.setText(submissionMsg, status === 'submitted' ? 'Submitted for ' + period + '.'
+            : status === 'withdrawn' ? 'Withdrawn for ' + period + '.' : 'Not submitted for ' + period + '.');
+          if (submissionBtn) {
+            Escape.setText(submissionBtn, status === 'submitted' ? 'Re-submit month ready' : 'Submit month ready');
+            submissionBtn.disabled = false;
+          }
+          if (withdrawBtn) withdrawBtn.hidden = status !== 'submitted';
+        } else if (isAdmin) {
+          renderReadyList(period);
+        }
+      }).catch(function () {
+        Escape.setText(submissionMsg, 'Could not load submission status.');
+      });
+    }
+
+    function submitMonth() {
+      if (!submissionBtn || !Api || typeof Api.apiFetch !== 'function') return;
+      var period = statementMonth.value || submissionPeriod();
+      submissionBtn.disabled = true;
+      Escape.setText(submissionMsg, 'Submitting…');
+      Api.apiFetch('/api/submissions', { method: 'POST', body: { period: period } })
+        .then(function () { refreshSubmissionSignal(); })
+        .catch(function (err) {
+          submissionBtn.disabled = false;
+          Escape.setText(submissionMsg, err && err.status === 403 ? 'Only a branch clerk can submit.' : 'Submit failed. Please try again.');
+        });
+    }
+
+    function withdrawMonth() {
+      if (!withdrawBtn || !state.submission || !Api || typeof Api.apiFetch !== 'function') return;
+      withdrawBtn.disabled = true;
+      Api.apiFetch('/api/submissions/' + encodeURIComponent(state.submission.id), { method: 'PATCH', body: { status: 'withdrawn' } })
+        .then(function () { withdrawBtn.disabled = false; refreshSubmissionSignal(); })
+        .catch(function () { withdrawBtn.disabled = false; Escape.setText(submissionMsg, 'Withdraw failed. Please try again.'); });
+    }
+
+    function loadBranchDirectory() {
+      if (!submissionOn || !isAdmin || !Api || typeof Api.apiFetch !== 'function') return;
+      Api.apiFetch('/api/branches').then(function (payload) {
+        var branches = payload && Array.isArray(payload.branches) ? payload.branches : [];
+        branches.forEach(function (branch) {
+          if (branch && branch.id != null) state.branchNames[String(branch.id)] = branch.office || String(branch.id);
+        });
+        if (statementBranch) refreshStatementBranches();
+        renderReadyList(statementMonth.value);
+      }).catch(function () { /* raw branch IDs remain safe fallbacks */ });
     }
 
     function doManagedExport(format) {
@@ -566,11 +719,13 @@
     }
 
     function load() {
+      loadBranchDirectory();
       return Api.apiFetch('/api/expenses').then(function (rows) {
         state.rows = Array.isArray(rows) ? rows : [];
         state.loaded = true;
         refreshStatementBranches();
         render();
+        refreshSubmissionSignal();
       }).catch(function () { note('Could not load expenses. Please try again shortly.'); });
     }
 
@@ -584,5 +739,6 @@
     filterRows: filterRows, paginate: paginate, escapeCSVValue: escapeCSVValue,
     rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
     statementExportUrl: statementExportUrl, statementBranchOptions: statementBranchOptions, statementFilename: statementFilename,
+    submissionPeriod: submissionPeriod, submissionState: submissionState, readyToCloseRows: readyToCloseRows,
   };
 });
