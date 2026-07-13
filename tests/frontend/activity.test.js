@@ -17,6 +17,7 @@ const {
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
+  purgeReminderDate, DELETED_RETENTION_DAYS,
   receiptErrorMessage, statusLabel, decisionErrorText, mixedCategoryLabel, lineItemDetails,
   branchNamesFromResponse, staffNamesFromResponse, activityBranchOptions,
   displayBranchName, displayStaffName,
@@ -832,6 +833,38 @@ test('permanentDeletePath: builds /api/expenses/<id>/permanent, encoding the id'
 test('permanentDeletePath: null/undefined id does not throw', () => {
   assert.strictEqual(permanentDeletePath(null), '/api/expenses//permanent');
   assert.strictEqual(permanentDeletePath(undefined), '/api/expenses//permanent');
+});
+
+// --- purgeReminderDate (QA 2026-07-13, Untitled document (4).md): the recently-deleted
+// bin didn't say WHEN a bill would fall out of the system, just that it could be recovered
+// "for now". There is no automatic purge job today (deleted_at is a permanent soft-delete —
+// confirmed by reading routes/expenses.js: nothing ever clears old deleted rows), so this is
+// a DISPLAY-ONLY reminder of the retention policy, not a promise a job enforces yet. Building
+// the actual auto-purge is a separate, infra-lane piece (a scheduled job); flagged, not built
+// here — see the WORKLOG entry. -------------------------------------------------------------
+
+test('purgeReminderDate: adds DELETED_RETENTION_DAYS to deleted_at, returned as YYYY-MM-DD', () => {
+  assert.strictEqual(purgeReminderDate('2026-07-01T00:00:00Z'), '2026-07-31');
+});
+
+test('purgeReminderDate: an explicit retentionDays overrides the default', () => {
+  assert.strictEqual(purgeReminderDate('2026-07-01T00:00:00Z', 7), '2026-07-08');
+  assert.strictEqual(purgeReminderDate('2026-07-01T00:00:00Z', 90), '2026-09-29');
+});
+
+test('purgeReminderDate: crosses a month/year boundary correctly', () => {
+  assert.strictEqual(purgeReminderDate('2026-12-15T00:00:00Z', 30), '2027-01-14');
+});
+
+test('purgeReminderDate: missing/invalid deleted_at never throws, returns null', () => {
+  assert.strictEqual(purgeReminderDate(null), null);
+  assert.strictEqual(purgeReminderDate(undefined), null);
+  assert.strictEqual(purgeReminderDate(''), null);
+  assert.strictEqual(purgeReminderDate('not-a-date'), null);
+});
+
+test('DELETED_RETENTION_DAYS: the documented default retention window', () => {
+  assert.strictEqual(DELETED_RETENTION_DAYS, 30);
 });
 
 // --- inline line-item categorisation (QA C3) ------------------------------
