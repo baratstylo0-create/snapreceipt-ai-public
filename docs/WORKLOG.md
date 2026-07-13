@@ -1,5 +1,21 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-v-lineitem-edgecases — Harden line-item extraction against edge cases Codex's C2 will depend on (Jeevan-directed, de-risks the statement/reports category split)
+
+- **Files:** `lib/ocr.js` (`assembleExpense`'s line-item block — reconciliation guard added). Tests: `tests/ocr.lineitems.test.js` (+9).
+- **Context:** Jeevan confirmed Codex has taken C1–C7 (stood down from that territory entirely, don't touch `public/js/components/*.js`/`lib/statement*.js`/`lib/reports.js`/`lib/excel.js`/their routes) and asked me to harden 4 specific line-item edge cases in `lib/ocr.js`/`lib/categorize.js` only, ahead of Codex's C2 (statement/reports category-splitting) landing.
+- **Checked all 4, 3 were already correct (no code change) — locked in with tests so they can't silently regress:**
+  1. **Off-template category:** re-confirmed (via `ruleCategory`, `baseDecision`, `llmWatchdog` — all gate on `allow.has(cat)`) that the real categorizer structurally cannot emit an off-list category. Added the case that WAS a genuine untested path: the categorizer **throwing** (network/LLM failure) — items keep their description/amount but get no `category` key at all (never a bad value); a fresh test locks this in.
+  2. **Missing/null category on one item:** already handled — an item without a `category` field simply has no `category` key on the stored line item; siblings with a category are unaffected. Tested.
+  3. **Mixed currencies within one receipt's line items:** confirmed structurally impossible — `coerceLineItems` only ever keeps `{description, amount}`, so a hostile/hallucinated `currency` (or `category`) field on a raw OCR line item is stripped before it ever reaches the categorizer or `assembleExpense`. Tested with a hostile-input receipt proving the categorizer itself never even sees the injected fields.
+- **Item 4 — genuine gap, fixed:** line items were fx-scaled but never reconciled against `expense.amount` (the final converted total) — OCR misreads or per-item `round2()` could leave the array summing to something slightly different from the stored total, which Codex's C2 would then have needed its own reconciliation logic for. Now: after building the item array, if it doesn't sum exactly to `expense.amount`, attribute the remainder to the **largest** item — but only within a **rounding-scale tolerance** (≤ RM1 or ≤2% of the total, whichever is larger). A bigger mismatch is a genuine OCR misread, not rounding — deliberately left AS-IS rather than fabricating a corrected line that never appeared on the real receipt; that case is for the existing anomaly/review path, not silent papering-over here. Runs AFTER fx-scaling, against the final converted total (tested with a receipt whose EUR items scale to MYR then still need a small post-conversion correction).
+- **Result:** Codex's C2 can now sum `expense.line_items` directly and trust it matches `expense.amount` whenever the receipt was genuinely just rounding-off — zero extra reconciliation logic needed on the aggregation side for the common case.
+- **Tests: full suite 1935/1935** (`.env` moved aside/restored; +9 net new vs. this branch's base on `main`, zero regressions — the pre-existing fx-scale test's fixture (items summing to 6 against a 500 total) deliberately falls OUTSIDE the tolerance, so it stayed untouched and still passes unmodified).
+- **What's next:** hold — item 3 (bot Telegram-ping helper) still has nothing to build until Codex's C5 defines the interface it needs. PR opened, not self-merged.
+- **Assumptions:** the RM1-or-2% tolerance is my own judgment call (the plan only said "attribute a rounding remainder to the largest item" without a numeric threshold) — flagged in the PR for Jeevan/Owner to adjust if a different bound is wanted.
+
+---
+
 ## 2026-07-13 · Claude (Sonnet, for Barat) · qa/pr-u-lineitem-confirm-category-guard — Round-2 plan §2 items 1+2: confirm line-item extraction (album/PDF), harden saveCategories against orphaning expenses
 
 - **Files:** `lib/templates.js` (`saveCategories` delete-in-use guard). Tests: `tests/ocr.lineitems.batch.test.js` (**new**, 2), `tests/templates.categories.test.js` (+6, plus `stubSupabase` made table-scoped), `tests/templates_route.test.js` (+1, plus one pre-existing test's DB stub made table-scoped).
