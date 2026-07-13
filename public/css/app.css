@@ -2423,6 +2423,17 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 }
 .ledger-badge--edit { color: var(--moss); background: var(--moss-bg); }
 
+.ledger-statement-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+}
+.ledger-statement-label { font-size: 12px; font-weight: 700; color: var(--txt); }
+.ledger-statement-month,
+.ledger-statement-branch {
+  min-height: 36px; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+}
+
 .ledger-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
 .ledger-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .ledger-btn--ghost { background: var(--panel); color: var(--muted); }

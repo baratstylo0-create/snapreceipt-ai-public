@@ -23,6 +23,12 @@ const dashAuthLimiter = createRateLimiter({ max: Number(process.env.DASH_AUTH_RA
 // The M2 route carries its own generous rate limiter (SEC-7).
 const BULK_PAY_CHUNK = Number(process.env.BULK_PAY_CHUNK) || 100;
 const BULK_PAY_MAX_IDS = Number(process.env.BULK_PAY_MAX_IDS) || 1000;
+
+function envFlag(name, fallback = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || raw === '') return !!fallback;
+  return /^(1|true|yes|on)$/i.test(String(raw).trim());
+}
 const STAFF_ASSIGN_MAX_IDS = Number(process.env.STAFF_ASSIGN_MAX_IDS) || 200;
 const paymentsLimiter = createRateLimiter({ max: Number(process.env.PAYMENTS_RATE_MAX) || 60 });
 
@@ -403,6 +409,9 @@ module.exports = function mountExpenses(app) {
       multi_user: !!caps.multiUser,
       excel_lite_grid: !!caps.excelLiteGrid,
       branch_submission: !!caps.branchSubmission,
+      payments_page: envFlag('CAP_PAYMENTS_PAGE', false),
+      template_builder: envFlag('CAP_TEMPLATE_BUILDER', false),
+      companies_ui: envFlag('CAP_COMPANIES_UI', false),
       // Public @handle, not a secret (BOT_TOKEN itself is never exposed here) — lets the
       // Team view render a clickable t.me/<bot>?start=<code> bot-binding link. Empty when
       // unset; the frontend falls back to showing the raw code.

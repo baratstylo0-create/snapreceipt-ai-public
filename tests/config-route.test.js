@@ -83,6 +83,36 @@ test('GET /api/config exposes the ADR-022 profile flags — defaults: grid ON, s
   }
 });
 
+test('GET /api/config exposes C1 packaging flags with Premala-safe defaults', async () => {
+  const saved = {
+    CAP_PAYMENTS_PAGE: process.env.CAP_PAYMENTS_PAGE,
+    CAP_TEMPLATE_BUILDER: process.env.CAP_TEMPLATE_BUILDER,
+    CAP_COMPANIES_UI: process.env.CAP_COMPANIES_UI,
+  };
+  try {
+    delete process.env.CAP_PAYMENTS_PAGE;
+    delete process.env.CAP_TEMPLATE_BUILDER;
+    delete process.env.CAP_COMPANIES_UI;
+    let { json } = await get((() => { const a = express(); mountExpenses(a); return a; })(), '/api/config');
+    assert.strictEqual(json.payments_page, false);
+    assert.strictEqual(json.template_builder, false);
+    assert.strictEqual(json.companies_ui, false);
+
+    process.env.CAP_PAYMENTS_PAGE = 'true';
+    process.env.CAP_TEMPLATE_BUILDER = 'true';
+    process.env.CAP_COMPANIES_UI = 'true';
+    ({ json } = await get((() => { const a = express(); mountExpenses(a); return a; })(), '/api/config'));
+    assert.strictEqual(json.payments_page, true);
+    assert.strictEqual(json.template_builder, true);
+    assert.strictEqual(json.companies_ui, true);
+  } finally {
+    for (const k of Object.keys(saved)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+});
+
 test('GET /api/config exposes bot_username (Team view deep-link) — fixed at process start like BOT_TOKEN, always a string, matches cfg', async () => {
   const app = express();
   mountExpenses(app);

@@ -145,6 +145,10 @@
     return '';
   }
 
+  function companiesUiEnabled(config) {
+    return !(config && config.companies_ui === false);
+  }
+
   // ---- DOM helpers (browser only) ---------------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -156,6 +160,7 @@
     deps = deps || {};
     var Api = deps.Api, Escape = deps.Escape;
     var admin = isAdmin(deps.session);
+    var showCompanies = admin && companiesUiEnabled(deps.config);
 
     var state = {
       loaded: false,
@@ -633,6 +638,11 @@
         }).then(function () {
           // Feature-detect the company dimension: a 404 means the capability is off
           // for this account — never surface company UI a client can't actually use.
+          if (!showCompanies) {
+            state.companiesEnabled = false;
+            state.companies = [];
+            return null;
+          }
           return Api.apiFetch('/api/companies').then(function (resp) {
             state.companiesEnabled = true;
             state.companies = (resp && resp.companies || []).map(normalizeCompany);
@@ -681,6 +691,7 @@
     sortedBranches: sortedBranches,
     rootLabel: rootLabel,
     companyNameById: companyNameById,
+    companiesUiEnabled: companiesUiEnabled,
     botDeepLink: botDeepLink,
     branchDeleteWarning: branchDeleteWarning,
     // render (browser)

@@ -138,6 +138,38 @@
     return EDITABLE.map(function (f) { return escapeCSVValue(LABELS[f]); }).join(',');
   }
 
+  function statementExportUrl(opts) {
+    opts = opts || {};
+    var period = String(opts.period || '').trim();
+    var format = String(opts.format || '').trim().toLowerCase();
+    var url = '/api/statement?period=' + encodeURIComponent(period) + '&format=' + encodeURIComponent(format);
+    var branch = opts.branch == null ? '' : String(opts.branch).trim();
+    if (branch) url += '&branch=' + encodeURIComponent(branch);
+    return url;
+  }
+
+  function statementFilename(format) {
+    return String(format).toLowerCase() === 'xlsx' ? 'petty-cash-statement.xlsx' : 'Expense_Report.pdf';
+  }
+
+  function statementBranchOptions(rows, session) {
+    if (!session || session.role !== 'admin') return [];
+    var out = [{ value: 'all', label: 'All branches' }];
+    var own = session.branch_id ? String(session.branch_id) : '';
+    if (own) out.push({ value: own, label: 'My uploads' });
+    var seen = {};
+    if (own) seen[own] = true;
+    var ids = [];
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      var id = row && row.branch_id ? String(row.branch_id) : '';
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      ids.push(id);
+    });
+    ids.sort().forEach(function (id) { out.push({ value: id, label: 'Branch ' + id }); });
+    return out;
+  }
+
   // ---- DOM helpers (browser only) -----------------------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -181,6 +213,7 @@
     // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
     // Activity — same shared switcher Upload's "View in Activity" button already uses.
     var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
+    var session = deps.session || null;
 
     var state = { rows: [], loaded: false, editMode: false, search: '', page: 1 };
 
@@ -235,6 +268,35 @@
     toolbar.appendChild(templateBtn);
     wrap.appendChild(toolbar);
 
+    var statementTools = el('div', 'ledger-statement-tools');
+    statementTools.appendChild(textEl('span', 'ledger-statement-label', 'Petty Cash Statement'));
+    var statementMonth = el('input', 'ledger-statement-month');
+    statementMonth.type = 'month';
+    statementMonth.setAttribute('aria-label', 'Statement month');
+    var now = new Date();
+    statementMonth.value = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    statementTools.appendChild(statementMonth);
+
+    var statementBranch = null;
+    if (session && session.role === 'admin') {
+      statementBranch = el('select', 'ledger-statement-branch');
+      statementBranch.setAttribute('aria-label', 'Statement branch');
+      statementTools.appendChild(statementBranch);
+    }
+
+    var statementExcelBtn = el('button', 'ledger-btn ledger-btn--ghost');
+    statementExcelBtn.type = 'button';
+    Escape.setText(statementExcelBtn, 'Statement Excel');
+    statementExcelBtn.addEventListener('click', function () { doStatementExport('xlsx'); });
+    statementTools.appendChild(statementExcelBtn);
+
+    var statementPdfBtn = el('button', 'ledger-btn ledger-btn--ghost');
+    statementPdfBtn.type = 'button';
+    Escape.setText(statementPdfBtn, 'Statement PDF');
+    statementPdfBtn.addEventListener('click', function () { doStatementExport('pdf'); });
+    statementTools.appendChild(statementPdfBtn);
+    wrap.appendChild(statementTools);
+
     // -- search --
     var searchRow = el('div', 'ledger-search-row');
     var searchInput = el('input', 'ledger-search');
@@ -270,6 +332,41 @@
       exportBtn.disabled = !!busy;
       excelBtn.disabled = !!busy;
       pdfBtn.disabled = !!busy;
+      statementExcelBtn.disabled = !!busy;
+      statementPdfBtn.disabled = !!busy;
+    }
+
+    function refreshStatementBranches() {
+      if (!statementBranch) return;
+      var previous = statementBranch.value;
+      clear(statementBranch);
+      statementBranchOptions(state.rows, session).forEach(function (opt) {
+        var o = document.createElement('option');
+        o.value = opt.value;
+        Escape.setText(o, opt.label);
+        statementBranch.appendChild(o);
+      });
+      if (previous) statementBranch.value = previous;
+      if (!statementBranch.value && statementBranch.options.length) statementBranch.value = statementBranch.options[0].value;
+    }
+
+    function doStatementExport(format) {
+      var period = statementMonth.value;
+      if (!/^\d{4}-\d{2}$/.test(period)) {
+        note('Choose a statement month first.');
+        return;
+      }
+      var branch = statementBranch ? statementBranch.value : '';
+      setExportBusy(true);
+      note('Preparing statement ' + String(format).toUpperCase() + '...');
+      Api.fetchBlob(statementExportUrl({ period: period, format: format, branch: branch })).then(function (blob) {
+        downloadBlob(blob, statementFilename(format));
+        note('Statement ' + String(format).toUpperCase() + ' downloaded.');
+      }).catch(function () {
+        note('Statement export failed. Please try again.');
+      }).then(function () {
+        setExportBusy(false);
+      });
     }
 
     function doManagedExport(format) {
@@ -472,6 +569,7 @@
       return Api.apiFetch('/api/expenses').then(function (rows) {
         state.rows = Array.isArray(rows) ? rows : [];
         state.loaded = true;
+        refreshStatementBranches();
         render();
       }).catch(function () { note('Could not load expenses. Please try again shortly.'); });
     }
@@ -485,5 +583,6 @@
     mount: mount, buildCellPatch: buildCellPatch, EDITABLE: EDITABLE,
     filterRows: filterRows, paginate: paginate, escapeCSVValue: escapeCSVValue,
     rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
+    statementExportUrl: statementExportUrl, statementBranchOptions: statementBranchOptions, statementFilename: statementFilename,
   };
 });

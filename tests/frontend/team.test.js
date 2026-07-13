@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const {
   isAdmin, normalizeBranch, normalizeStaff, normalizeCompany, credentialPanel, sortedBranches,
   rootLabel, companyNameById, botDeepLink,
-  viewedCredentialPanel, copyBlockText, branchDeleteWarning,
+  viewedCredentialPanel, copyBlockText, branchDeleteWarning, companiesUiEnabled,
 } = require('../../public/js/components/team');
 
 test('isAdmin: true only for role admin, false for clerk/staff/missing/garbage', () => {
@@ -102,6 +102,12 @@ test('companyNameById: unset/unknown/dangling id or garbage list -> empty string
   assert.strictEqual(companyNameById(companies, 'nope'), '');
   assert.strictEqual(companyNameById(null, 'c1'), '');
   assert.strictEqual(companyNameById('not-an-array', 'c1'), '');
+});
+
+test('companiesUiEnabled: Premala packaging flag hides Companies/Add-company while keeping code opt-in', () => {
+  assert.strictEqual(companiesUiEnabled({ companies_ui: false }), false);
+  assert.strictEqual(companiesUiEnabled({ companies_ui: true }), true);
+  assert.strictEqual(companiesUiEnabled({}), true);
 });
 
 // --- botDeepLink: the clickable t.me bot-binding link (mirrors setup/provision.js's

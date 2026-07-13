@@ -5,7 +5,7 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions } = require('../../public/js/components/grid');
 
 const ROW = { id: 'e1', merchant: 'Cafe', amount: 10, expense_date: '2026-07-01', category: 'Meals & Entertainment', remark: '', updated_at: '2026-07-07T10:00:00+00:00' };
 
@@ -143,4 +143,31 @@ test('rowsToCSV: empty input -> header row only; garbage input never throws', ()
 
 test('blankTemplateCSV: exactly the header row, matching rowsToCSV\'s own header', () => {
   assert.strictEqual(blankTemplateCSV(), 'Date,Merchant,Category,Amount,Remark');
+});
+
+// --- Petty Cash Statement export moved into the Data editor toolbar (C1) ---
+
+test('statementExportUrl: builds the existing statement route query for xlsx/pdf', () => {
+  assert.strictEqual(statementExportUrl({ period: '2026-07', format: 'xlsx', branch: 'all' }), '/api/statement?period=2026-07&format=xlsx&branch=all');
+  assert.strictEqual(statementExportUrl({ period: '2026-07', format: 'pdf', branch: 'bA' }), '/api/statement?period=2026-07&format=pdf&branch=bA');
+});
+
+test('statementExportUrl: clerk/own-branch path omits branch so the server hard-forces scope', () => {
+  assert.strictEqual(statementExportUrl({ period: '2026-07', format: 'pdf', branch: '' }), '/api/statement?period=2026-07&format=pdf');
+});
+
+test('statementBranchOptions: admin gets All + My uploads + branch ids from loaded rows', () => {
+  const opts = statementBranchOptions([
+    { branch_id: 'bA' }, { branch_id: 'bB' }, { branch_id: 'bA' }, { branch_id: null },
+  ], { role: 'admin', branch_id: 'bHQ' });
+  assert.deepStrictEqual(opts.map((o) => [o.value, o.label]), [
+    ['all', 'All branches'],
+    ['bHQ', 'My uploads'],
+    ['bA', 'Branch bA'],
+    ['bB', 'Branch bB'],
+  ]);
+});
+
+test('statementBranchOptions: clerk gets no branch picker options', () => {
+  assert.deepStrictEqual(statementBranchOptions([{ branch_id: 'bA' }], { role: 'clerk', branch_id: 'bA' }), []);
 });
