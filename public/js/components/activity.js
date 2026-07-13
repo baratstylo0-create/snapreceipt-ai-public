@@ -246,6 +246,92 @@
     return out;
   }
 
+  // Business directory helpers. The API returns branch/staff IDs on expense
+  // rows, so the admin Activity view resolves them once and keeps raw IDs as a
+  // safe fallback when a directory entry is stale or unavailable.
+  function branchNamesFromResponse(resp) {
+    var rows = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.branches) ? resp.branches : []);
+    var names = {};
+    rows.forEach(function (branch) {
+      if (!branch || branch.id == null || branch.id === '') return;
+      var id = String(branch.id);
+      var office = typeof branch.office === 'string' ? branch.office.trim() : '';
+      names[id] = office || id;
+    });
+    return names;
+  }
+
+  function staffNamesFromResponse(resp) {
+    var rows = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.staff) ? resp.staff : []);
+    var names = {};
+    rows.forEach(function (staff) {
+      if (!staff || staff.id == null || staff.id === '') return;
+      var id = String(staff.id);
+      var display = typeof staff.display_name === 'string' ? staff.display_name.trim() : '';
+      var username = typeof staff.username === 'string' ? staff.username.trim() : '';
+      names[id] = display || username || id;
+    });
+    return names;
+  }
+
+  function displayBranchName(row, names) {
+    var id = row && row.branch_id;
+    if (id == null || id === '') return '—';
+    var key = String(id);
+    return names && names[key] ? String(names[key]) : key;
+  }
+
+  function displayStaffName(row, names) {
+    var id = row && row.staff_user_id;
+    if (id == null || id === '') return '—';
+    var key = String(id);
+    return names && names[key] ? String(names[key]) : key;
+  }
+
+  // Admin-only branch picker models. Keep the two synthetic options first,
+  // then include directory branches plus IDs observed on rows (so a directory
+  // fetch failure can never make a real row impossible to filter).
+  function activityBranchOptions(branches, rows, session) {
+    if (!session || session.role !== 'admin') return [];
+    var branchRows = Array.isArray(branches) ? branches : [];
+    var expenseRows = Array.isArray(rows) ? rows : [];
+    var names = branchNamesFromResponse(branchRows);
+    var ids = Object.create(null);
+    Object.keys(names).forEach(function (id) { ids[id] = true; });
+    var unassigned = false;
+    expenseRows.forEach(function (row) {
+      var id = row && row.branch_id;
+      if (id == null || id === '') { unassigned = true; return; }
+      var key = String(id);
+      ids[key] = true;
+      if (!names[key]) names[key] = key;
+    });
+    var options = [
+      { value: 'all', label: 'All branches' },
+      { value: 'mine', label: 'My uploads' },
+    ];
+    var mapped = Object.keys(ids).map(function (id) { return { value: id, label: names[id] || id }; });
+    mapped.sort(function (a, b) {
+      var al = a.label.toLowerCase(); var bl = b.label.toLowerCase();
+      return al < bl ? -1 : al > bl ? 1 : (a.value < b.value ? -1 : 1);
+    });
+    mapped.forEach(function (opt) { options.push(opt); });
+    if (unassigned) options.push({ value: 'unassigned', label: 'Unassigned' });
+    return options;
+  }
+
+  function sameActivityBranch(row, filter, ownBranchId) {
+    var id = row && row.branch_id;
+    var rowKey = id == null || id === '' ? '' : String(id);
+    if (!filter || String(filter).toLowerCase() === 'all') return true;
+    if (String(filter).toLowerCase() === 'mine') {
+      var ownKey = ownBranchId == null || ownBranchId === '' ? '' : String(ownBranchId);
+      return rowKey === ownKey;
+    }
+    if (String(filter).toLowerCase() === 'unassigned') return rowKey === '';
+    return rowKey === String(filter);
+  }
+
   // The searchable haystack for a row (merchant + remark + category + date).
   function haystack(r) {
     return [r && r.merchant, r && r.remark, r && r.category, r && r.expense_date]
@@ -289,6 +375,14 @@
     // filter: category
     var fc = str(opts.filterCategory).trim();
     if (fc && fc.toLowerCase() !== 'all') list = list.filter(function (r) { return str(r && r.category) === fc; });
+
+    // Admin Activity branch scope is intentionally client-side: /api/expenses
+    // already returned the account-scoped rows, and this picker only changes
+    // which of those cached rows are visible. Clerks leave this unset.
+    var fb = str(opts.filterBranch).trim();
+    if (fb && fb.toLowerCase() !== 'all') {
+      list = list.filter(function (r) { return sameActivityBranch(r, fb, opts.sessionBranchId); });
+    }
 
     // filter: date range (inclusive). expense_date is TEXT; ISO (YYYY-MM-DD) strings
     // sort/compare correctly lexically, so plain string comparison is fine. Rows whose
@@ -727,6 +821,17 @@
     catSel.addEventListener('change', function () { onChange({ filterCategory: catSel.value, page: 1 }); });
     bar.appendChild(catSel);
 
+    if (state.isAdmin) {
+      var branchSel = el('select', 'act-filter act-filter--branch');
+      branchSel.setAttribute('aria-label', 'Filter by branch');
+      activityBranchOptions(state.branches, state.rows, state.session).forEach(function (opt) {
+        var o = el('option'); o.value = opt.value; Escape.setText(o, opt.label); branchSel.appendChild(o);
+      });
+      branchSel.value = state.filterBranch || 'mine';
+      branchSel.addEventListener('change', function () { onChange({ filterBranch: branchSel.value, page: 1 }); });
+      bar.appendChild(branchSel);
+    }
+
     // Date range (native <input type="date">, no picker library). expense_date is
     // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
     // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
@@ -884,6 +989,10 @@
     htr.appendChild(textCell('th', 'act-th', labels.merchant));
     htr.appendChild(sortableTh(labels.expense_date, 'date', state, handlers.onChange));
     htr.appendChild(sortableTh(labels.amount, 'amount', state, handlers.onChange));
+    if (state.isAdmin) {
+      htr.appendChild(textCell('th', 'act-th act-th--branch', 'Branch'));
+      htr.appendChild(textCell('th', 'act-th act-th--staff', 'Staff'));
+    }
     htr.appendChild(textCell('th', 'act-th', labels.category));
     htr.appendChild(textCell('th', 'act-th', labels.status));
     thead.appendChild(htr);
@@ -924,6 +1033,11 @@
       Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
       tr.appendChild(amt);
 
+      if (state.isAdmin) {
+        tr.appendChild(textCell('td', 'act-td act-td--branch', displayBranchName(r, state.branchNames)));
+        tr.appendChild(textCell('td', 'act-td act-td--staff', displayStaffName(r, state.staffNames)));
+      }
+
       var cat = el('td', 'act-td');
       cat.appendChild(categoryCell(r));
       tr.appendChild(cat);
@@ -945,7 +1059,7 @@
   // descriptors as the table row — no duplicated badge logic) and the shared
   // loadReceiptImage auth'd-fetch helper for the thumbnail. Clicking a card opens
   // the same detail drawer as clicking a table row (handlers.onOpen).
-  function buildCard(r, handlers, categories, selectState) {
+  function buildCard(r, handlers, categories, selectState, directory) {
     var card = el('div', 'act-card');
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
@@ -983,6 +1097,10 @@
     var amt = el('span', 'act-card-amount');
     Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
     meta.appendChild(amt);
+    if (directory && directory.isAdmin) {
+      meta.appendChild(textCell('span', 'act-card-branch', 'Branch: ' + displayBranchName(r, directory.branchNames)));
+      meta.appendChild(textCell('span', 'act-card-staff', 'Staff: ' + displayStaffName(r, directory.staffNames)));
+    }
     if (refDisplay(r) !== '—') meta.appendChild(textCell('span', 'act-card-ref muted', refDisplay(r)));
     body.appendChild(meta);
 
@@ -1004,9 +1122,9 @@
     return card;
   }
 
-  function buildCardGrid(page, handlers, categories, selectState) {
+  function buildCardGrid(page, handlers, categories, selectState, directory) {
     var grid = el('div', 'act-card-grid');
-    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, categories, selectState)); });
+    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, categories, selectState, directory)); });
     return grid;
   }
 
@@ -1282,6 +1400,7 @@
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
     var storageRoot = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
+    var isAdmin = !!(opts.session && opts.session.role === 'admin');
 
     var rootEl = el('div', 'act-root');
     section.appendChild(rootEl);
@@ -1319,11 +1438,14 @@
     // falls back to DEFAULT_CATEGORIES — never an empty dropdown, never a throw.
     var state = {
       loaded: false, loading: false, rows: [],
-      search: '', filterStatus: 'all', filterCategory: 'all', dateFrom: '', dateTo: '',
+      search: '', filterStatus: 'all', filterCategory: 'all', filterBranch: isAdmin ? 'mine' : 'all', dateFrom: '', dateTo: '',
       sortBy: 'date', sortDir: 'desc', page: 1, pageSize: DEFAULT_PAGE_SIZE,
       viewMode: getStoredViewMode(storageRoot),
       categories: resolveCategories(opts.config),
       fieldSpec: null,
+      isAdmin: isAdmin, session: opts.session || null,
+      sessionBranchId: opts.session && opts.session.branch_id != null ? opts.session.branch_id : null,
+      branches: [], branchNames: {}, staffNames: {},
       // QA B4: bulk select -> Approve/Delete.
       selectMode: false, selectedIds: new Set(), bulkStatus: '',
     };
@@ -1409,7 +1531,8 @@
         tableArea.appendChild(buildCardGrid(pageData,
           Object.assign({ onToggleRow: selectHandlers.onToggleRow }, rowHandlers),
           state.categories,
-          { selectMode: state.selectMode, selectedIds: state.selectedIds }));
+          { selectMode: state.selectMode, selectedIds: state.selectedIds },
+          { isAdmin: state.isAdmin, branchNames: state.branchNames, staffNames: state.staffNames }));
       } else {
         tableArea.appendChild(buildTable(pageData, state,
           Object.assign({ onChange: onChange, onToggleRow: selectHandlers.onToggleRow }, rowHandlers)));
@@ -1678,6 +1801,39 @@
       }).catch(function () { /* keep state.fieldSpec null -> fallback labels */ });
     }
 
+    // Admin-only directory enrichment. Branches are fetched once per Activity
+    // mount; staff directories are fetched from the existing branch-scoped
+    // endpoint and cached into the same ID->label maps. Any failure leaves raw
+    // IDs visible rather than blank cells or a blocked Activity screen.
+    function loadDirectory() {
+      if (!state.isAdmin || state.directoryLoading || state.directoryLoaded || !apiFetch) return;
+      state.directoryLoading = true;
+      apiFetch('/api/branches').then(function (resp) {
+        var branches = resp && Array.isArray(resp.branches) ? resp.branches : (Array.isArray(resp) ? resp : []);
+        state.branches = branches;
+        state.branchNames = branchNamesFromResponse(branches);
+        return Promise.all(branches.map(function (branch) {
+          if (!branch || branch.id == null || branch.id === '') return Promise.resolve([]);
+          return apiFetch('/api/branches/' + encodeURIComponent(branch.id) + '/staff')
+            .then(function (staffResp) { return staffNamesFromResponse(staffResp); })
+            .catch(function () { return {}; });
+        }));
+      }).then(function (staffMaps) {
+        var names = {};
+        (Array.isArray(staffMaps) ? staffMaps : []).forEach(function (map) {
+          Object.keys(map || {}).forEach(function (id) { names[id] = map[id]; });
+        });
+        state.staffNames = names;
+      }).catch(function () {
+        // Keep row-only IDs usable even when the directory is unavailable.
+        state.branches = [];
+      }).then(function () {
+        state.directoryLoading = false;
+        state.directoryLoaded = true;
+        renderTable();
+      });
+    }
+
     function load(force) {
       if ((state.loading || state.loaded) && !force) { return; }
       if (!apiFetch) return;
@@ -1687,6 +1843,7 @@
         state.rows = Array.isArray(rows) ? rows : [];
         renderTable();
       }).catch(function () { state.loading = false; state.error = true; renderTable(); });
+      loadDirectory();
       loadReview();
       loadFieldSpec();
     }
@@ -1701,6 +1858,11 @@
     categoryColor: categoryColor,
     mixedCategoryLabel: mixedCategoryLabel,
     lineItemDetails: lineItemDetails,
+    branchNamesFromResponse: branchNamesFromResponse,
+    staffNamesFromResponse: staffNamesFromResponse,
+    activityBranchOptions: activityBranchOptions,
+    displayBranchName: displayBranchName,
+    displayStaffName: displayStaffName,
     resolveCategories: resolveCategories,
     labelFor: labelFor,
     awaitingCategoryRows: awaitingCategoryRows,
