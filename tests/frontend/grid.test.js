@@ -5,7 +5,7 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, managedExportButtons, statementExportButtons, ledgerTableClass } = require('../../public/js/components/grid');
 
 const ROW = { id: 'e1', merchant: 'Cafe', amount: 10, expense_date: '2026-07-01', category: 'Meals & Entertainment', remark: '', updated_at: '2026-07-07T10:00:00+00:00' };
 
@@ -170,4 +170,34 @@ test('statementBranchOptions: admin gets All + My uploads + branch ids from load
 
 test('statementBranchOptions: clerk gets no branch picker options', () => {
   assert.deepStrictEqual(statementBranchOptions([{ branch_id: 'bA' }], { role: 'clerk', branch_id: 'bA' }), []);
+});
+
+// --- Export menu trimmed (QA 2026-07-13, Untitled document.md): keep ONLY Export Excel +
+// Statement PDF; remove Export CSV / Export PDF (with receipts) / Export template / Statement
+// Excel. The kept buttons' FORMAT must stay 'xlsx'/'pdf' so the actual export output is
+// unchanged (the Owner's explicit constraint). These pure descriptors are the single source
+// of truth the toolbar builds from, so this locks the button set against a silent re-add. ---
+
+test('managedExportButtons: exactly one button — Export Excel wired to the unchanged xlsx format', () => {
+  assert.deepStrictEqual(managedExportButtons(), [{ label: 'Export Excel', format: 'xlsx' }]);
+});
+
+test('statementExportButtons: exactly one button — Statement PDF wired to the unchanged pdf format', () => {
+  assert.deepStrictEqual(statementExportButtons(), [{ label: 'Statement PDF', format: 'pdf' }]);
+});
+
+test('export button set contains NONE of the four removed options', () => {
+  const labels = managedExportButtons().concat(statementExportButtons()).map((b) => b.label);
+  ['Export CSV', 'Export PDF (with receipts)', 'Export template', 'Statement Excel'].forEach((gone) => {
+    assert.ok(labels.indexOf(gone) === -1, gone + ' must no longer be offered');
+  });
+  assert.deepStrictEqual(labels, ['Export Excel', 'Statement PDF']);
+});
+
+// --- Edit Mode visual cue (QA 2026-07-13): the ledger table gets an `is-editing` hook class
+// while Edit cells is on, so CSS can green the editable columns; off = plain. ---
+
+test('ledgerTableClass: adds the is-editing hook only while editing', () => {
+  assert.strictEqual(ledgerTableClass(true), 'ledger-table is-editing');
+  assert.strictEqual(ledgerTableClass(false), 'ledger-table');
 });

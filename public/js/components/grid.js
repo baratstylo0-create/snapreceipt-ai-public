@@ -39,6 +39,18 @@
     { key: 'receipt_url', label: 'Receipt URL' },
   ];
 
+  // Export buttons the Data-editor toolbar renders (QA 2026-07-13, Untitled document.md:
+  // trimmed to just these two — Export CSV / Export PDF (with receipts) / Export template /
+  // Statement Excel were removed to de-clutter). The `format` is deliberately unchanged
+  // ('xlsx' for the managed export, 'pdf' for the statement) so the produced files are
+  // byte-for-byte identical to before — only the button set shrinks. These are the single
+  // source of truth the toolbar builds from (grid.test.js locks the set).
+  function managedExportButtons() { return [{ label: 'Export Excel', format: 'xlsx' }]; }
+  function statementExportButtons() { return [{ label: 'Statement PDF', format: 'pdf' }]; }
+
+  // Edit-mode hook class for the ledger table — CSS greens the editable columns while on.
+  function ledgerTableClass(editMode) { return 'ledger-table' + (editMode ? ' is-editing' : ''); }
+
   // ---- pure logic (node-tested) ------------------------------------------------
 
   // buildCellPatch(row, field, rawValue) -> { ok:true, patch } | { ok:false, error?, noop? }.
@@ -241,31 +253,17 @@
     });
     toolbar.appendChild(editBtn);
 
-    var exportBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(exportBtn, 'Export CSV');
-    exportBtn.type = 'button';
-    exportBtn.addEventListener('click', function () { doManagedExport('csv'); });
-    toolbar.appendChild(exportBtn);
-
-    var excelBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(excelBtn, 'Export Excel');
-    excelBtn.type = 'button';
-    excelBtn.addEventListener('click', function () { doManagedExport('xlsx'); });
-    toolbar.appendChild(excelBtn);
-
-    var pdfBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(pdfBtn, 'Export PDF (with receipts)');
-    pdfBtn.type = 'button';
-    pdfBtn.addEventListener('click', function () { doManagedExport('pdf'); });
-    toolbar.appendChild(pdfBtn);
-
-    var templateBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(templateBtn, 'Export template');
-    templateBtn.type = 'button';
-    templateBtn.addEventListener('click', function () {
-      downloadText(blankTemplateCSV(), 'ledger-template.csv');
+    // The export buttons this toolbar keeps (managed + statement). setExportBusy() disables
+    // whatever ends up here, so it can never reference a button that no longer exists.
+    var exportButtonEls = [];
+    managedExportButtons().forEach(function (cfg) {
+      var b = el('button', 'ledger-btn ledger-btn--ghost');
+      b.type = 'button';
+      Escape.setText(b, cfg.label);
+      b.addEventListener('click', function () { doManagedExport(cfg.format); });
+      toolbar.appendChild(b);
+      exportButtonEls.push(b);
     });
-    toolbar.appendChild(templateBtn);
     wrap.appendChild(toolbar);
 
     var statementTools = el('div', 'ledger-statement-tools');
@@ -284,17 +282,14 @@
       statementTools.appendChild(statementBranch);
     }
 
-    var statementExcelBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    statementExcelBtn.type = 'button';
-    Escape.setText(statementExcelBtn, 'Statement Excel');
-    statementExcelBtn.addEventListener('click', function () { doStatementExport('xlsx'); });
-    statementTools.appendChild(statementExcelBtn);
-
-    var statementPdfBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    statementPdfBtn.type = 'button';
-    Escape.setText(statementPdfBtn, 'Statement PDF');
-    statementPdfBtn.addEventListener('click', function () { doStatementExport('pdf'); });
-    statementTools.appendChild(statementPdfBtn);
+    statementExportButtons().forEach(function (cfg) {
+      var b = el('button', 'ledger-btn ledger-btn--ghost');
+      b.type = 'button';
+      Escape.setText(b, cfg.label);
+      b.addEventListener('click', function () { doStatementExport(cfg.format); });
+      statementTools.appendChild(b);
+      exportButtonEls.push(b);
+    });
     wrap.appendChild(statementTools);
 
     // -- search --
@@ -329,11 +324,7 @@
     }
 
     function setExportBusy(busy) {
-      exportBtn.disabled = !!busy;
-      excelBtn.disabled = !!busy;
-      pdfBtn.disabled = !!busy;
-      statementExcelBtn.disabled = !!busy;
-      statementPdfBtn.disabled = !!busy;
+      exportButtonEls.forEach(function (b) { b.disabled = !!busy; });
     }
 
     function refreshStatementBranches() {
@@ -537,7 +528,7 @@
       note(state.editMode ? 'Click a cell to edit. Enter saves, Esc cancels.' : 'Read-only — tap "Edit cells" to make changes.');
 
       var table = document.createElement('table');
-      table.className = 'ledger-table';
+      table.className = ledgerTableClass(state.editMode);
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
       EDITABLE.forEach(function (f) {
@@ -584,5 +575,6 @@
     filterRows: filterRows, paginate: paginate, escapeCSVValue: escapeCSVValue,
     rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
     statementExportUrl: statementExportUrl, statementBranchOptions: statementBranchOptions, statementFilename: statementFilename,
+    managedExportButtons: managedExportButtons, statementExportButtons: statementExportButtons, ledgerTableClass: ledgerTableClass,
   };
 });
