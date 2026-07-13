@@ -32,7 +32,19 @@ const {
   monthRangeFor, weekRangeFor, yearRangeFor,
   excelFilename, exportErrorMessage,
   EXPORT_CHOICES, exportChoiceLabel, exportRangeFor,
+  branchFilterOptions, branchQueryValue, appendBranchQuery,
 } = Reports;
+
+test('reports branch helpers match Overview and omit scope for All branches', () => {
+  assert.deepStrictEqual(branchFilterOptions([{ id: 'b1', office: 'North' }], true), [
+    { value: 'all', label: 'All branches' },
+    { value: 'mine', label: 'My uploads' },
+    { value: 'b1', label: 'North' },
+  ]);
+  assert.strictEqual(branchQueryValue('mine', { branch_id: 'b1' }), 'b1');
+  assert.strictEqual(branchQueryValue('all', { branch_id: 'b1' }), null);
+  assert.strictEqual(appendBranchQuery('/api/reports?period=day', 'b1', { branch_id: 'b2' }), '/api/reports?period=day&branch=b1');
+});
 
 // --- date math ---------------------------------------------------------------
 

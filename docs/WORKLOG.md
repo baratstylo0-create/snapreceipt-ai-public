@@ -1799,6 +1799,13 @@
   3. Then begin OCR-coupled feature work off the modularized base (ARCHITECTURE §3 frozen interfaces).
 - **Assumptions:** Groq inference-only posture (ADR-002) still to be reconfirmed against current Groq terms.
 
+## 2026-07-13 Codex - codex/c7-overview-reports - C7 admin report filters + live refresh
+
+- **Files:** `public/js/components/overview.js`, `public/js/components/reports.js`, frontend tests.
+- **What changed:** Admin Overview and Reports default to My uploads, offer All branches and named-branch server filters, and resolve branch labels from the admin-only directory. Clerks remain unchanged. Both views refresh every 25 seconds, refresh on visible focus, pause while hidden, and expose teardown that clears timers/listeners.
+- **Tests:** Full serial suite 1985/1985 (`.env` moved aside/restored); focused Overview + Reports 96/96.
+- **Next:** Push/open C7 PR for review; do not merge.
+
 <!-- New entries ABOVE this line, newest first. Template:
 ## YYYY-MM-DD · Claude-?? (for Name) · feature/<branch>
 - Files:
