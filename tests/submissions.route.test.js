@@ -9,9 +9,9 @@ const assert = require('node:assert');
 const express = require('express');
 const mountSubmissions = require('../routes/submissions');
 
-function app() {
+function app(deps) {
   const a = express();
-  mountSubmissions(a);
+  mountSubmissions(a, deps);
   return a;
 }
 
@@ -95,6 +95,76 @@ test('submissions: clerk POST submits their OWN branch (body branch_id ignored) 
       assert.strictEqual(post.body.status, 'submitted');
       assert.strictEqual(post.body.period, '2026-07');
       assert.ok(json.submission, 'echoes the created submission');
+    } finally { stub.restore(); }
+  });
+});
+
+// --- C5 follow-up: a SUBMIT (POST, either branch) fires the fire-and-forget admin ping;
+// a WITHDRAW (PATCH) never does. notifySubmissionReady itself is unit-tested in
+// tests/bot.submissionping.test.js — this only proves the route CALLS it, with the right
+// args, from both success branches, and never lets it affect the response. ------------------
+
+test('submissions: a NEW submission (insert, 201) fires the admin ping with branch_id + period', async () => {
+  await withEnv(ON, async () => {
+    const pinged = [];
+    const stub = stubDb({ session: CLERK_A, handlers: { 'submissions:GET': () => [] } });
+    try {
+      const { status } = await req(
+        app({ notifySubmissionReady: async (branchId, period) => { pinged.push({ branchId, period }); } }),
+        'POST', '/api/submissions', { token: 't', body: { period: '2026-07' } },
+      );
+      assert.strictEqual(status, 201);
+      assert.deepStrictEqual(pinged, [{ branchId: 'bA', period: '2026-07' }]);
+    } finally { stub.restore(); }
+  });
+});
+
+test('submissions: a RE-submit (update, 200) ALSO fires the admin ping', async () => {
+  await withEnv(ON, async () => {
+    const existing = { id: 'sub1', branch_id: 'bA', period: '2026-07', status: 'withdrawn' };
+    const pinged = [];
+    const stub = stubDb({ session: CLERK_A, handlers: {
+      'submissions:GET': () => [existing],
+      'submissions:PATCH': ({ body }) => [{ ...existing, ...body }],
+    } });
+    try {
+      const { status } = await req(
+        app({ notifySubmissionReady: async (branchId, period) => { pinged.push({ branchId, period }); } }),
+        'POST', '/api/submissions', { token: 't', body: { period: '2026-07' } },
+      );
+      assert.strictEqual(status, 200);
+      assert.deepStrictEqual(pinged, [{ branchId: 'bA', period: '2026-07' }]);
+    } finally { stub.restore(); }
+  });
+});
+
+test('submissions: a SLOW ping never delays the response (fire-and-forget, not awaited)', async () => {
+  await withEnv(ON, async () => {
+    let resolvePing;
+    const pingStarted = new Promise((resolve) => { resolvePing = resolve; });
+    const stub = stubDb({ session: CLERK_A, handlers: { 'submissions:GET': () => [] } });
+    try {
+      const start = Date.now();
+      const { status } = await req(
+        app({ notifySubmissionReady: async () => { resolvePing(); return new Promise(() => {}); } }), // never resolves
+        'POST', '/api/submissions', { token: 't', body: { period: '2026-07' } },
+      );
+      assert.strictEqual(status, 201);
+      assert.ok(Date.now() - start < 2000, 'the response must not wait on the ping promise');
+      await pingStarted; // confirm it was actually invoked, just not awaited
+    } finally { stub.restore(); }
+  });
+});
+
+test('submissions: a ping that REJECTS never surfaces as a failed submission', async () => {
+  await withEnv(ON, async () => {
+    const stub = stubDb({ session: CLERK_A, handlers: { 'submissions:GET': () => [] } });
+    try {
+      const { status } = await req(
+        app({ notifySubmissionReady: async () => { throw new Error('telegram down'); } }),
+        'POST', '/api/submissions', { token: 't', body: { period: '2026-07' } },
+      );
+      assert.strictEqual(status, 201, 'a rejected ping promise must never turn a successful submit into a failure');
     } finally { stub.restore(); }
   });
 });
@@ -196,6 +266,22 @@ test('submissions: PATCH withdraw — clerk own branch OK; another branch 403; b
     try {
       const { status } = await req(app(), 'PATCH', '/api/submissions/sub1', { token: 't', body: { status: 'shredded' } });
       assert.strictEqual(status, 400);
+    } finally { stub.restore(); }
+  });
+});
+
+test('submissions: PATCH (withdraw OR re-submit-via-status) never fires the admin ping — POST only', async () => {
+  await withEnv(ON, async () => {
+    const pinged = [];
+    const stub = stubDb({ session: CLERK_A, handlers: {
+      'submissions:GET': () => [{ id: 'sub1', branch_id: 'bA', period: '2026-07', status: 'submitted' }],
+      'submissions:PATCH': ({ body }) => [{ id: 'sub1', branch_id: 'bA', period: '2026-07', ...body }],
+    } });
+    try {
+      const a = app({ notifySubmissionReady: async (branchId, period) => { pinged.push({ branchId, period }); } });
+      await req(a, 'PATCH', '/api/submissions/sub1', { token: 't', body: { status: 'withdrawn' } });
+      await req(a, 'PATCH', '/api/submissions/sub1', { token: 't', body: { status: 'submitted' } });
+      assert.strictEqual(pinged.length, 0, 'PATCH must never trigger the admin ping, regardless of the resulting status');
     } finally { stub.restore(); }
   });
 });
