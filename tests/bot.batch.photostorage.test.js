@@ -33,7 +33,7 @@ function baseDeps(over = {}) {
   const perImageMeta = [];
   const storedUrls = [];
   const deps = {
-    tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
+    tgSend: async (chatId, text) => { sent.push({ chatId, text }); return { ok: true }; },
     tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
     getFieldSpec: async () => ({ account_id: 'default', columns: [{ key: 'merchant', label: 'M', type: 'text', required: true }] }),
     // the durable-store helper: record what it was asked to store, return a deterministic path
