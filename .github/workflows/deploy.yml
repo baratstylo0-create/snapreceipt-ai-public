@@ -17,6 +17,16 @@ on:
   push:
     branches: [main]
 
+# 2026-07-13: a backlog of queued runs (Actions minutes exhaustion) released #222 and #223
+# together — both jobs shared the fixed /tmp/deploy.tar.gz path on the VPS with no lock, so one
+# run's `rm -f` / upload raced the other's `tar -xzf`, and the losing run failed with
+# "Cannot open: No such file or directory" even though the OTHER run's deploy (from the same or a
+# newer main tip) succeeded moments later. `cancel-in-progress: false` so we queue, never drop, a
+# real deploy — a stale run is superseded by deploying a newer main anyway.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -34,7 +44,9 @@ jobs:
         run: npm test
 
       - name: Package (git-tracked files only — .env/.git/node_modules can never leak in)
-        run: git archive --format=tar.gz -o /tmp/deploy.tar.gz HEAD
+        # Unique filename per run (defense-in-depth alongside the concurrency lock above): even a
+        # stale/out-of-order run can never clobber or delete another run's in-flight artifact.
+        run: git archive --format=tar.gz -o /tmp/deploy-${{ github.run_id }}.tar.gz HEAD
 
       - name: Configure deploy SSH key
         run: |
@@ -44,14 +56,14 @@ jobs:
           ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Upload artifact
-        run: scp -i ~/.ssh/deploy_key /tmp/deploy.tar.gz deploy@${{ secrets.VPS_HOST }}:/tmp/deploy.tar.gz
+        run: scp -i ~/.ssh/deploy_key /tmp/deploy-${{ github.run_id }}.tar.gz deploy@${{ secrets.VPS_HOST }}:/tmp/deploy-${{ github.run_id }}.tar.gz
 
       - name: Extract + restart (deploy user, no sudo, no root, cannot touch other projects on the box)
         run: |
           ssh -i ~/.ssh/deploy_key deploy@${{ secrets.VPS_HOST }} '
             set -e
-            tar -xzf /tmp/deploy.tar.gz -C /opt/receipt-analyser
-            rm -f /tmp/deploy.tar.gz
+            tar -xzf /tmp/deploy-${{ github.run_id }}.tar.gz -C /opt/receipt-analyser
+            rm -f /tmp/deploy-${{ github.run_id }}.tar.gz
             cd /opt/receipt-analyser && npm ci --omit=dev
             pm2 restart receipt-analyser --update-env
           '
