@@ -119,6 +119,47 @@
     return 'c' + (hashString(key) % PALETTE_SIZE);
   }
 
+  // Return the distinct, usable categories carried by a receipt's line items.
+  // Category names are compared case/whitespace-insensitively, while the first
+  // display spelling is retained. Empty/malformed categories do not turn a
+  // normal receipt into a misleading "Mixed" receipt.
+  function lineItemCategories(row) {
+    var items = row && Array.isArray(row.line_items) ? row.line_items : [];
+    var seen = Object.create(null);
+    var categories = [];
+    items.forEach(function (it) {
+      var raw = it && typeof it.category === 'string' ? it.category : '';
+      var display = raw.trim();
+      var key = display.toLowerCase();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      categories.push(display);
+    });
+    return categories;
+  }
+
+  // The compact label used in the Activity table/card category cell. A null
+  // result deliberately preserves the existing single-category rendering.
+  function mixedCategoryLabel(row) {
+    var count = lineItemCategories(row).length;
+    return count > 1 ? 'Mixed (' + count + ')' : null;
+  }
+
+  // Normalise the data consumed by the detail drawer without changing the
+  // server row. Keeping this pure makes the line-item display testable without
+  // a browser DOM and keeps hostile OCR text on the existing Escape.setText path.
+  function lineItemDetails(row) {
+    var items = row && Array.isArray(row.line_items) ? row.line_items : [];
+    return items.map(function (it) {
+      return {
+        description: str(it && (it.description || it.name)),
+        amount: it && it.amount != null ? it.amount : null,
+        category: str(it && it.category),
+        flagged: !!(it && it.flagged),
+      };
+    });
+  }
+
   // Build the live category list for the filter/edit dropdowns from a
   // /api/config-shaped object ({ categories: [...] }, see routes/expenses.js).
   // Falls back to a small hardcoded safe default (DEFAULT_CATEGORIES) when the
@@ -493,6 +534,14 @@
       var chip = el('span', 'act-pill act-pill--pending');
       Escape.setText(chip, 'Awaiting category');
       return chip;
+    }
+    var mixed = mixedCategoryLabel(row);
+    if (mixed) {
+      var mixedChip = pill('Others');
+      Escape.setText(mixedChip, mixed);
+      mixedChip.setAttribute('title', mixed + ' line-item categories');
+      mixedChip.setAttribute('aria-label', mixed);
+      return mixedChip;
     }
     return pill(row && row.category);
   }
@@ -1076,14 +1125,14 @@
     drawer.appendChild(form);
 
     // Line items (each description via setText — hostile OCR text stays inert).
-    var items = Array.isArray(rowObj.line_items) ? rowObj.line_items : [];
+    var items = lineItemDetails(rowObj);
     if (items.length) {
       var liWrap = el('div', 'act-lineitems');
       liWrap.appendChild(textCell('h4', 'act-lineitems-title', 'Line items'));
       var ul = el('ul', 'act-lineitems-list');
       items.forEach(function (it) {
         var li = el('li', 'act-lineitem');
-        var desc = (it && (it.description || it.name)) || '';
+        var desc = it.description;
         var amount = it && it.amount != null ? Format.formatMoney(it.amount) : '';
         var textSpan = el('span', 'act-lineitem-text');
         Escape.setText(textSpan, str(desc) + (amount ? '  —  ' + amount : ''));
@@ -1092,7 +1141,7 @@
         // mixed receipt shows a pill per line instead of one bucket for the whole receipt.
         // A categorizer-flagged (uncertain) line gets a subtle ⚠️ marker. Reuses the same
         // deterministic-colour pill as the row-level category.
-        if (it && it.category) {
+        if (it.category) {
           var catPill = pill(it.category);
           catPill.classList.add('act-lineitem-cat');
           if (it.flagged) Escape.setText(catPill, str(it.category) + ' ⚠️');
@@ -1650,6 +1699,8 @@
     filterSortPage: filterSortPage,
     badgesFor: badgesFor,
     categoryColor: categoryColor,
+    mixedCategoryLabel: mixedCategoryLabel,
+    lineItemDetails: lineItemDetails,
     resolveCategories: resolveCategories,
     labelFor: labelFor,
     awaitingCategoryRows: awaitingCategoryRows,

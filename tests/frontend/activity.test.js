@@ -17,7 +17,7 @@ const {
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
-  receiptErrorMessage, statusLabel, decisionErrorText,
+  receiptErrorMessage, statusLabel, decisionErrorText, mixedCategoryLabel, lineItemDetails,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -830,4 +830,52 @@ test('permanentDeletePath: builds /api/expenses/<id>/permanent, encoding the id'
 test('permanentDeletePath: null/undefined id does not throw', () => {
   assert.strictEqual(permanentDeletePath(null), '/api/expenses//permanent');
   assert.strictEqual(permanentDeletePath(undefined), '/api/expenses//permanent');
+});
+
+// --- inline line-item categorisation (QA C3) ------------------------------
+
+test('mixedCategoryLabel counts distinct usable categories and labels mixed receipts', () => {
+  assert.strictEqual(mixedCategoryLabel(row({
+    line_items: [
+      { description: 'Lunch', amount: 50, category: 'Food' },
+      { description: 'Fuel', amount: 30, category: 'Petrol' },
+    ],
+  })), 'Mixed (2)');
+  assert.strictEqual(mixedCategoryLabel(row({
+    line_items: [
+      { category: 'Food' }, { category: 'Petrol' }, { category: 'Software' },
+    ],
+  })), 'Mixed (3)');
+});
+
+test('mixedCategoryLabel leaves single, empty, and unusable categories unchanged', () => {
+  assert.strictEqual(mixedCategoryLabel(row({ line_items: [{ category: 'Food' }, { category: 'Food' }] })), null);
+  assert.strictEqual(mixedCategoryLabel(row({ line_items: [] })), null);
+  assert.strictEqual(mixedCategoryLabel(row({ line_items: [{ category: '' }, { category: null }] })), null);
+  assert.strictEqual(mixedCategoryLabel(row({})), null);
+  assert.strictEqual(mixedCategoryLabel(null), null);
+});
+
+test('mixedCategoryLabel treats category case and surrounding whitespace as the same', () => {
+  assert.strictEqual(mixedCategoryLabel(row({
+    line_items: [{ category: ' Food ' }, { category: 'food' }, { category: ' PETROL' }],
+  })), 'Mixed (2)');
+});
+
+test('lineItemDetails returns safe drawer fields without mutating line_items', () => {
+  const items = [
+    { description: 'Lunch', amount: 50, category: 'Food' },
+    { name: 'Fuel', amount: '30.00', category: 'Petrol', flagged: true },
+  ];
+  const out = lineItemDetails(row({ line_items: items }));
+  assert.deepStrictEqual(out, [
+    { description: 'Lunch', amount: 50, category: 'Food', flagged: false },
+    { description: 'Fuel', amount: '30.00', category: 'Petrol', flagged: true },
+  ]);
+  assert.deepStrictEqual(items, [
+    { description: 'Lunch', amount: 50, category: 'Food' },
+    { name: 'Fuel', amount: '30.00', category: 'Petrol', flagged: true },
+  ]);
+  assert.deepStrictEqual(lineItemDetails(row({ line_items: [] })), []);
+  assert.deepStrictEqual(lineItemDetails(null), []);
 });
