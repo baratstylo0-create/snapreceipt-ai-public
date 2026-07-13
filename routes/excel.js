@@ -86,7 +86,7 @@ module.exports = function mountExcel(app) {
       const withReceipt = scopedRows.filter((e) => e && e.id && e.receipt_url);
       if (withReceipt.length > 0) {
         const receiptLinks = {};
-        for (const e of withReceipt) receiptLinks[e.id] = '/receipt/by-id/' + e.id;
+        for (const e of withReceipt) receiptLinks[e.id] = '/api/receipt/by-id/' + e.id; // ADR-027 collision-proof path
         buildOpts.receiptLinks = receiptLinks;
         if (withReceipt.length <= RECEIPT_EMBED_LIMIT) {
           const receipts = {};

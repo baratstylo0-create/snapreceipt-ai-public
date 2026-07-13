@@ -149,7 +149,7 @@ test('rowsToCSV: raw export header + one CSV line per expense, including receipt
   ]);
   const lines = csv.split('\r\n');
   assert.strictEqual(lines[0], 'Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL');
-  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",12.5,MYR,Meals & Entertainment,b1,s1,paid,/receipt/by-id/e1');
+  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",12.5,MYR,Meals & Entertainment,b1,s1,paid,/api/receipt/by-id/e1');
 });
 
 test('rowsToCSV: a formula-like merchant name is neutralised (defense in depth for a re-imported export)', () => {
