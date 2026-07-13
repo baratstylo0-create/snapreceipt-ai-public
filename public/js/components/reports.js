@@ -72,6 +72,35 @@
 
   function isPlainObject(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
 
+  function branchFilterOptions(branches, isAdmin) {
+    if (!isAdmin) return [];
+    var out = [
+      { value: 'all', label: 'All branches' },
+      { value: 'mine', label: 'My uploads' },
+    ];
+    (Array.isArray(branches) ? branches : []).forEach(function (branch) {
+      if (!branch || branch.id === undefined || branch.id === null || String(branch.id) === '') return;
+      out.push({ value: String(branch.id), label: branch.office ? String(branch.office) : String(branch.id) });
+    });
+    return out;
+  }
+
+  function branchQueryValue(filter, session) {
+    if (!filter || filter === 'all') return null;
+    if (filter === 'mine') {
+      var own = session && session.branch_id !== undefined && session.branch_id !== null ? String(session.branch_id) : '';
+      return own || null;
+    }
+    return String(filter);
+  }
+
+  function appendBranchQuery(path, filter, session) {
+    var branch = branchQueryValue(filter, session);
+    if (!branch) return String(path || '');
+    var base = String(path || '');
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + 'branch=' + encodeURIComponent(branch);
+  }
+
   function buckets(reports) {
     return reports && Array.isArray(reports.buckets) ? reports.buckets : [];
   }
@@ -609,6 +638,8 @@
 
     var rootEl = el('div', 'rp-root');
     section.appendChild(rootEl);
+    var isAdmin = !!(opts.session && opts.session.role === 'admin');
+    var branchState = { filter: isAdmin ? 'mine' : 'all', branches: [], loaded: false };
 
     // --- toolbar: period tabs + Prev/current-unit/Next drill-down nav ---
     var toolbar = el('div', 'rp-toolbar');
@@ -630,6 +661,13 @@
       periodButtons[p] = btn;
     });
     toolbar.appendChild(periodGroup);
+
+    var branchSelect = null;
+    if (isAdmin) {
+      branchSelect = el('select', 'rp-branch-filter');
+      branchSelect.setAttribute('aria-label', 'Filter by branch');
+      toolbar.appendChild(branchSelect);
+    }
 
     var navGroup = el('div', 'rp-nav-group');
     var prevBtn = el('button', 'rp-nav-btn');
@@ -677,6 +715,27 @@
     };
     setActivePeriod(state.uiPeriod);
 
+    function renderBranchFilter() {
+      if (!branchSelect) return;
+      clear(branchSelect);
+      branchFilterOptions(branchState.branches, isAdmin).forEach(function (option) {
+        var item = el('option', 'rp-branch-option');
+        item.value = option.value;
+        Escape.setText(item, option.label);
+        branchSelect.appendChild(item);
+      });
+      branchSelect.value = branchState.filter;
+    }
+
+    function loadBranches() {
+      if (!isAdmin || branchState.loaded || !apiFetch) return;
+      branchState.loaded = true;
+      apiFetch('/api/branches').then(function (payload) {
+        branchState.branches = payload && Array.isArray(payload.branches) ? payload.branches : [];
+        renderBranchFilter();
+      }).catch(function () { renderBranchFilter(); });
+    }
+
     function currentAnchor() {
       if (state.uiPeriod === 'day') return state.dayAnchor;
       if (state.uiPeriod === 'week') return state.weekAnchor;
@@ -710,7 +769,7 @@
       var q = currentQuery();
       var params = [];
       Object.keys(q).forEach(function (k) { params.push(k + '=' + encodeURIComponent(q[k])); });
-      var path = '/api/reports' + (params.length ? '?' + params.join('&') : '');
+      var path = appendBranchQuery('/api/reports' + (params.length ? '?' + params.join('&') : ''), branchState.filter, opts.session);
       var period = state.uiPeriod, anchor = currentAnchor();
       apiFetch(path).then(function (reports) {
         state.loading = false;
@@ -760,13 +819,40 @@
       });
     });
 
+    if (branchSelect) {
+      branchSelect.addEventListener('change', function () {
+        branchState.filter = branchSelect.value || 'all';
+        state.loaded = false;
+        fetchAndRender();
+      });
+    }
+    renderBranchFilter();
+    loadBranches();
+
+    var refreshTimer = null;
+    function visible() { return typeof document === 'undefined' || document.visibilityState !== 'hidden'; }
+    function refreshIfVisible() { if (visible() && !state.loading) fetchAndRender(); }
+    function onVisibilityChange() { if (visible()) refreshIfVisible(); }
+    function startLiveUpdates() {
+      if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('focus', refreshIfVisible);
+      if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', onVisibilityChange);
+      if (typeof setInterval === 'function') refreshTimer = setInterval(refreshIfVisible, 25000);
+    }
+    function destroy() {
+      if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
+      refreshTimer = null;
+      if (typeof window !== 'undefined' && window.removeEventListener) window.removeEventListener('focus', refreshIfVisible);
+      if (typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('visibilitychange', onVisibilityChange);
+    }
+    startLiveUpdates();
+
     // Lazy-load on first view (mirrors overview.js's load-on-first-show pattern).
     function load() {
       if (state.loading || state.loaded || !apiFetch) return;
       fetchAndRender();
     }
 
-    return { el: rootEl, load: load, renderInto: function (r) { renderInto(body, r, state.uiPeriod, currentAnchor()); } };
+    return { el: rootEl, load: load, renderInto: function (r) { renderInto(body, r, state.uiPeriod, currentAnchor()); }, destroy: destroy };
   }
 
   return {
@@ -794,6 +880,9 @@
     EXPORT_CHOICES: EXPORT_CHOICES,
     exportChoiceLabel: exportChoiceLabel,
     exportRangeFor: exportRangeFor,
+    branchFilterOptions: branchFilterOptions,
+    branchQueryValue: branchQueryValue,
+    appendBranchQuery: appendBranchQuery,
     // render (browser)
     mount: mount,
     renderInto: renderInto,

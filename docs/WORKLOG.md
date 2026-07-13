@@ -1826,6 +1826,20 @@
   3. Then begin OCR-coupled feature work off the modularized base (ARCHITECTURE §3 frozen interfaces).
 - **Assumptions:** Groq inference-only posture (ADR-002) still to be reconfirmed against current Groq terms.
 
+## 2026-07-13 Codex - codex/c5-submit-signal - C5 month-ready signal in Manage Data editor
+
+- **Files:** `public/js/components/grid.js`, `tests/frontend/grid.test.js`.
+- **What changed:** Relocated the flag-gated clerk submit/withdraw action into the Manage Data editor. Admins now see a Ready to close list for the selected month, with branch labels and direct Excel/PDF statement export actions. Existing Payments submission code and the server endpoints remain intact; no file handoff or email was added.
+- **Tests:** Focused Grid suite 27/27; full serial suite 1990/1990 (`.env` moved aside/restored).
+- **Next:** Run the full `.env`-aside suite, then push/open the C5 PR for review; do not merge.
+
+## 2026-07-13 Codex - codex/c7-overview-reports - C7 admin report filters + live refresh
+
+- **Files:** `public/js/components/overview.js`, `public/js/components/reports.js`, frontend tests.
+- **What changed:** Admin Overview and Reports default to My uploads, offer All branches and named-branch server filters, and resolve branch labels from the admin-only directory. Clerks remain unchanged. Both views refresh every 25 seconds, refresh on visible focus, pause while hidden, and expose teardown that clears timers/listeners.
+- **Tests:** Full serial suite 1985/1985 (`.env` moved aside/restored); focused Overview + Reports 96/96.
+- **Next:** Push/open C7 PR for review; do not merge.
+
 <!-- New entries ABOVE this line, newest first. Template:
 ## YYYY-MM-DD · Claude-?? (for Name) · feature/<branch>
 - Files:

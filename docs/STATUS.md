@@ -10,6 +10,9 @@
 
 > 2026-07-10 Codex update: Track 1 review of PRs #160/#161/#165/#167/#169 plus doc #163 is complete (fix commits pushed where needed; no merges). Issue #153 dashboard bulk-upload parity is implemented on `qa/upload-staff-assign-153`: staff assignment grid + branch-scoped bulk `PATCH /api/expenses`, upload saved-row branch/staff payload, duplicate flagged-row View/Discard presentation. Full suite 1657/1657; PR pending Claude-J review/merge.
 
+> 2026-07-13 Codex: C5 submit-signal is implemented on `codex/c5-submit-signal`; full suite 1990/1990. PR push/review pending; no merge by Codex.
+> 2026-07-13 Codex: C7 admin Overview + Reports branch filters and visibility-aware 25s live refresh are implemented on `codex/c7-overview-reports`; full suite 1985/1985. PR push/review pending; no merge by Codex.
+
 ## Current phase
 **M1 personal = feature-complete, live-E2E-verified, and stable on `main` (unchanged by M2).**
 **M2 business/multi-tenant layer = BUILT through Phases 1–10 and merged to `main`** (PRs #105–#138), with the **first real client instance ("Premala", `xurnpvesgcybrnilxszf`) provisioned end-to-end** (M2 schema applied + first admin + capability profile — PRs #130/#135). The product is now in **pre-live hardening** for that first business client, not in M1 build.
