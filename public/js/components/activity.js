@@ -483,6 +483,23 @@
   function deletedRowsPath() { return '/api/expenses/deleted'; }
   function restorePath(id) { return '/api/expenses/' + encodeURIComponent(str(id)) + '/restore'; }
 
+  // QA 2026-07-13 (Untitled document (4).md): the recently-deleted bin didn't say WHEN a
+  // bill falls out of the system. DISPLAY-ONLY reminder — there is no auto-purge job today
+  // (deleted_at is a permanent soft-delete; nothing ever clears an old deleted row), so this
+  // computes what the reminder date WOULD be under a stated retention policy. Never throws on
+  // a missing/malformed deleted_at (a row from before this feature, or a hostile value).
+  var DELETED_RETENTION_DAYS = 30;
+  function purgeReminderDate(deletedAt, retentionDays) {
+    var days = Number.isFinite(retentionDays) ? retentionDays : DELETED_RETENTION_DAYS;
+    var t = deletedAt ? Date.parse(deletedAt) : NaN;
+    if (!Number.isFinite(t)) return null;
+    var d = new Date(t + days * 86400000);
+    if (!Number.isFinite(d.getTime())) return null;
+    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    var dd = String(d.getUTCDate()).padStart(2, '0');
+    return d.getUTCFullYear() + '-' + mm + '-' + dd;
+  }
+
   // QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill actions, pure so they're
   // unit-testable without a DOM. isRejected gates BOTH the recategorise chevron and the
   // permanent-delete icon — neither shows on a non-rejected row. recategorizeBody mirrors the
@@ -1612,6 +1629,12 @@
     }
 
     function buildDeletedItem(rowObj, handlers) {
+      // Wrapped in a plain block (act-deleted-row) rather than added as a 6th grid child:
+      // .act-deleted-item is a fixed 4-column grid (merchant/amount/date/recover, +msg span
+      // wrapping to row 2) — inserting another child would shift the recover button/message
+      // onto unexpected rows. The reminder line sits BELOW the untouched item, in its own row;
+      // .act-deleted-list's flex gap already applies to any direct child, so spacing is unaffected.
+      var row = el('div', 'act-deleted-row');
       var item = el('div', 'act-deleted-item');
       item.appendChild(textCell('span', 'act-deleted-merchant', rowObj.merchant));
       var amt = el('span', 'act-deleted-amount');
@@ -1623,7 +1646,13 @@
       recover.addEventListener('click', function () { handlers.onRecover(rowObj, st, recover); });
       item.appendChild(recover);
       item.appendChild(st);
-      return item;
+      row.appendChild(item);
+      // QA 2026-07-13: display-only reminder of when this bill would age out under the
+      // stated retention policy (see purgeReminderDate's own comment — no auto-purge job
+      // exists yet). Omitted entirely for a row with no/invalid deleted_at.
+      var reminder = purgeReminderDate(rowObj.deleted_at);
+      if (reminder) row.appendChild(textCell('div', 'act-deleted-purge muted', 'Permanently removed on ' + reminder));
+      return row;
     }
 
     function renderDeletedList() {
@@ -1876,6 +1905,8 @@
     summarizeBulkResult: summarizeBulkResult,
     deletedRowsPath: deletedRowsPath,
     restorePath: restorePath,
+    purgeReminderDate: purgeReminderDate,
+    DELETED_RETENTION_DAYS: DELETED_RETENTION_DAYS,
     isRejected: isRejected,
     recategorizeBody: recategorizeBody,
     permanentDeletePath: permanentDeletePath,
