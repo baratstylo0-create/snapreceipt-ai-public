@@ -109,6 +109,28 @@
     return u ? 'https://t.me/' + encodeURIComponent(u) : null;
   }
 
+  // Paper-plane glyph for the Telegram nav button (Owner request 2026-07-14: "a telegram icon
+  // would be better" than the plain ✈ text glyph). Inline SVG via createElementNS — never
+  // innerHTML — same discipline as buildEmblem above, so the strict no-inline CSP holds.
+  // stroke="currentColor" inherits .icon-btn's color (and its hover-color transition) for
+  // free, matching the plain-glyph siblings (⚙ ☾ ↻) it sits next to.
+  function buildTelegramIcon() {
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    var path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', 'M22 2 11 13M22 2 15 22 11 13 2 9 22 2');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    return svg;
+  }
+
   // Build the big top block: logo badge + title + tagline, plus icon actions
   // (Telegram bot link, settings shortcut, theme toggle, refresh). onSettings/
   // onToggleTheme/onRefresh are called on their respective button clicks. Returns
@@ -174,7 +196,7 @@
       tgBtn.rel = 'noopener noreferrer';
       tgBtn.title = 'Open Telegram bot';
       tgBtn.setAttribute('aria-label', 'Open Telegram bot');
-      tgBtn.textContent = '✈'; // ✈ plane glyph, single-character like the sibling icon buttons
+      tgBtn.appendChild(buildTelegramIcon());
       actions.appendChild(tgBtn);
     }
 
