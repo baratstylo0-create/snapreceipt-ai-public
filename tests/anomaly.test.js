@@ -128,4 +128,45 @@ test('garbage input does not throw', async () => {
   const r = await detectAnomalies(null, noLLM);
   assert.strictEqual(r.flagged, false);
   assert.deepStrictEqual(r.reasons, []);
+  assert.strictEqual(r.summary, null);
+});
+
+// --- 5. summary (LLM) — one plain-English sentence explaining WHY the row was flagged, so a
+// reviewer doesn't have to decode "duplicate"/"outlier"/"data_quality" jargon (Owner report
+// 2026-07-14: "even I got confused" reading the raw reasons). Only runs when actually flagged. ---
+
+test('summary: flagged with reasons -> LLM produces a plain-English summary', async () => {
+  let seenContent = null;
+  const groqChat = async (messages) => { seenContent = messages[1].content; return JSON.stringify({ summary: 'This looks like the same receipt uploaded twice.' }); };
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-02' }, { history, groqChat });
+  assert.strictEqual(r.summary, 'This looks like the same receipt uploaded twice.');
+  assert.ok(seenContent.includes('duplicate'));
+  assert.ok(seenContent.includes('Shell'));
+});
+
+test('summary: not flagged -> summary is null (LLM never runs)', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 100, subtotal: 90, tax: 10, expense_date: '2026-06-01' }, noLLM);
+  assert.strictEqual(r.flagged, false);
+  assert.strictEqual(r.summary, null);
+});
+
+test('summary: useLLM:false -> summary null even though flagged', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 0, expense_date: '2026-06-01' }, noLLM);
+  assert.strictEqual(r.flagged, true);
+  assert.strictEqual(r.summary, null);
+});
+
+test('summary: LLM failure -> summary null, flagged/reasons still returned (never blocks the save)', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 0, expense_date: '2026-06-01' },
+    { groqChat: async () => { throw new Error('down'); } });
+  assert.strictEqual(r.flagged, true);
+  assert.ok(r.reasons.length > 0);
+  assert.strictEqual(r.summary, null);
+});
+
+test('summary: malformed/non-JSON LLM output -> summary null, no throw', async () => {
+  const r = await detectAnomalies({ merchant: 'X', amount: 0, expense_date: '2026-06-01' },
+    { groqChat: async () => 'not json' });
+  assert.strictEqual(r.summary, null);
 });

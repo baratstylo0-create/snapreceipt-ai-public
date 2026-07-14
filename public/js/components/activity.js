@@ -203,9 +203,16 @@
   //   { kind:'low-confidence' }               — some field flagged "low"
   //   { kind:'converted', original, amountOriginal, fxRate } — FX-converted
   // Shared, defensive reader for the real anomaly shape: { flagged, reasons: [{type,
-  // detail, severity}, ...] }. Joins every reason's `detail` into one readable string;
-  // tolerates a missing/non-array `reasons` (never throws) -> generic fallback text.
+  // detail, severity}, ...], summary? }. Prefers `summary` (lib/anomaly.js's LLM-generated,
+  // one-sentence plain-English explanation, added 2026-07-14 — "even I got confused" reading
+  // the raw joined reasons) when present; falls back to joining every reason's `detail` into
+  // one string (older rows flagged before this shipped won't have a summary yet, or the LLM
+  // call failed at flag time). Tolerates a missing/non-array `reasons` (never throws) ->
+  // generic fallback text.
   function anomalyReasonText(anomaly) {
+    if (anomaly && typeof anomaly === 'object' && typeof anomaly.summary === 'string' && anomaly.summary.trim()) {
+      return str(anomaly.summary.trim());
+    }
     var list = anomaly && Array.isArray(anomaly.reasons) ? anomaly.reasons : [];
     var details = list.map(function (r) { return r && typeof r === 'object' ? str(r.detail) : ''; })
       .filter(function (s) { return s !== ''; });
@@ -1535,8 +1542,16 @@
     rootEl.appendChild(awaitHead);
     rootEl.appendChild(awaitArea);
     var reviewArea = el('div', 'act-review-area');
-    var reviewHead = textCell('h3', 'act-review-title', 'Review queue');
+    // Owner request 2026-07-14: this queue is NOT "every receipt awaiting approval" — it's
+    // gated entirely by lib/anomaly.js's detectAnomalies(). A receipt only lands here if it
+    // was actually flagged (duplicate / unusual amount / missing-or-mismatched data / looks
+    // like personal spend); everything else is saved straight through with no approval step.
+    // The old plain "Review queue" title read as a manual gate on every upload, which
+    // confused both an admin and the Owner into thinking all receipts needed a click here.
+    var reviewHead = textCell('h3', 'act-review-title', 'Anomaly Detection');
     rootEl.appendChild(reviewHead);
+    rootEl.appendChild(msg('act-review-note muted',
+      'Only receipts flagged as a possible duplicate, unusual amount, missing/mismatched data, or personal (non-business) spend show up here — the reason is printed on each card below. Everything else is saved automatically, no approval needed.'));
     // Discoverability fix (QA report #7): nothing is ever deleted by Approve/Reject —
     // both just set a status. Nobody knew that, so a mis-click felt like data loss.
     rootEl.appendChild(msg('act-review-note muted',
