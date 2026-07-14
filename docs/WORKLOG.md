@@ -1,5 +1,17 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-14 · Claude (Sonnet, for Barat) · qa/pr-ad-upload-mode-toggle-css-fix — Live QA bug: Upload toggle showed BOTH sections at once (CSS specificity, not a JS bug)
+
+- **Files:** `public/css/app.css` (one added rule). No test changes — pure CSS fix, JS toggle logic was already correct.
+- **Bug (Owner-reported, screenshot from live #247):** tapping "Enter manually" showed the manual form correctly, but the file-upload drop zone/Upload/Clear buttons stayed visible too — both sections rendered at once instead of one replacing the other.
+- **Root cause:** the JS toggle (`upload.js`'s `setMode`) was already correctly setting `fileSection.hidden`/`manualSection.hidden` — that was never the bug. `.up-file-section { display: flex; ... }` and `.up-manual-section { display: flex; ... }` (added in #247) have the SAME CSS specificity as the browser's own default `[hidden] { display: none }` rule, and this stylesheet loads after the browser's default one — so my own `display: flex` rule silently won every time, regardless of the `hidden` attribute.
+- **Fix:** `.up-file-section[hidden], .up-manual-section[hidden] { display: none; }` — a compound selector (class + attribute) has strictly higher specificity than either alone, so it always wins regardless of declaration order. **Confirmed this is an already-established pattern in this exact file** — `.view[hidden]`, `.app-modal[hidden]`, `.ov-segment-panel[hidden]`, `.manage-panel[hidden]`, `.rm-chip[hidden]` all use the identical fix for the identical class of bug elsewhere in `app.css`, which is what let me diagnose and fix this confidently in one pass rather than guessing.
+- **Tests: full suite 2064/2064** (`.env` moved aside/restored; no new tests — a CSS specificity bug has no unit-testable surface in this codebase's DOM-less test convention; the existing pure-logic tests for the toggle state itself were already correct and already passing, confirming the bug was purely visual/CSS, not logic).
+- **What's next:** PR opened; merge + deploy, then a fresh hard-refresh + click-through is the only real verification for a CSS bug like this — flagging that same live-browser caveat as every prior PR this session (no credentials for an authenticated session here).
+- **Assumptions:** none — root cause fully explains the reported symptom, and the fix follows the codebase's own existing convention for this exact bug class rather than inventing a new pattern.
+
+---
+
 ## 2026-07-14 · Claude (Sonnet, for Barat) · qa/pr-ac-manual-expense-entry — Upload page: "Enter manually" — type a brand-new expense with no photo/OCR (crossed into Codex's lane on explicit user authorization)
 
 - **Files:** `routes/expenses.js` (new `POST /api/expenses` — the FIRST endpoint that can create an expense from scratch; `validateManualCreate` reuses `sanitizeExpensePatch` then layers a required-field floor). `public/js/components/upload.js` (new "Upload a file"/"Enter manually" toggle; a manual-entry form; 4 new pure helpers: `normaliseUploadMode`, `resolveManualCategories`, `validateManualEntry`, `manualErrorMessage`). `public/css/app.css` (toggle pill + form styling, matching existing `.act-view-toggle`/`.act-field` conventions). Tests: `tests/expenses.create.route.test.js` (**new**, 12), `tests/frontend/upload.test.js` (+13).

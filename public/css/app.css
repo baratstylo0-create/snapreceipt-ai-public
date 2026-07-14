@@ -1586,6 +1586,13 @@ body.theme-dark .up-mode-btn.is-active { color: var(--bg); }
 /* Manual-entry form — same field language as .act-field/.act-field-input (activity.js's
    edit drawer), so typing an expense by hand looks consistent with editing one. */
 .up-manual-section { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+/* BUG FIX 2026-07-14 (live QA): the [hidden] attribute JS toggles between the two sections
+   was being silently overridden — .up-file-section/.up-manual-section's own `display: flex`
+   rule has the SAME specificity as the browser's default `[hidden] { display: none }` UA
+   rule, and this stylesheet loads after the UA sheet, so `hidden` lost every time and both
+   sections showed at once. A compound selector (class + [hidden]) has higher specificity
+   than either alone, so this always wins regardless of declaration order. */
+.up-file-section[hidden], .up-manual-section[hidden] { display: none; }
 .up-manual-form { display: flex; flex-direction: column; gap: 10px; }
 .up-manual-field { display: flex; flex-direction: column; gap: 4px; }
 .up-manual-label { color: var(--muted); font-size: 12px; }
