@@ -17,6 +17,7 @@ const { getCapabilities } = require('../lib/account');
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sbSelect, sbInsertReturning, sbUpdate } = require('../lib/supabase');
 const { checkDash } = require('./expenses');
+const { notifySubmissionReady: realNotifySubmissionReady } = require('../lib/bot');
 
 const submissionsLimiter = createRateLimiter({ max: Number(process.env.SUBMISSIONS_RATE_MAX) || 60 });
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/; // 'YYYY-MM', a real month
@@ -31,8 +32,9 @@ function submissionOnly(req, res, next) {
 
 const forbid = (res) => res.status(403).json({ error: 'forbidden' });
 
-module.exports = function mountSubmissions(app) {
+module.exports = function mountSubmissions(app, deps = {}) {
   const json = express.json({ limit: '16kb' });
+  const notifySubmissionReady = deps.notifySubmissionReady || realNotifySubmissionReady;
 
   // POST /api/submissions { period, note? } — CLERK ONLY (the hand-off is clerk → admin; an
   // admin has nobody to send to). Branch + submitter come from the session scope. Upsert
@@ -54,6 +56,10 @@ module.exports = function mountSubmissions(app) {
           status: 'submitted', note, submitted_by: req.user && req.user.user_id,
           submitted_at: new Date().toISOString(),
         });
+        // Fire-and-forget admin ping (C5 follow-up): never awaited in a way that could delay
+        // or fail this response — notifySubmissionReady itself never throws (see lib/bot.js),
+        // and this .catch is defense-in-depth against a future change loosening that contract.
+        notifySubmissionReady(s.branch_id, period).catch(() => {});
         return res.json({ submission: rows[0] || { ...existing[0], status: 'submitted' } });
       }
       const submission = await sbInsertReturning('submissions', {
@@ -61,6 +67,7 @@ module.exports = function mountSubmissions(app) {
         submitted_by: req.user && req.user.user_id,
         status: 'submitted', submitted_at: new Date().toISOString(),
       }, s);
+      notifySubmissionReady(s.branch_id, period).catch(() => {}); // fire-and-forget, see comment above
       return res.status(201).json({ submission });
     } catch (e) {
       console.error('[submissions create]', e.message);
