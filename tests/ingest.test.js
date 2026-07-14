@@ -166,6 +166,31 @@ test('#5 anomaly: flagged -> status needs_review + anomaly stored with reasons',
   assert.strictEqual(expense.anomaly.reasons[0].type, 'duplicate');
 });
 
+// Owner request 2026-07-14: detectAnomalies' LLM summary (a plain-English sentence explaining
+// the flag) rides through onto expense.anomaly.summary, for the review-queue card.
+test('#5 anomaly: detectAnomalies\' summary carries through onto expense.anomaly.summary', async () => {
+  const { expense } = await assembleExpense(goodInput(), deps({
+    detectAnomalies: async () => ({
+      flagged: true,
+      reasons: [{ type: 'duplicate', detail: 'matches existing expense h1', severity: 'high' }],
+      status_suggestion: 'needs_review',
+      summary: 'This looks like the same receipt uploaded twice.',
+    }),
+  }));
+  assert.strictEqual(expense.anomaly.summary, 'This looks like the same receipt uploaded twice.');
+});
+
+test('#5 anomaly: no summary from detectAnomalies -> expense.anomaly.summary is null (not undefined)', async () => {
+  const { expense } = await assembleExpense(goodInput(), deps({
+    detectAnomalies: async () => ({
+      flagged: true,
+      reasons: [{ type: 'duplicate', detail: 'matches existing expense h1', severity: 'high' }],
+      status_suggestion: 'needs_review',
+    }),
+  }));
+  assert.strictEqual(expense.anomaly.summary, null);
+});
+
 test('clean receipt -> status saved, anomaly null', async () => {
   const { expense, flagged } = await assembleExpense(goodInput(), deps());
   assert.strictEqual(flagged, false);
