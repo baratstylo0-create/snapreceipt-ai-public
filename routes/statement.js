@@ -43,7 +43,7 @@ function statementOnly(req, res, next) {
 // map directly, no byte fetch needed. (The pdf branch below still fetches bytes to append pages.)
 function receiptLinksOf(expenses) {
   const links = {};
-  for (const e of expenses) if (e && e.id && e.receipt_url) links[e.id] = '/receipt/by-id/' + e.id;
+  for (const e of expenses) if (e && e.id && e.receipt_url) links[e.id] = '/api/receipt/by-id/' + e.id; // ADR-027 collision-proof path
   return links;
 }
 

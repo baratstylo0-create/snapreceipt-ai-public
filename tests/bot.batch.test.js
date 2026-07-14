@@ -27,7 +27,7 @@ function baseDeps(t, over = {}) {
   const sent = [];
   const runBatchCalls = [];
   const deps = {
-    tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
+    tgSend: async (chatId, text) => { sent.push({ chatId, text }); return { ok: true }; },
     tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
     downloadAndStoreReceiptImage: async () => null, // hermetic: never touch the real storage bucket
     getFieldSpec: async () => ({ account_id: 'default', columns: [{ key: 'merchant', label: 'M', type: 'text', required: true }] }),
@@ -359,7 +359,7 @@ test('batch of 5: 3 confident + 2 uncertain -> ONE main summary (covers the 3), 
   const timers = fakeTimers();
   const { deps, sent } = baseDeps(t, {
     setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
-    tgSend: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); },
+    tgSend: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { ok: true }; },
     // A runBatch fake that behaves like the real one: calls the injected assembleExpense
     // once per image, in order, so flushGroup's captureAssemble wrapper sees each result.
     runBatch: async (images, fieldSpec, d) => {

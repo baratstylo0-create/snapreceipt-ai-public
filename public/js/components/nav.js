@@ -34,8 +34,14 @@
   // be a standalone "Ledger" tab here; the Owner moved it under Manage (2026-07-09).
   var BUSINESS_SECTIONS = [
     { id: 'team', label: 'Team' },
-    { id: 'payments', label: 'Payments' },
   ];
+
+  function paymentsPageEnabled(opts) {
+    opts = opts || {};
+    if (opts.paymentsPage === true) return true;
+    if (opts.config && opts.config.payments_page === true) return true;
+    return false;
+  }
 
   // sectionsFor({ business, role }) -> the nav list for the mode. Personal (business falsy)
   // returns SECTIONS untouched — the classic six, byte-identical. Business adds Team +
@@ -47,9 +53,11 @@
   function sectionsFor(opts) {
     opts = opts || {};
     if (!opts.business) return SECTIONS;
+    var businessSections = BUSINESS_SECTIONS.slice();
+    if (paymentsPageEnabled(opts)) businessSections.push({ id: 'payments', label: 'Payments' });
     var out = [];
     for (var i = 0; i < SECTIONS.length; i++) {
-      if (SECTIONS[i].id === 'settings') { out = out.concat(BUSINESS_SECTIONS); }
+      if (SECTIONS[i].id === 'settings') { out = out.concat(businessSections); }
       out.push(SECTIONS[i]);
     }
     return out;
@@ -90,10 +98,51 @@
   // no "Team" tab, no mascot illustration — those are business-mockup extras,
   // out of scope here.
 
-  // Build the big top block: logo badge + title + tagline, plus 3 icon actions
-  // (settings shortcut, theme toggle, refresh). onSettings/onToggleTheme/onRefresh
-  // are called on their respective button clicks. Returns { el } or null outside a
-  // browser.
+  // https://t.me/<bot_username> — pure so it's unit-testable without a DOM. Same
+  // link for every role (one bot per client account, ADR-020); the bot's @handle
+  // comes from GET /api/config's `bot_username` (already fetched at boot, no new
+  // endpoint needed). Returns null when unset (BOT_USERNAME not yet configured/
+  // auto-detected) so the caller can skip rendering the icon entirely rather than
+  // link to a broken/empty bot handle.
+  function telegramLink(botUsername) {
+    var u = botUsername == null ? '' : String(botUsername).trim();
+    return u ? 'https://t.me/' + encodeURIComponent(u) : null;
+  }
+
+  // Paper-plane glyph for the Telegram nav button (Owner request 2026-07-14: "a telegram icon
+  // would be better" than the plain ✈ text glyph). Inline SVG via createElementNS — never
+  // innerHTML — same discipline as buildEmblem above, so the strict no-inline CSP holds.
+  // stroke="currentColor" inherits .icon-btn's color (and its hover-color transition) for
+  // free, matching the plain-glyph siblings (⚙ ☾ ↻) it sits next to.
+  // Owner report 2026-07-14 (round 2): the first pass (a generic stroke paper-plane/"send"
+  // icon) still just read as "an aeroplane", not specifically Telegram. Swapped for the
+  // actual Telegram logomark (blue circle + white paper-plane silhouette) — instantly
+  // recognisable, so there's no more ambiguity about what the icon does. Brand colour is
+  // fixed (not `currentColor`/theme-tinted) on purpose: a brand mark should look the same
+  // in every theme, same as how a real Telegram/WhatsApp/etc. badge never re-themes.
+  function buildTelegramIcon() {
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('aria-hidden', 'true');
+    var circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', '12');
+    circle.setAttribute('cy', '12');
+    circle.setAttribute('r', '12');
+    circle.setAttribute('fill', '#29A9EB');
+    var plane = document.createElementNS(SVG_NS, 'path');
+    plane.setAttribute('fill', '#fff');
+    plane.setAttribute('d', 'M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71l-4.14-3.05-2 1.93c-.23.23-.42.42-.83.42z');
+    svg.appendChild(circle);
+    svg.appendChild(plane);
+    return svg;
+  }
+
+  // Build the big top block: logo badge + title + tagline, plus icon actions
+  // (Telegram bot link, settings shortcut, theme toggle, refresh). onSettings/
+  // onToggleTheme/onRefresh are called on their respective button clicks. Returns
+  // { el } or null outside a browser.
   //
   // opts.business (bool, ADR-021 Phase 6 follow-up): the original two-tier header
   // (Owner request 2026-07-06) hardcoded "AutoReceipt Dashboard (Personal)" —
@@ -136,6 +185,28 @@
 
     var actions = document.createElement('div');
     actions.className = 'header-actions';
+
+    // Telegram bot link (Owner request 2026-07-14): neither role had any persistent,
+    // nav-accessible way to find "their" bot — a clerk's/admin's one-time bind LINK
+    // (with the secret bind_token) is only ever shown once via Team's credential
+    // panel and must stay that way (re-exposing a live bind_token in the nav would
+    // let anyone with page access re-bind the branch's chat to themselves). This
+    // icon is the safe, always-visible piece: a plain link to open a chat with the
+    // account's bot (no token, nothing secret) — the same URL for every role, since
+    // there is exactly one bot per client account (ADR-020). Omitted entirely when
+    // BOT_USERNAME isn't configured yet, rather than linking to a dead handle.
+    var tgLink = telegramLink(opts.botUsername);
+    if (tgLink) {
+      var tgBtn = document.createElement('a');
+      tgBtn.className = 'icon-btn';
+      tgBtn.href = tgLink;
+      tgBtn.target = '_blank';
+      tgBtn.rel = 'noopener noreferrer';
+      tgBtn.title = 'Open Telegram bot';
+      tgBtn.setAttribute('aria-label', 'Open Telegram bot');
+      tgBtn.appendChild(buildTelegramIcon());
+      actions.appendChild(tgBtn);
+    }
 
     var settingsBtn = document.createElement('button');
     settingsBtn.type = 'button';
@@ -208,5 +279,9 @@
     return { el: nav, setActive: setActive };
   }
 
-  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS, sectionsFor: sectionsFor };
+  return {
+    buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem,
+    SECTIONS: SECTIONS, sectionsFor: sectionsFor, paymentsPageEnabled: paymentsPageEnabled,
+    telegramLink: telegramLink,
+  };
 });

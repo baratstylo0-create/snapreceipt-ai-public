@@ -9,13 +9,70 @@ const {
   monthlySeries, categoryPercentBreakdown, categoryColor, formatPercent, allTimeReportsPath,
   smoothPathD, donutSlicePath, normaliseCategoryKey, resolveCategoryOverride, COLOR_PRESETS,
   categoryCountBreakdown, formatDateRange, yearlyBreakdown, overviewSegments,
+  automationImpactModel, metricsPeriod, metricsPath,
+  branchFilterOptions, branchQueryValue, appendBranchQuery,
 } = require('../../public/js/components/overview');
+
+test('overview branch helpers keep admin options and server query scoping explicit', () => {
+  const branches = [{ id: 'b1', office: 'North' }, { id: 'b2', office: 'South' }];
+  assert.deepStrictEqual(branchFilterOptions(branches, true), [
+    { value: 'all', label: 'All branches' },
+    { value: 'mine', label: 'My uploads' },
+    { value: 'b1', label: 'North' },
+    { value: 'b2', label: 'South' },
+  ]);
+  assert.deepStrictEqual(branchFilterOptions(branches, false), []);
+  assert.strictEqual(branchQueryValue('mine', { branch_id: 'b1' }), 'b1');
+  assert.strictEqual(branchQueryValue('all', { branch_id: 'b1' }), null);
+  assert.strictEqual(appendBranchQuery('/api/reports?period=year', 'mine', { branch_id: 'b1' }), '/api/reports?period=year&branch=b1');
+});
 
 test('overviewSegments: Reports is folded under Overview as Summary | Trends', () => {
   assert.deepStrictEqual(overviewSegments(), [
     { id: 'summary', label: 'Summary' },
     { id: 'trends', label: 'Trends' },
   ]);
+});
+
+// --- C4 automation-impact metrics band -----------------------------------
+
+test('automationImpactModel maps client/internal metrics and preserves the configured assumption', () => {
+  assert.deepStrictEqual(automationImpactModel({
+    client: { receiptsProcessed: 12, noEditCount: 9, noEditPct: 75, hoursSaved: 0.8, statementsGenerated: null },
+    internal: {
+      attentionCount: 3, attentionRate: 25, avgDwellMinutes: 6.5,
+      lowConfidenceByField: [{ field: 'amount', count: 2 }],
+      mostCorrectedCategories: [{ category: 'Food', count: 4 }],
+    },
+    meta: { manualMinutesPerReceipt: 4, statementsGeneratedAvailable: false },
+  }), {
+    receiptsProcessed: 12,
+    noEditPct: 75,
+    hoursSaved: 0.8,
+    statementsGenerated: null,
+    statementsGeneratedAvailable: false,
+    manualMinutesPerReceipt: 4,
+    attentionRate: 25,
+    avgDwellMinutes: 6.5,
+    lowConfidenceByField: [{ field: 'amount', count: 2 }],
+    mostCorrectedCategories: [{ category: 'Food', count: 4 }],
+  });
+});
+
+test('automationImpactModel never fakes statements or the time assumption on missing/invalid input', () => {
+  const out = automationImpactModel({ client: { statementsGenerated: 0 }, meta: { statementsGeneratedAvailable: false } });
+  assert.strictEqual(out.statementsGenerated, null);
+  assert.strictEqual(out.statementsGeneratedAvailable, false);
+  assert.strictEqual(out.manualMinutesPerReceipt, null);
+  assert.deepStrictEqual(out.lowConfidenceByField, []);
+  assert.deepStrictEqual(out.mostCorrectedCategories, []);
+  assert.deepStrictEqual(automationImpactModel(null), out);
+});
+
+test('metricsPeriod defaults to the current month and metricsPath uses inclusive ISO dates', () => {
+  const range = metricsPeriod(new Date(2026, 6, 13).getTime());
+  assert.deepStrictEqual(range, { value: '2026-07', from: '2026-07-01', to: '2026-07-31' });
+  assert.strictEqual(metricsPath(range), '/api/metrics?from=2026-07-01&to=2026-07-31');
 });
 
 // Overview scopes its report to the current year (fixes the all-years-mixed chart bug).

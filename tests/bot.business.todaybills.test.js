@@ -186,3 +186,111 @@ test('SAFETY: a stray number after a failed attempt does nothing (single-use arm
   assert.strictEqual(handled, false);                    // ignored — not armed anymore
   assert.strictEqual(deleted.length, 0);                 // e1 was NOT deleted
 });
+
+// --- QA-reported: a LIST of bill numbers (e.g. "1, 2, 4") must delete every one, not
+// fall through to the main menu — and any successful delete offers Next/Done. -----------
+
+test('typing a single number that deletes also offers Next/Done buttons', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: true }]]);
+  const { deps, sent } = baseDeps({
+    pendingBillDelete,
+    sbSelect: async (_t, opts) => BILLS.filter((b) => b.id === (opts.eq && opts.eq.id)),
+  });
+  await tryResolveBillDelete('900', '2', deps);
+  const kb = sent[0].replyMarkup.inline_keyboard[0];
+  assert.strictEqual(kb[0].callback_data, 'delnum:next');
+  assert.strictEqual(kb[1].callback_data, 'delnum:done');
+});
+
+test('typing a LIST "1, 2" deletes both listed bills in one go and summarizes each', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: true }]]);
+  const { deps, sent, deleted } = baseDeps({
+    pendingBillDelete,
+    sbSelect: async (_t, opts) => BILLS.filter((b) => b.id === (opts.eq && opts.eq.id)),
+  });
+  const handled = await tryResolveBillDelete('900', '1, 2', deps);
+  assert.strictEqual(handled, true);
+  assert.deepStrictEqual(deleted, [
+    { table: 'expenses', where: { id: 'e1' } },
+    { table: 'expenses', where: { id: 'e2' } },
+  ]);
+  assert.match(sent[0].text, /Taco Bell/);
+  assert.match(sent[0].text, /Shell/);
+  assert.strictEqual(pendingBillDelete.get('900').deleted.length, 2);
+  assert.strictEqual(pendingBillDelete.get('900').armed, false);
+  const kb = sent[0].replyMarkup.inline_keyboard[0];
+  assert.strictEqual(kb[0].callback_data, 'delnum:next');
+  assert.strictEqual(kb[1].callback_data, 'delnum:done');
+});
+
+test('a list with a mix of valid/invalid/not-owned numbers reports each outcome and only deletes the valid ones', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: true }]]);
+  const { deps, sent, deleted } = baseDeps({
+    pendingBillDelete,
+    sbSelect: async (_t, opts) => BILLS.filter((b) => b.id === (opts.eq && opts.eq.id)),
+  });
+  // 1 = own bill (deletes), 3 = someone else's (refused), 9 = out of range
+  const handled = await tryResolveBillDelete('900', '1, 3, 9', deps);
+  assert.strictEqual(handled, true);
+  assert.deepStrictEqual(deleted, [{ table: 'expenses', where: { id: 'e1' } }]);
+  assert.match(sent[0].text, /Taco Bell/);
+  assert.match(sent[0].text, /only the submitter/i);
+  assert.match(sent[0].text, /no such bill/i);
+});
+
+test('typing a space-separated list ("1 2") is also accepted as a list', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: true }]]);
+  const { deps, deleted } = baseDeps({
+    pendingBillDelete,
+    sbSelect: async (_t, opts) => BILLS.filter((b) => b.id === (opts.eq && opts.eq.id)),
+  });
+  await tryResolveBillDelete('900', '1 2', deps);
+  assert.strictEqual(deleted.length, 2);
+});
+
+test('a duplicated number in the list ("1, 1, 2") is only processed once', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: true }]]);
+  const { deps, deleted } = baseDeps({
+    pendingBillDelete,
+    sbSelect: async (_t, opts) => BILLS.filter((b) => b.id === (opts.eq && opts.eq.id)),
+  });
+  await tryResolveBillDelete('900', '1, 1, 2', deps);
+  assert.strictEqual(deleted.length, 2); // e1 once, e2 once — not e1 twice
+});
+
+// --- delnum:next / delnum:done: the continue-or-finish loop (QA issue: "no efficient
+// workflow for removing multiple items") ------------------------------------------------
+
+test('delnum:next re-arms the chat (same as delnum:ask) without losing the running session', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1', 'e2', 'e3'], armed: false, deleted: [{ merchant: 'Taco Bell', amount: 291.58, currency: 'MYR' }] }]]);
+  const { deps, sent } = baseDeps({ pendingBillDelete });
+  await handleCallbackQuery({ id: 'cq1', data: 'delnum:next', message: { chat: { id: '900' }, message_id: 5 } }, deps);
+  assert.strictEqual(pendingBillDelete.get('900').armed, true);
+  assert.strictEqual(pendingBillDelete.get('900').deleted.length, 1); // session total preserved
+  assert.match(sent[0].text, /number/i);
+});
+
+test('delnum:done with deletions shows a summary and clears the pending entry', async () => {
+  const pendingBillDelete = new Map([['900', {
+    ids: ['e1', 'e2', 'e3'],
+    armed: false,
+    deleted: [
+      { merchant: 'Taco Bell', amount: 291.58, currency: 'MYR' },
+      { merchant: 'Shell', amount: 80.00, currency: 'MYR' },
+    ],
+  }]]);
+  const { deps, sent } = baseDeps({ pendingBillDelete });
+  await handleCallbackQuery({ id: 'cq1', data: 'delnum:done', message: { chat: { id: '900' }, message_id: 5 } }, deps);
+  assert.match(sent[0].text, /Taco Bell/);
+  assert.match(sent[0].text, /Shell/);
+  assert.match(sent[0].text, /2 bills/i);
+  assert.strictEqual(pendingBillDelete.has('900'), false); // session cleared
+});
+
+test('delnum:done with NO deletions this session says so and still clears the pending entry', async () => {
+  const pendingBillDelete = new Map([['900', { ids: ['e1'], armed: false, deleted: [] }]]);
+  const { deps, sent } = baseDeps({ pendingBillDelete });
+  await handleCallbackQuery({ id: 'cq1', data: 'delnum:done', message: { chat: { id: '900' }, message_id: 5 } }, deps);
+  assert.match(sent[0].text, /no bills were deleted/i);
+  assert.strictEqual(pendingBillDelete.has('900'), false);
+});

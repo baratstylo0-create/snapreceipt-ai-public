@@ -37,6 +37,96 @@
     ];
   }
 
+  function branchFilterOptions(branches, isAdmin) {
+    if (!isAdmin) return [];
+    var out = [
+      { value: 'all', label: 'All branches' },
+      { value: 'mine', label: 'My uploads' },
+    ];
+    (Array.isArray(branches) ? branches : []).forEach(function (branch) {
+      if (!branch || branch.id === undefined || branch.id === null || String(branch.id) === '') return;
+      out.push({ value: String(branch.id), label: branch.office ? String(branch.office) : String(branch.id) });
+    });
+    return out;
+  }
+
+  function branchQueryValue(filter, session) {
+    if (!filter || filter === 'all') return null;
+    if (filter === 'mine') {
+      var own = session && session.branch_id !== undefined && session.branch_id !== null ? String(session.branch_id) : '';
+      return own || null;
+    }
+    return String(filter);
+  }
+
+  function appendBranchQuery(path, filter, session) {
+    var branch = branchQueryValue(filter, session);
+    if (!branch) return String(path || '');
+    var base = String(path || '');
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + 'branch=' + encodeURIComponent(branch);
+  }
+
+  // ---- automation-impact metrics (C4 UI) ---------------------------------
+
+  function finiteOrNull(v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // Keep the server contract's null/unavailable distinction intact. In
+  // particular, a missing statement audit trail never becomes a fake zero.
+  function automationImpactModel(payload) {
+    var p = payload && typeof payload === 'object' ? payload : {};
+    var client = p.client && typeof p.client === 'object' ? p.client : {};
+    var internal = p.internal && typeof p.internal === 'object' ? p.internal : {};
+    var meta = p.meta && typeof p.meta === 'object' ? p.meta : {};
+    var statementsAvailable = meta.statementsGeneratedAvailable === true;
+    var statements = statementsAvailable ? finiteOrNull(client.statementsGenerated) : null;
+    var low = Array.isArray(internal.lowConfidenceByField) ? internal.lowConfidenceByField.map(function (r) {
+      return { field: str(r && r.field), count: toNum(r && r.count) };
+    }).filter(function (r) { return r.field !== ''; }) : [];
+    var corrected = Array.isArray(internal.mostCorrectedCategories) ? internal.mostCorrectedCategories.map(function (r) {
+      return { category: str(r && r.category), count: toNum(r && r.count) };
+    }).filter(function (r) { return r.category !== ''; }) : [];
+    return {
+      receiptsProcessed: toNum(client.receiptsProcessed),
+      noEditPct: toNum(client.noEditPct),
+      hoursSaved: toNum(client.hoursSaved),
+      statementsGenerated: statements,
+      statementsGeneratedAvailable: statementsAvailable,
+      manualMinutesPerReceipt: finiteOrNull(meta.manualMinutesPerReceipt),
+      attentionRate: toNum(internal.attentionRate),
+      avgDwellMinutes: finiteOrNull(internal.avgDwellMinutes),
+      lowConfidenceByField: low,
+      mostCorrectedCategories: corrected,
+    };
+  }
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+  // Returns the selected month plus the inclusive ISO date range accepted by
+  // GET /api/metrics. Invalid input falls back to the current local month.
+  function metricsPeriod(nowOrValue) {
+    var d;
+    if (typeof nowOrValue === 'string' && /^\d{4}-\d{2}$/.test(nowOrValue)) {
+      var parts = nowOrValue.split('-');
+      d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    } else {
+      d = new Date(typeof nowOrValue === 'number' ? nowOrValue : Date.now());
+    }
+    if (!Number.isFinite(d.getTime())) d = new Date();
+    var y = d.getFullYear(); var m = d.getMonth();
+    var value = y + '-' + pad2(m + 1);
+    var last = new Date(y, m + 1, 0).getDate();
+    return { value: value, from: value + '-01', to: value + '-' + pad2(last) };
+  }
+
+  function metricsPath(period) {
+    var p = period && typeof period === 'object' ? period : metricsPeriod();
+    return '/api/metrics?from=' + encodeURIComponent(str(p.from)) + '&to=' + encodeURIComponent(str(p.to));
+  }
+
   function str(v) { return v === null || v === undefined ? '' : String(v); }
 
   function toNum(v) {
@@ -280,15 +370,15 @@
   // buckets every year in the data side-by-side (2018-01, 2023-12, 2024-04, 2026-05…) —
   // meaningless at a glance. The Reports screen's Year tab is where other years are
   // explored; the Overview is "this year so far". Pure, injectable clock for testing.
-  function overviewReportsPath(now) {
+  function overviewReportsPath(now, filter, session) {
     var y = new Date(typeof now === 'number' ? now : Date.now()).getFullYear();
-    return '/api/reports?period=month&from=' + y + '-01-01&to=' + y + '-12-31';
+    return appendBranchQuery('/api/reports?period=month&from=' + y + '-01-01&to=' + y + '-12-31', filter, session);
   }
 
   // All-time (no date bounds) — powers the "Total spending until now" box.
-  // Deliberately UNSCOPED (unlike overviewReportsPath), since "until now" means
-  // every expense ever recorded, not just this year.
-  function allTimeReportsPath() { return '/api/reports?period=year'; }
+  // It remains account-wide for All branches, or carries the selected branch
+  // for an admin's My uploads/specific-branch view.
+  function allTimeReportsPath(filter, session) { return appendBranchQuery('/api/reports?period=year', filter, session); }
 
   // ---- pure geometry -------------------------------------------------------
 
@@ -357,6 +447,12 @@
   function el(tag, className) {
     var node = document.createElement(tag);
     if (className) node.className = className;
+    return node;
+  }
+
+  function textCell(tag, className, value) {
+    var node = el(tag, className);
+    Escape.setText(node, value);
     return node;
   }
 
@@ -725,6 +821,91 @@
     backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) close(); });
   }
 
+  function metricText(n, digits) {
+    var value = toNum(n).toFixed(digits == null ? 0 : digits);
+    return value.replace(/\.0+$/, '');
+  }
+
+  function metricTile(label, value, sub) {
+    var tile = el('div', 'ov-metric-tile');
+    tile.appendChild(textCell('span', 'ov-metric-label', label));
+    tile.appendChild(textCell('strong', 'ov-metric-value', value));
+    if (sub) tile.appendChild(textCell('span', 'ov-metric-sub muted', sub));
+    return tile;
+  }
+
+  function renderMetricsBand(host, model, session, period, onPeriodChange, detailsOpen, onDetailsToggle) {
+    if (!hasDom() || !host) return;
+    clear(host);
+    var band = el('section', 'ov-metrics-band');
+    var heading = el('div', 'ov-metrics-heading');
+    heading.appendChild(textCell('h3', 'ov-metrics-title', 'Friction Automation Impact'));
+    var periodLabel = el('label', 'ov-metrics-period-label');
+    periodLabel.appendChild(textCell('span', 'ov-metrics-period-caption', 'Period'));
+    var periodInput = el('input', 'ov-metrics-period');
+    periodInput.type = 'month';
+    periodInput.value = period && period.value ? period.value : '';
+    periodInput.setAttribute('aria-label', 'Automation impact period');
+    periodInput.addEventListener('change', function () {
+      if (typeof onPeriodChange === 'function') onPeriodChange(periodInput.value);
+    });
+    periodLabel.appendChild(periodInput);
+    heading.appendChild(periodLabel);
+    band.appendChild(heading);
+
+    if (!model) {
+      band.appendChild(textCell('p', 'ov-metrics-loading muted', ''));
+      host.appendChild(band);
+      return;
+    }
+
+    var tiles = el('div', 'ov-metrics-tiles');
+    tiles.appendChild(metricTile('Receipts processed', metricText(model.receiptsProcessed), 'in selected period'));
+    tiles.appendChild(metricTile('% needed no edit', metricText(model.noEditPct, 1) + '%', 'straight-through processing'));
+    var assumption = model.manualMinutesPerReceipt == null
+      ? 'Time-saved assumption unavailable.'
+      : 'Estimated using ' + metricText(model.manualMinutesPerReceipt, 1) + ' minutes per receipt.';
+    tiles.appendChild(metricTile('~Hours saved', metricText(model.hoursSaved, 1), assumption));
+    if (model.statementsGeneratedAvailable) {
+      tiles.appendChild(metricTile('Statements generated', model.statementsGenerated == null ? '—' : metricText(model.statementsGenerated), 'selected period'));
+    }
+    band.appendChild(tiles);
+
+    if (session && session.role === 'admin') {
+      var detailsBtn = el('button', 'ov-metrics-details-toggle');
+      detailsBtn.type = 'button';
+      detailsBtn.setAttribute('aria-expanded', detailsOpen ? 'true' : 'false');
+      Escape.setText(detailsBtn, detailsOpen ? 'Hide details' : 'Show details');
+      detailsBtn.addEventListener('click', function () { if (typeof onDetailsToggle === 'function') onDetailsToggle(); });
+      band.appendChild(detailsBtn);
+      if (detailsOpen) {
+        var details = el('div', 'ov-metrics-details');
+        details.appendChild(metricTile('Attention rate', metricText(model.attentionRate, 1) + '%'));
+        details.appendChild(metricTile('Average review dwell', model.avgDwellMinutes == null ? '—' : metricText(model.avgDwellMinutes, 1) + ' min'));
+        var low = el('div', 'ov-metrics-detail-list');
+        low.appendChild(textCell('h4', 'ov-metrics-detail-title', 'Low-confidence fields'));
+        if (!model.lowConfidenceByField.length) low.appendChild(textCell('p', 'muted', 'None recorded.'));
+        else {
+          var lowList = el('ul');
+          model.lowConfidenceByField.forEach(function (r) { lowList.appendChild(textCell('li', '', r.field + ': ' + metricText(r.count))); });
+          low.appendChild(lowList);
+        }
+        details.appendChild(low);
+        var corrected = el('div', 'ov-metrics-detail-list');
+        corrected.appendChild(textCell('h4', 'ov-metrics-detail-title', 'Most-corrected categories'));
+        if (!model.mostCorrectedCategories.length) corrected.appendChild(textCell('p', 'muted', 'None recorded.'));
+        else {
+          var correctedList = el('ul');
+          model.mostCorrectedCategories.forEach(function (r) { correctedList.appendChild(textCell('li', '', r.category + ': ' + metricText(r.count))); });
+          corrected.appendChild(correctedList);
+        }
+        details.appendChild(corrected);
+        band.appendChild(details);
+      }
+    }
+    host.appendChild(band);
+  }
+
   // Render the whole Overview into `container` from a (year-scoped) reports
   // object. `allTimeReport` is the unscoped (period=year) reports response —
   // its `.total` is every year's spend combined, and its `.buckets` (one per
@@ -783,6 +964,20 @@
     var shell = el('div', 'ov-shell');
     section.appendChild(shell);
 
+    var isAdmin = !!(opts.session && opts.session.role === 'admin');
+    var branchState = { filter: isAdmin ? 'mine' : 'all', branches: [], loaded: false };
+    var branchSelect = null;
+    if (isAdmin) {
+      var branchToolbar = el('div', 'ov-filter-toolbar');
+      branchSelect = el('select', 'ov-branch-filter');
+      branchSelect.setAttribute('aria-label', 'Filter by branch');
+      branchToolbar.appendChild(branchSelect);
+      shell.appendChild(branchToolbar);
+    }
+
+    var metricsHost = el('div', 'ov-metrics-host');
+    shell.appendChild(metricsHost);
+
     var segmentBar = el('div', 'ov-segments');
     var segmentButtons = {};
     overviewSegments().forEach(function (seg) {
@@ -820,6 +1015,53 @@
     // It is mutated in place (never reassigned) so the donutOpts object closed
     // over below always sees the latest values.
     var state = { loaded: false, loading: false, lastReports: null, lastAllTime: null, colorOverrides: loadColorOverrides(), activeSegment: 'summary', trendsLoaded: false };
+    var metricsState = { period: metricsPeriod(), model: null, loading: false, detailsOpen: false };
+
+    function renderMetrics() {
+      renderMetricsBand(metricsHost, metricsState.model, opts.session, metricsState.period,
+        function (value) { loadMetrics(value); }, metricsState.detailsOpen,
+        function () { metricsState.detailsOpen = !metricsState.detailsOpen; renderMetrics(); });
+    }
+
+    function renderBranchFilter() {
+      if (!branchSelect) return;
+      clear(branchSelect);
+      branchFilterOptions(branchState.branches, isAdmin).forEach(function (option) {
+        var item = el('option', 'ov-branch-option');
+        item.value = option.value;
+        Escape.setText(item, option.label);
+        branchSelect.appendChild(item);
+      });
+      branchSelect.value = branchState.filter;
+    }
+
+    function loadBranches() {
+      if (!isAdmin || branchState.loaded || !apiFetch) return Promise.resolve();
+      branchState.loaded = true;
+      return apiFetch('/api/branches').then(function (payload) {
+        branchState.branches = payload && Array.isArray(payload.branches) ? payload.branches : [];
+        renderBranchFilter();
+      }).catch(function () { renderBranchFilter(); });
+    }
+
+    function loadMetrics(periodValue) {
+      metricsState.period = metricsPeriod(periodValue || metricsState.period.value);
+      metricsState.model = null;
+      metricsState.loading = true;
+      renderMetrics();
+      if (!apiFetch) { metricsState.loading = false; return; }
+      apiFetch(metricsPath(metricsState.period)).then(function (payload) {
+        metricsState.loading = false;
+        metricsState.model = automationImpactModel(payload);
+        renderMetrics();
+      }).catch(function () {
+        // Metrics are additive UX: an outage must never replace or block the
+        // existing Overview reports/charts. Leave the quiet period shell in place.
+        metricsState.loading = false;
+        metricsState.model = null;
+        renderMetrics();
+      });
+    }
 
     function showSegment(id) {
       if (id !== 'trends') id = 'summary';
@@ -894,19 +1136,19 @@
       }).catch(function () { /* keep the localStorage cache we already rendered */ });
     }
 
-    function load() {
-      if (state.loading || state.loaded || !apiFetch) return;
+    function load(force) {
+      if (state.loading || (!force && state.loaded) || !apiFetch) return;
       state.loading = true;
       clear(container);
       container.appendChild(renderMessage('ov-loading muted', 'Loading overview…'));
-      // Year-scoped report drives the chart/KPIs; the all-time (unscoped,
-      // period=year) report supplies the "Overall spending until now" box —
+      // Year-scoped report drives the chart/KPIs; the all-time (period=year)
+      // report supplies the "Overall spending until now" box —
       // its `.total` for the big number, its per-year `.buckets` for the
       // "past years" list underneath. Fetched in parallel, non-fatal if it
       // fails (the rest of the Overview still renders; the all-time card
       // just doesn't show).
-      var allTimePromise = apiFetch(allTimeReportsPath()).catch(function () { return null; });
-      apiFetch(overviewReportsPath()).then(function (reports) {
+      var allTimePromise = apiFetch(allTimeReportsPath(branchState.filter, opts.session)).catch(function () { return null; });
+      apiFetch(overviewReportsPath(undefined, branchState.filter, opts.session)).then(function (reports) {
         return allTimePromise.then(function (allTime) {
           state.loading = false;
           state.loaded = true;
@@ -918,10 +1160,46 @@
       }).catch(function () {
         state.loading = false;
         // Leave loaded=false so a later revisit can retry.
-        clear(container);
-        container.appendChild(renderMessage('ov-error', 'Could not load your overview. Please try again shortly.'));
+        if (!state.lastReports) {
+          clear(container);
+          container.appendChild(renderMessage('ov-error', 'Could not load your overview. Please try again shortly.'));
+        } else {
+          renderInto(container, state.lastReports, state.lastAllTime, donutOpts);
+        }
       });
     }
+
+    var refreshTimer = null;
+    function visible() { return typeof document === 'undefined' || document.visibilityState !== 'hidden'; }
+    function refreshIfVisible() { if (visible()) load(true); }
+    function onVisibilityChange() { if (visible()) refreshIfVisible(); }
+    function startLiveUpdates() {
+      if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('focus', refreshIfVisible);
+      if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', onVisibilityChange);
+      if (typeof setInterval === 'function') refreshTimer = setInterval(refreshIfVisible, 25000);
+    }
+    function stopLiveUpdates() {
+      if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
+      refreshTimer = null;
+      if (typeof window !== 'undefined' && window.removeEventListener) window.removeEventListener('focus', refreshIfVisible);
+      if (typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (reportInst && typeof reportInst.destroy === 'function') reportInst.destroy();
+    }
+    if (branchSelect) {
+      branchSelect.addEventListener('change', function () {
+        branchState.filter = branchSelect.value || 'all';
+        state.loaded = false;
+        load();
+      });
+    }
+    renderBranchFilter();
+
+    // Metrics are independent of the Reports tab and fetch once on mount;
+    // period changes call loadMetrics directly. No polling belongs to C4 (C7).
+    renderMetrics();
+    loadMetrics();
+    loadBranches();
+    startLiveUpdates();
 
     return {
       el: shell,
@@ -930,6 +1208,7 @@
         else load();
       },
       renderInto: function (r, allTime) { state.lastReports = r; state.lastAllTime = allTime; renderInto(container, r, allTime, donutOpts); },
+      destroy: stopLiveUpdates,
     };
   }
 
@@ -937,6 +1216,9 @@
     // pure
     chartModel: chartModel,
     kpiModel: kpiModel,
+    automationImpactModel: automationImpactModel,
+    metricsPeriod: metricsPeriod,
+    metricsPath: metricsPath,
     topCategory: topCategory,
     categoryCountBreakdown: categoryCountBreakdown,
     overviewSegments: overviewSegments,
@@ -951,6 +1233,9 @@
     formatPercent: formatPercent,
     overviewReportsPath: overviewReportsPath,
     allTimeReportsPath: allTimeReportsPath,
+    branchFilterOptions: branchFilterOptions,
+    branchQueryValue: branchQueryValue,
+    appendBranchQuery: appendBranchQuery,
     // pure geometry
     smoothPathD: smoothPathD,
     donutSlicePath: donutSlicePath,

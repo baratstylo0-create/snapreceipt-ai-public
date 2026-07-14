@@ -34,6 +34,38 @@
   // OCR pipeline, not something a person should manually switch a row into.
   var STATUS_OPTIONS = ['saved', 'needs_review', 'approved', 'rejected'];
 
+  // statusLabel(status) -> a human-readable label for a raw DB status string. The DB stores
+  // snake_case machine values ('needs_review', 'awaiting_category'); showing those verbatim in
+  // the UI reads like a leaked internal (Owner request 2026-07-12: "needs_review" should read
+  // "Need Review"). Known values get a hand-picked label; anything unknown degrades to a
+  // Title-Cased version of the raw value (never throws, never shows a blank).
+  var STATUS_LABELS = {
+    saved: 'Saved',
+    needs_review: 'Need Review',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    awaiting_category: 'Awaiting Category',
+    awaiting_remark: 'Awaiting Remark',
+  };
+  function statusLabel(status) {
+    var raw = status == null ? '' : String(status);
+    if (STATUS_LABELS[raw]) return STATUS_LABELS[raw];
+    if (!raw) return '';
+    return raw.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  // decisionErrorText(err) -> the message to show when an Approve/Reject POST fails. The review
+  // API returns a SPECIFIC, actionable reason (e.g. 403 "the branch clerk decides first — the
+  // admin valve opens 7 days after flagging", or 409 "expense is not pending review") — the old
+  // catch threw all of that away and showed a bare "Action failed", leaving the user with no idea
+  // WHY (Owner report 2026-07-12: "why did approve fail?"). Surface the server's own message when
+  // present; fall back to the generic line only when there's nothing specific (network/5xx).
+  function decisionErrorText(err) {
+    var msg = err && err.body && err.body.error;
+    if (msg && typeof msg === 'string') return msg;
+    return 'Action failed. Please try again.';
+  }
+
   // DYNAMIC CATEGORIES (bug fix): the category list is no longer a hardcoded,
   // driftable 5-name stub — it now comes live from GET /api/config's
   // `categories` field (sourced from lib/categorize.js's real ~18-category
@@ -87,6 +119,47 @@
     return 'c' + (hashString(key) % PALETTE_SIZE);
   }
 
+  // Return the distinct, usable categories carried by a receipt's line items.
+  // Category names are compared case/whitespace-insensitively, while the first
+  // display spelling is retained. Empty/malformed categories do not turn a
+  // normal receipt into a misleading "Mixed" receipt.
+  function lineItemCategories(row) {
+    var items = row && Array.isArray(row.line_items) ? row.line_items : [];
+    var seen = Object.create(null);
+    var categories = [];
+    items.forEach(function (it) {
+      var raw = it && typeof it.category === 'string' ? it.category : '';
+      var display = raw.trim();
+      var key = display.toLowerCase();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      categories.push(display);
+    });
+    return categories;
+  }
+
+  // The compact label used in the Activity table/card category cell. A null
+  // result deliberately preserves the existing single-category rendering.
+  function mixedCategoryLabel(row) {
+    var count = lineItemCategories(row).length;
+    return count > 1 ? 'Mixed (' + count + ')' : null;
+  }
+
+  // Normalise the data consumed by the detail drawer without changing the
+  // server row. Keeping this pure makes the line-item display testable without
+  // a browser DOM and keeps hostile OCR text on the existing Escape.setText path.
+  function lineItemDetails(row) {
+    var items = row && Array.isArray(row.line_items) ? row.line_items : [];
+    return items.map(function (it) {
+      return {
+        description: str(it && (it.description || it.name)),
+        amount: it && it.amount != null ? it.amount : null,
+        category: str(it && it.category),
+        flagged: !!(it && it.flagged),
+      };
+    });
+  }
+
   // Build the live category list for the filter/edit dropdowns from a
   // /api/config-shaped object ({ categories: [...] }, see routes/expenses.js).
   // Falls back to a small hardcoded safe default (DEFAULT_CATEGORIES) when the
@@ -130,9 +203,16 @@
   //   { kind:'low-confidence' }               — some field flagged "low"
   //   { kind:'converted', original, amountOriginal, fxRate } — FX-converted
   // Shared, defensive reader for the real anomaly shape: { flagged, reasons: [{type,
-  // detail, severity}, ...] }. Joins every reason's `detail` into one readable string;
-  // tolerates a missing/non-array `reasons` (never throws) -> generic fallback text.
+  // detail, severity}, ...], summary? }. Prefers `summary` (lib/anomaly.js's LLM-generated,
+  // one-sentence plain-English explanation, added 2026-07-14 — "even I got confused" reading
+  // the raw joined reasons) when present; falls back to joining every reason's `detail` into
+  // one string (older rows flagged before this shipped won't have a summary yet, or the LLM
+  // call failed at flag time). Tolerates a missing/non-array `reasons` (never throws) ->
+  // generic fallback text.
   function anomalyReasonText(anomaly) {
+    if (anomaly && typeof anomaly === 'object' && typeof anomaly.summary === 'string' && anomaly.summary.trim()) {
+      return str(anomaly.summary.trim());
+    }
     var list = anomaly && Array.isArray(anomaly.reasons) ? anomaly.reasons : [];
     var details = list.map(function (r) { return r && typeof r === 'object' ? str(r.detail) : ''; })
       .filter(function (s) { return s !== ''; });
@@ -173,6 +253,92 @@
     return out;
   }
 
+  // Business directory helpers. The API returns branch/staff IDs on expense
+  // rows, so the admin Activity view resolves them once and keeps raw IDs as a
+  // safe fallback when a directory entry is stale or unavailable.
+  function branchNamesFromResponse(resp) {
+    var rows = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.branches) ? resp.branches : []);
+    var names = {};
+    rows.forEach(function (branch) {
+      if (!branch || branch.id == null || branch.id === '') return;
+      var id = String(branch.id);
+      var office = typeof branch.office === 'string' ? branch.office.trim() : '';
+      names[id] = office || id;
+    });
+    return names;
+  }
+
+  function staffNamesFromResponse(resp) {
+    var rows = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.staff) ? resp.staff : []);
+    var names = {};
+    rows.forEach(function (staff) {
+      if (!staff || staff.id == null || staff.id === '') return;
+      var id = String(staff.id);
+      var display = typeof staff.display_name === 'string' ? staff.display_name.trim() : '';
+      var username = typeof staff.username === 'string' ? staff.username.trim() : '';
+      names[id] = display || username || id;
+    });
+    return names;
+  }
+
+  function displayBranchName(row, names) {
+    var id = row && row.branch_id;
+    if (id == null || id === '') return '—';
+    var key = String(id);
+    return names && names[key] ? String(names[key]) : key;
+  }
+
+  function displayStaffName(row, names) {
+    var id = row && row.staff_user_id;
+    if (id == null || id === '') return '—';
+    var key = String(id);
+    return names && names[key] ? String(names[key]) : key;
+  }
+
+  // Admin-only branch picker models. Keep the two synthetic options first,
+  // then include directory branches plus IDs observed on rows (so a directory
+  // fetch failure can never make a real row impossible to filter).
+  function activityBranchOptions(branches, rows, session) {
+    if (!session || session.role !== 'admin') return [];
+    var branchRows = Array.isArray(branches) ? branches : [];
+    var expenseRows = Array.isArray(rows) ? rows : [];
+    var names = branchNamesFromResponse(branchRows);
+    var ids = Object.create(null);
+    Object.keys(names).forEach(function (id) { ids[id] = true; });
+    var unassigned = false;
+    expenseRows.forEach(function (row) {
+      var id = row && row.branch_id;
+      if (id == null || id === '') { unassigned = true; return; }
+      var key = String(id);
+      ids[key] = true;
+      if (!names[key]) names[key] = key;
+    });
+    var options = [
+      { value: 'all', label: 'All branches' },
+      { value: 'mine', label: 'My uploads' },
+    ];
+    var mapped = Object.keys(ids).map(function (id) { return { value: id, label: names[id] || id }; });
+    mapped.sort(function (a, b) {
+      var al = a.label.toLowerCase(); var bl = b.label.toLowerCase();
+      return al < bl ? -1 : al > bl ? 1 : (a.value < b.value ? -1 : 1);
+    });
+    mapped.forEach(function (opt) { options.push(opt); });
+    if (unassigned) options.push({ value: 'unassigned', label: 'Unassigned' });
+    return options;
+  }
+
+  function sameActivityBranch(row, filter, ownBranchId) {
+    var id = row && row.branch_id;
+    var rowKey = id == null || id === '' ? '' : String(id);
+    if (!filter || String(filter).toLowerCase() === 'all') return true;
+    if (String(filter).toLowerCase() === 'mine') {
+      var ownKey = ownBranchId == null || ownBranchId === '' ? '' : String(ownBranchId);
+      return rowKey === ownKey;
+    }
+    if (String(filter).toLowerCase() === 'unassigned') return rowKey === '';
+    return rowKey === String(filter);
+  }
+
   // The searchable haystack for a row (merchant + remark + category + date).
   function haystack(r) {
     return [r && r.merchant, r && r.remark, r && r.category, r && r.expense_date]
@@ -199,6 +365,53 @@
     return ISO_DATE_RE.test(s) ? s.slice(0, 10) : null;
   }
 
+  // ---- Date filter presets (QA 2026-07-14, Untitled document (1).md) -------------
+  // Three preset modes for the Activity date filter. All PURE + node-tested; they only
+  // compute ISO from/to strings that the EXISTING filterSortPage range filter already
+  // understands — the filter logic itself is untouched.
+
+  // normaliseDatePreset(v) -> 'month' | 'pick' | 'custom'. 'month' = This Month (default),
+  // 'pick' = a specific month via <input type="month">, 'custom' = free From/To. Garbage
+  // (null/unknown/legacy) falls back to 'month' so the page always has a valid default.
+  var DATE_PRESETS = { month: true, pick: true, custom: true };
+  function normaliseDatePreset(v) {
+    var s = str(v).trim();
+    return DATE_PRESETS[s] ? s : 'month';
+  }
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  // thisMonthRange(now) -> { from: 'YYYY-MM-01', to: 'YYYY-MM-DD' (today) }. Uses local
+  // date parts (matches the browser's own calendar, what the user sees as "this month").
+  function thisMonthRange(now) {
+    var d = now instanceof Date && Number.isFinite(now.getTime()) ? now : new Date();
+    var y = d.getFullYear();
+    var m = d.getMonth() + 1;
+    return { from: y + '-' + pad2(m) + '-01', to: y + '-' + pad2(m) + '-' + pad2(d.getDate()) };
+  }
+
+  // monthRange('YYYY-MM') -> that whole calendar month's { from, to } with the correct
+  // 28/29/30/31 last day (leap-aware, via Date day-0-of-next-month). Malformed input -> null.
+  var MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
+  function monthRange(month) {
+    var m = MONTH_RE.exec(str(month).trim());
+    if (!m) return null;
+    var y = Number(m[1]);
+    var mo = Number(m[2]);
+    var lastDay = new Date(y, mo, 0).getDate(); // day 0 of the NEXT month = last day of this one
+    return { from: m[1] + '-' + m[2] + '-01', to: m[1] + '-' + m[2] + '-' + pad2(lastDay) };
+  }
+
+  // displayDate(raw) -> the user's chosen Asian format YYYY/MM/DD (decided 2026-07-14).
+  // An ISO-ish date (with or without a time suffix) becomes e.g. 2026/07/08; anything that
+  // isn't a recognisable ISO date (messy OCR string, null, empty) is returned raw/unchanged,
+  // never blanked or crashed. Read-only display only — editable fields keep the raw ISO value.
+  function displayDate(raw) {
+    var iso = isoDatePrefix(raw);
+    if (iso === null) return str(raw);
+    return iso.replace(/-/g, '/');
+  }
+
   // Filter (search + status + category + date range) -> sort (date|amount, asc|desc)
   // -> page. Pure: returns { rows, total, page, pageCount, pageSize }. Never throws.
   function filterSortPage(rows, opts) {
@@ -216,6 +429,14 @@
     // filter: category
     var fc = str(opts.filterCategory).trim();
     if (fc && fc.toLowerCase() !== 'all') list = list.filter(function (r) { return str(r && r.category) === fc; });
+
+    // Admin Activity branch scope is intentionally client-side: /api/expenses
+    // already returned the account-scoped rows, and this picker only changes
+    // which of those cached rows are visible. Clerks leave this unset.
+    var fb = str(opts.filterBranch).trim();
+    if (fb && fb.toLowerCase() !== 'all') {
+      list = list.filter(function (r) { return sameActivityBranch(r, fb, opts.sessionBranchId); });
+    }
 
     // filter: date range (inclusive). expense_date is TEXT; ISO (YYYY-MM-DD) strings
     // sort/compare correctly lexically, so plain string comparison is fine. Rows whose
@@ -316,6 +537,23 @@
   function deletedRowsPath() { return '/api/expenses/deleted'; }
   function restorePath(id) { return '/api/expenses/' + encodeURIComponent(str(id)) + '/restore'; }
 
+  // QA 2026-07-13 (Untitled document (4).md): the recently-deleted bin didn't say WHEN a
+  // bill falls out of the system. DISPLAY-ONLY reminder — there is no auto-purge job today
+  // (deleted_at is a permanent soft-delete; nothing ever clears an old deleted row), so this
+  // computes what the reminder date WOULD be under a stated retention policy. Never throws on
+  // a missing/malformed deleted_at (a row from before this feature, or a hostile value).
+  var DELETED_RETENTION_DAYS = 30;
+  function purgeReminderDate(deletedAt, retentionDays) {
+    var days = Number.isFinite(retentionDays) ? retentionDays : DELETED_RETENTION_DAYS;
+    var t = deletedAt ? Date.parse(deletedAt) : NaN;
+    if (!Number.isFinite(t)) return null;
+    var d = new Date(t + days * 86400000);
+    if (!Number.isFinite(d.getTime())) return null;
+    var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    var dd = String(d.getUTCDate()).padStart(2, '0');
+    return d.getUTCFullYear() + '-' + mm + '-' + dd;
+  }
+
   // QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill actions, pure so they're
   // unit-testable without a DOM. isRejected gates BOTH the recategorise chevron and the
   // permanent-delete icon — neither shows on a non-rejected row. recategorizeBody mirrors the
@@ -330,15 +568,20 @@
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
+  // ADR-027: the `/api/receipt/*` form (not legacy `/receipt/*`) so images ride the
+  // `/api/*` → :3005 nginx catch-all that the co-tenant FrictionAI app never claims — a
+  // shared `/receipt/` location can only proxy_pass to ONE backend, which is why receipt
+  // display kept breaking whenever the other app's route was fixed. See docs/DECISIONS.md.
   function receiptPath(fileId) {
-    return '/receipt/' + encodeURIComponent(str(fileId));
+    return '/api/receipt/' + encodeURIComponent(str(fileId));
   }
 
   // ADR-018: serve the receipt image BY EXPENSE ID. The server looks the row up and streams
   // the durable Storage copy (receipt_url) or falls back to the Telegram proxy — so the
   // browser never learns the raw storage path. id is encodeURIComponent'd (never raw).
+  // `/api/receipt/*` path per ADR-027 (collision-proof — see receiptPath above).
   function receiptByIdPath(id) {
-    return '/receipt/by-id/' + encodeURIComponent(str(id));
+    return '/api/receipt/by-id/' + encodeURIComponent(str(id));
   }
 
   // Does this row have a viewable receipt image on either surface? True for a durable
@@ -361,6 +604,38 @@
 
   function receiptLabel(row) {
     return receiptKind(row) === 'pdf' ? 'Receipt PDF' : 'Receipt image';
+  }
+
+  // Owner-reported 2026-07-11: some receipts (mostly ones captured before ADR-018's durable
+  // Storage copy existed, or whose only-ever image was the live Telegram file_id proxy) show
+  // the SAME generic "Could not load the receipt." for a permanently-gone image as for a
+  // one-off network hiccup — no way to tell "try again in a minute" from "this photo is never
+  // coming back, re-send it." /receipt/by-id/:id (routes/receipt.js) returns 404 specifically
+  // when neither the Storage copy nor the Telegram proxy can produce bytes (row not found,
+  // storage object missing, or Telegram's getFile rejects a stale/invalid file_id) — every
+  // OTHER failure (401 session, 502 upstream) is a genuine "try again" case. Pure so the
+  // distinction is unit-testable without a fetch/DOM.
+  function receiptErrorMessage(err) {
+    if (err && err.status === 404) {
+      return 'This receipt has no photo available. If you have the original, re-send it in Telegram to attach one.';
+    }
+    return 'Could not load the receipt. Please try again shortly.';
+  }
+
+  // Approve/Reject failure -> {message, resync}. A 409 means the row is no longer pending —
+  // this row's own first click double-submitted, another tab, or another user already decided —
+  // so the decision effectively happened: re-sync the queue quietly (resync:true) instead of a
+  // scary "Action failed" (the Owner-reported symptom, 2026-07-12). 401 gets specific guidance;
+  // 403 and everything else defer to decisionErrorText (a same-day, independent fix for the same
+  // report) so the REAL server reason — e.g. the review-valve's "the branch clerk decides first…"
+  // — surfaces instead of a second hardcoded generic 403 string that would hide it again. Pure so
+  // it's unit-testable without a fetch/DOM (mirrors receiptErrorMessage). resync:true callers
+  // reload the queue and skip re-enabling the buttons — the cards are about to be rebuilt.
+  function reviewDecisionError(err) {
+    var status = err && err.status;
+    if (status === 409) return { message: 'Already decided — refreshing…', resync: true };
+    if (status === 401) return { message: 'Session expired — please refresh and sign in again.', resync: false };
+    return { message: decisionErrorText(err), resync: false };
   }
 
   // Review-queue card meta (Owner 2026-07-10): the ordered, displayable key fields shown under a
@@ -446,6 +721,14 @@
       Escape.setText(chip, 'Awaiting category');
       return chip;
     }
+    var mixed = mixedCategoryLabel(row);
+    if (mixed) {
+      var mixedChip = pill('Others');
+      Escape.setText(mixedChip, mixed);
+      mixedChip.setAttribute('title', mixed + ' line-item categories');
+      mixedChip.setAttribute('aria-label', mixed);
+      return mixedChip;
+    }
     return pill(row && row.category);
   }
 
@@ -505,9 +788,9 @@
         img.alt = alt;
         imgWrap.appendChild(img);
       }
-    }).catch(function () {
+    }).catch(function (err) {
       clear(imgWrap);
-      imgWrap.appendChild(msg('act-receipt-msg muted', 'Could not load the receipt.'));
+      imgWrap.appendChild(msg('act-receipt-msg muted', receiptErrorMessage(err)));
     });
   }
 
@@ -615,7 +898,7 @@
     var statusSel = el('select', 'act-filter act-filter--status');
     statusSel.setAttribute('aria-label', 'Filter by status');
     ['all'].concat(STATUS_OPTIONS).forEach(function (s) {
-      var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? 'All statuses' : s); statusSel.appendChild(o);
+      var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? 'All statuses' : statusLabel(s)); statusSel.appendChild(o);
     });
     statusSel.value = state.filterStatus || 'all';
     statusSel.addEventListener('change', function () { onChange({ filterStatus: statusSel.value, page: 1 }); });
@@ -630,28 +913,82 @@
     catSel.addEventListener('change', function () { onChange({ filterCategory: catSel.value, page: 1 }); });
     bar.appendChild(catSel);
 
-    // Date range (native <input type="date">, no picker library). expense_date is
-    // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
-    // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
-    var fromWrap = el('label', 'act-filter act-filter--date');
-    var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, 'From'); fromWrap.appendChild(fromLab);
-    var dateFrom = el('input', 'act-date-from');
-    dateFrom.type = 'date';
-    dateFrom.setAttribute('aria-label', 'From date');
-    dateFrom.value = state.dateFrom || '';
-    dateFrom.addEventListener('change', function () { onChange({ dateFrom: dateFrom.value, page: 1 }); });
-    fromWrap.appendChild(dateFrom);
-    bar.appendChild(fromWrap);
+    if (state.isAdmin) {
+      var branchSel = el('select', 'act-filter act-filter--branch');
+      branchSel.setAttribute('aria-label', 'Filter by branch');
+      activityBranchOptions(state.branches, state.rows, state.session).forEach(function (opt) {
+        var o = el('option'); o.value = opt.value; Escape.setText(o, opt.label); branchSel.appendChild(o);
+      });
+      branchSel.value = state.filterBranch || 'mine';
+      branchSel.addEventListener('change', function () { onChange({ filterBranch: branchSel.value, page: 1 }); });
+      bar.appendChild(branchSel);
+    }
 
-    var toWrap = el('label', 'act-filter act-filter--date');
-    var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, 'To'); toWrap.appendChild(toLab);
-    var dateTo = el('input', 'act-date-to');
-    dateTo.type = 'date';
-    dateTo.setAttribute('aria-label', 'To date');
-    dateTo.value = state.dateTo || '';
-    dateTo.addEventListener('change', function () { onChange({ dateTo: dateTo.value, page: 1 }); });
-    toWrap.appendChild(dateTo);
-    bar.appendChild(toWrap);
+    // Date preset (QA 2026-07-14): This Month (default) / Month Selection / Custom Period.
+    // This Month + Month Selection compute an ISO dateFrom/dateTo and feed the EXISTING
+    // filterSortPage range filter below — zero change to the filter itself. Custom Period
+    // shows the original free From/To pair, unchanged behaviour.
+    var presetSel = el('select', 'act-filter act-filter--datepreset');
+    presetSel.setAttribute('aria-label', 'Date range preset');
+    [['month', 'This Month'], ['pick', 'Month Selection'], ['custom', 'Custom Period']].forEach(function (pair) {
+      var o = el('option'); o.value = pair[0]; Escape.setText(o, pair[1]); presetSel.appendChild(o);
+    });
+    var preset = normaliseDatePreset(state.datePreset);
+    presetSel.value = preset;
+    presetSel.addEventListener('change', function () {
+      var next = normaliseDatePreset(presetSel.value);
+      if (next === 'month') {
+        var r = thisMonthRange(new Date());
+        onChange({ datePreset: next, dateFrom: r.from, dateTo: r.to, page: 1 });
+      } else if (next === 'pick') {
+        var mm = state.selectedMonth || thisMonthRange(new Date()).from.slice(0, 7);
+        var r2 = monthRange(mm) || thisMonthRange(new Date());
+        onChange({ datePreset: next, selectedMonth: mm, dateFrom: r2.from, dateTo: r2.to, page: 1 });
+      } else {
+        onChange({ datePreset: next, page: 1 }); // Custom Period: the From/To pair below takes over
+      }
+    });
+    bar.appendChild(presetSel);
+
+    if (preset === 'pick') {
+      var monthWrap = el('label', 'act-filter act-filter--date');
+      var monthLab = el('span', 'act-filter-date-label'); Escape.setText(monthLab, 'Month'); monthWrap.appendChild(monthLab);
+      var monthInput = el('input', 'act-date-month');
+      monthInput.type = 'month';
+      monthInput.setAttribute('aria-label', 'Select month');
+      monthInput.value = state.selectedMonth || thisMonthRange(new Date()).from.slice(0, 7);
+      monthInput.addEventListener('change', function () {
+        var mm = monthInput.value;
+        var r = monthRange(mm);
+        if (r) onChange({ selectedMonth: mm, dateFrom: r.from, dateTo: r.to, page: 1 });
+      });
+      monthWrap.appendChild(monthInput);
+      bar.appendChild(monthWrap);
+    } else if (preset === 'custom') {
+      // Date range (native <input type="date">, no picker library). expense_date is
+      // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
+      // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
+      var fromWrap = el('label', 'act-filter act-filter--date');
+      var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, 'From'); fromWrap.appendChild(fromLab);
+      var dateFrom = el('input', 'act-date-from');
+      dateFrom.type = 'date';
+      dateFrom.setAttribute('aria-label', 'From date');
+      dateFrom.value = state.dateFrom || '';
+      dateFrom.addEventListener('change', function () { onChange({ dateFrom: dateFrom.value, page: 1 }); });
+      fromWrap.appendChild(dateFrom);
+      bar.appendChild(fromWrap);
+
+      var toWrap = el('label', 'act-filter act-filter--date');
+      var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, 'To'); toWrap.appendChild(toLab);
+      var dateTo = el('input', 'act-date-to');
+      dateTo.type = 'date';
+      dateTo.setAttribute('aria-label', 'To date');
+      dateTo.value = state.dateTo || '';
+      dateTo.addEventListener('change', function () { onChange({ dateTo: dateTo.value, page: 1 }); });
+      toWrap.appendChild(dateTo);
+      bar.appendChild(toWrap);
+    }
+    // preset === 'month': no extra control — This Month has no input, it's computed silently.
 
     return bar;
   }
@@ -724,7 +1061,7 @@
   function buildStatusCell(tag, r, categories, handlers) {
     var cell = el(tag, tag === 'td' ? 'act-td act-td--status' : 'act-card-status act-td--status');
     var text = el('span', 'act-status-text');
-    Escape.setText(text, r.status);
+    Escape.setText(text, statusLabel(r.status));
     cell.appendChild(text);
     if (!isRejected(r)) return cell;
 
@@ -787,6 +1124,10 @@
     htr.appendChild(textCell('th', 'act-th', labels.merchant));
     htr.appendChild(sortableTh(labels.expense_date, 'date', state, handlers.onChange));
     htr.appendChild(sortableTh(labels.amount, 'amount', state, handlers.onChange));
+    if (state.isAdmin) {
+      htr.appendChild(textCell('th', 'act-th act-th--branch', 'Branch'));
+      htr.appendChild(textCell('th', 'act-th act-th--staff', 'Staff'));
+    }
     htr.appendChild(textCell('th', 'act-th', labels.category));
     htr.appendChild(textCell('th', 'act-th', labels.status));
     thead.appendChild(htr);
@@ -821,11 +1162,16 @@
       mCell.appendChild(badgeChips(r));
       tr.appendChild(mCell);
 
-      tr.appendChild(textCell('td', 'act-td', r.expense_date));
+      tr.appendChild(textCell('td', 'act-td', displayDate(r.expense_date)));
 
       var amt = el('td', 'act-td act-td--amount');
       Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
       tr.appendChild(amt);
+
+      if (state.isAdmin) {
+        tr.appendChild(textCell('td', 'act-td act-td--branch', displayBranchName(r, state.branchNames)));
+        tr.appendChild(textCell('td', 'act-td act-td--staff', displayStaffName(r, state.staffNames)));
+      }
 
       var cat = el('td', 'act-td');
       cat.appendChild(categoryCell(r));
@@ -848,7 +1194,7 @@
   // descriptors as the table row — no duplicated badge logic) and the shared
   // loadReceiptImage auth'd-fetch helper for the thumbnail. Clicking a card opens
   // the same detail drawer as clicking a table row (handlers.onOpen).
-  function buildCard(r, handlers, categories, selectState) {
+  function buildCard(r, handlers, categories, selectState, directory) {
     var card = el('div', 'act-card');
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
@@ -882,10 +1228,14 @@
     body.appendChild(badgeChips(r));
 
     var meta = el('div', 'act-card-meta');
-    meta.appendChild(textCell('span', 'act-card-date', r.expense_date));
+    meta.appendChild(textCell('span', 'act-card-date', displayDate(r.expense_date)));
     var amt = el('span', 'act-card-amount');
     Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
     meta.appendChild(amt);
+    if (directory && directory.isAdmin) {
+      meta.appendChild(textCell('span', 'act-card-branch', 'Branch: ' + displayBranchName(r, directory.branchNames)));
+      meta.appendChild(textCell('span', 'act-card-staff', 'Staff: ' + displayStaffName(r, directory.staffNames)));
+    }
     if (refDisplay(r) !== '—') meta.appendChild(textCell('span', 'act-card-ref muted', refDisplay(r)));
     body.appendChild(meta);
 
@@ -907,9 +1257,9 @@
     return card;
   }
 
-  function buildCardGrid(page, handlers, categories, selectState) {
+  function buildCardGrid(page, handlers, categories, selectState, directory) {
     var grid = el('div', 'act-card-grid');
-    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, categories, selectState)); });
+    page.rows.forEach(function (r) { grid.appendChild(buildCard(r, handlers, categories, selectState, directory)); });
     return grid;
   }
 
@@ -974,7 +1324,7 @@
         // keep that as a selectable option too so opening the drawer never silently
         // reassigns it to 'saved' just because it wasn't in the list.
         var opts = STATUS_OPTIONS.indexOf(cur) === -1 ? STATUS_OPTIONS.concat([cur]) : STATUS_OPTIONS;
-        opts.forEach(function (s) { var o = el('option'); o.value = s; Escape.setText(o, s); input.appendChild(o); });
+        opts.forEach(function (s) { var o = el('option'); o.value = s; Escape.setText(o, statusLabel(s)); input.appendChild(o); });
         input.value = cur;
       } else {
         input = el('input', 'act-field-input');
@@ -1028,14 +1378,14 @@
     drawer.appendChild(form);
 
     // Line items (each description via setText — hostile OCR text stays inert).
-    var items = Array.isArray(rowObj.line_items) ? rowObj.line_items : [];
+    var items = lineItemDetails(rowObj);
     if (items.length) {
       var liWrap = el('div', 'act-lineitems');
       liWrap.appendChild(textCell('h4', 'act-lineitems-title', 'Line items'));
       var ul = el('ul', 'act-lineitems-list');
       items.forEach(function (it) {
         var li = el('li', 'act-lineitem');
-        var desc = (it && (it.description || it.name)) || '';
+        var desc = it.description;
         var amount = it && it.amount != null ? Format.formatMoney(it.amount) : '';
         var textSpan = el('span', 'act-lineitem-text');
         Escape.setText(textSpan, str(desc) + (amount ? '  —  ' + amount : ''));
@@ -1044,7 +1394,7 @@
         // mixed receipt shows a pill per line instead of one bucket for the whole receipt.
         // A categorizer-flagged (uncertain) line gets a subtle ⚠️ marker. Reuses the same
         // deterministic-colour pill as the row-level category.
-        if (it && it.category) {
+        if (it.category) {
           var catPill = pill(it.category);
           catPill.classList.add('act-lineitem-cat');
           if (it.flagged) Escape.setText(catPill, str(it.category) + ' ⚠️');
@@ -1128,8 +1478,12 @@
     var approve = el('button', 'act-review-approve'); approve.type = 'button'; Escape.setText(approve, 'Approve');
     var reject = el('button', 'act-review-reject'); reject.type = 'button'; Escape.setText(reject, 'Reject');
     var st = el('span', 'act-review-msg muted');
-    approve.addEventListener('click', function () { handlers.onDecide(rowObj, 'approve', card, st); });
-    reject.addEventListener('click', function () { handlers.onDecide(rowObj, 'reject', card, st); });
+    // Pass BOTH buttons so onDecide can disable them for the in-flight request — without a
+    // re-entrancy guard a double-click (or Approve-then-Reject before the row clears) fires a
+    // second POST that lands on an already-decided row and 409s, which looked like "Action failed"
+    // even though the first click succeeded. Mirrors buildAwaitingItem's saveBtn.disabled guard.
+    approve.addEventListener('click', function () { handlers.onDecide(rowObj, 'approve', card, st, [approve, reject]); });
+    reject.addEventListener('click', function () { handlers.onDecide(rowObj, 'reject', card, st, [approve, reject]); });
     actions.appendChild(approve); actions.appendChild(reject); actions.appendChild(st);
     main.appendChild(actions);
 
@@ -1185,6 +1539,7 @@
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
     var storageRoot = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
+    var isAdmin = !!(opts.session && opts.session.role === 'admin');
 
     var rootEl = el('div', 'act-root');
     section.appendChild(rootEl);
@@ -1207,8 +1562,16 @@
     rootEl.appendChild(awaitHead);
     rootEl.appendChild(awaitArea);
     var reviewArea = el('div', 'act-review-area');
-    var reviewHead = textCell('h3', 'act-review-title', 'Review queue');
+    // Owner request 2026-07-14: this queue is NOT "every receipt awaiting approval" — it's
+    // gated entirely by lib/anomaly.js's detectAnomalies(). A receipt only lands here if it
+    // was actually flagged (duplicate / unusual amount / missing-or-mismatched data / looks
+    // like personal spend); everything else is saved straight through with no approval step.
+    // The old plain "Review queue" title read as a manual gate on every upload, which
+    // confused both an admin and the Owner into thinking all receipts needed a click here.
+    var reviewHead = textCell('h3', 'act-review-title', 'Anomaly Detection');
     rootEl.appendChild(reviewHead);
+    rootEl.appendChild(msg('act-review-note muted',
+      'Only receipts flagged as a possible duplicate, unusual amount, missing/mismatched data, or personal (non-business) spend show up here — the reason is printed on each card below. Everything else is saved automatically, no approval needed.'));
     // Discoverability fix (QA report #7): nothing is ever deleted by Approve/Reject —
     // both just set a status. Nobody knew that, so a mis-click felt like data loss.
     rootEl.appendChild(msg('act-review-note muted',
@@ -1220,13 +1583,21 @@
     // second, redundant /api/config call here. If boot's fetch hasn't resolved
     // yet (or failed) opts.config is absent/undefined and resolveCategories
     // falls back to DEFAULT_CATEGORIES — never an empty dropdown, never a throw.
+    // QA 2026-07-14: opens scoped to the CURRENT MONTH (not all history) — This Month is the
+    // default preset. thisMonthRange computed once at mount time, not on every render.
+    var defaultMonthRange = thisMonthRange(new Date());
     var state = {
       loaded: false, loading: false, rows: [],
-      search: '', filterStatus: 'all', filterCategory: 'all', dateFrom: '', dateTo: '',
+      search: '', filterStatus: 'all', filterCategory: 'all', filterBranch: isAdmin ? 'mine' : 'all',
+      datePreset: 'month', selectedMonth: defaultMonthRange.from.slice(0, 7),
+      dateFrom: defaultMonthRange.from, dateTo: defaultMonthRange.to,
       sortBy: 'date', sortDir: 'desc', page: 1, pageSize: DEFAULT_PAGE_SIZE,
       viewMode: getStoredViewMode(storageRoot),
       categories: resolveCategories(opts.config),
       fieldSpec: null,
+      isAdmin: isAdmin, session: opts.session || null,
+      sessionBranchId: opts.session && opts.session.branch_id != null ? opts.session.branch_id : null,
+      branches: [], branchNames: {}, staffNames: {},
       // QA B4: bulk select -> Approve/Delete.
       selectMode: false, selectedIds: new Set(), bulkStatus: '',
     };
@@ -1312,7 +1683,8 @@
         tableArea.appendChild(buildCardGrid(pageData,
           Object.assign({ onToggleRow: selectHandlers.onToggleRow }, rowHandlers),
           state.categories,
-          { selectMode: state.selectMode, selectedIds: state.selectedIds }));
+          { selectMode: state.selectMode, selectedIds: state.selectedIds },
+          { isAdmin: state.isAdmin, branchNames: state.branchNames, staffNames: state.staffNames }));
       } else {
         tableArea.appendChild(buildTable(pageData, state,
           Object.assign({ onChange: onChange, onToggleRow: selectHandlers.onToggleRow }, rowHandlers)));
@@ -1392,18 +1764,30 @@
     }
 
     function buildDeletedItem(rowObj, handlers) {
+      // Wrapped in a plain block (act-deleted-row) rather than added as a 6th grid child:
+      // .act-deleted-item is a fixed 4-column grid (merchant/amount/date/recover, +msg span
+      // wrapping to row 2) — inserting another child would shift the recover button/message
+      // onto unexpected rows. The reminder line sits BELOW the untouched item, in its own row;
+      // .act-deleted-list's flex gap already applies to any direct child, so spacing is unaffected.
+      var row = el('div', 'act-deleted-row');
       var item = el('div', 'act-deleted-item');
       item.appendChild(textCell('span', 'act-deleted-merchant', rowObj.merchant));
       var amt = el('span', 'act-deleted-amount');
       Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
       item.appendChild(amt);
-      item.appendChild(textCell('span', 'act-deleted-date muted', rowObj.expense_date));
+      item.appendChild(textCell('span', 'act-deleted-date muted', displayDate(rowObj.expense_date)));
       var recover = el('button', 'act-deleted-recover'); recover.type = 'button'; Escape.setText(recover, 'Recover');
       var st = el('span', 'act-deleted-msg muted');
       recover.addEventListener('click', function () { handlers.onRecover(rowObj, st, recover); });
       item.appendChild(recover);
       item.appendChild(st);
-      return item;
+      row.appendChild(item);
+      // QA 2026-07-13: display-only reminder of when this bill would age out under the
+      // stated retention policy (see purgeReminderDate's own comment — no auto-purge job
+      // exists yet). Omitted entirely for a row with no/invalid deleted_at.
+      var reminder = purgeReminderDate(rowObj.deleted_at);
+      if (reminder) row.appendChild(textCell('div', 'act-deleted-purge muted', 'Permanently removed on ' + reminder));
+      return row;
     }
 
     function renderDeletedList() {
@@ -1540,7 +1924,9 @@
       reviewState.rows.forEach(function (r) {
         reviewArea.appendChild(buildReviewItem(r, {
           onOpen: openDrawer, // clicking the receipt thumbnail opens the full detail drawer
-          onDecide: function (rowObj, decision, card, st) {
+          onDecide: function (rowObj, decision, card, st, btns) {
+            btns = btns || [];
+            btns.forEach(function (b) { b.disabled = true; }); // re-entrancy guard: no second POST while this one is in flight
             Escape.setText(st, decision === 'approve' ? 'Approving…' : 'Rejecting…');
             apiFetch('/api/review/' + encodeURIComponent(rowObj.id), { method: 'POST', body: { decision: decision } })
               .then(function () {
@@ -1550,7 +1936,12 @@
                 if (idx !== -1) state.rows[idx].status = decision === 'approve' ? 'approved' : 'rejected';
                 renderReview(); renderTable();
               })
-              .catch(function () { Escape.setText(st, 'Action failed. Please try again.'); });
+              .catch(function (e) {
+                var res = reviewDecisionError(e);
+                Escape.setText(st, res.message);
+                if (res.resync) { loadReview(); return; } // cards get rebuilt — no need to re-enable
+                btns.forEach(function (b) { b.disabled = false; }); // let the user retry a genuine failure
+              });
           },
         }));
       });
@@ -1581,6 +1972,39 @@
       }).catch(function () { /* keep state.fieldSpec null -> fallback labels */ });
     }
 
+    // Admin-only directory enrichment. Branches are fetched once per Activity
+    // mount; staff directories are fetched from the existing branch-scoped
+    // endpoint and cached into the same ID->label maps. Any failure leaves raw
+    // IDs visible rather than blank cells or a blocked Activity screen.
+    function loadDirectory() {
+      if (!state.isAdmin || state.directoryLoading || state.directoryLoaded || !apiFetch) return;
+      state.directoryLoading = true;
+      apiFetch('/api/branches').then(function (resp) {
+        var branches = resp && Array.isArray(resp.branches) ? resp.branches : (Array.isArray(resp) ? resp : []);
+        state.branches = branches;
+        state.branchNames = branchNamesFromResponse(branches);
+        return Promise.all(branches.map(function (branch) {
+          if (!branch || branch.id == null || branch.id === '') return Promise.resolve([]);
+          return apiFetch('/api/branches/' + encodeURIComponent(branch.id) + '/staff')
+            .then(function (staffResp) { return staffNamesFromResponse(staffResp); })
+            .catch(function () { return {}; });
+        }));
+      }).then(function (staffMaps) {
+        var names = {};
+        (Array.isArray(staffMaps) ? staffMaps : []).forEach(function (map) {
+          Object.keys(map || {}).forEach(function (id) { names[id] = map[id]; });
+        });
+        state.staffNames = names;
+      }).catch(function () {
+        // Keep row-only IDs usable even when the directory is unavailable.
+        state.branches = [];
+      }).then(function () {
+        state.directoryLoading = false;
+        state.directoryLoaded = true;
+        renderTable();
+      });
+    }
+
     function load(force) {
       if ((state.loading || state.loaded) && !force) { return; }
       if (!apiFetch) return;
@@ -1590,6 +2014,7 @@
         state.rows = Array.isArray(rows) ? rows : [];
         renderTable();
       }).catch(function () { state.loading = false; state.error = true; renderTable(); });
+      loadDirectory();
       loadReview();
       loadFieldSpec();
     }
@@ -1600,8 +2025,19 @@
   return {
     // pure
     filterSortPage: filterSortPage,
+    normaliseDatePreset: normaliseDatePreset,
+    thisMonthRange: thisMonthRange,
+    monthRange: monthRange,
+    displayDate: displayDate,
     badgesFor: badgesFor,
     categoryColor: categoryColor,
+    mixedCategoryLabel: mixedCategoryLabel,
+    lineItemDetails: lineItemDetails,
+    branchNamesFromResponse: branchNamesFromResponse,
+    staffNamesFromResponse: staffNamesFromResponse,
+    activityBranchOptions: activityBranchOptions,
+    displayBranchName: displayBranchName,
+    displayStaffName: displayStaffName,
     resolveCategories: resolveCategories,
     labelFor: labelFor,
     awaitingCategoryRows: awaitingCategoryRows,
@@ -1615,6 +2051,8 @@
     summarizeBulkResult: summarizeBulkResult,
     deletedRowsPath: deletedRowsPath,
     restorePath: restorePath,
+    purgeReminderDate: purgeReminderDate,
+    DELETED_RETENTION_DAYS: DELETED_RETENTION_DAYS,
     isRejected: isRejected,
     recategorizeBody: recategorizeBody,
     permanentDeletePath: permanentDeletePath,
@@ -1623,8 +2061,12 @@
     hasReceiptImage: hasReceiptImage,
     receiptKind: receiptKind,
     receiptLabel: receiptLabel,
+    receiptErrorMessage: receiptErrorMessage,
+    reviewDecisionError: reviewDecisionError,
     reviewMetaParts: reviewMetaParts,
     normaliseViewMode: normaliseViewMode,
+    statusLabel: statusLabel,
+    decisionErrorText: decisionErrorText,
     // render (browser)
     mount: mount,
   };

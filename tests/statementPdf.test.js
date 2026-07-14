@@ -8,7 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const PDFDocument = require('pdfkit');
 const { buildStatementModel } = require('../lib/statement');
-const { statementToPdf, sortRowsByDate } = require('../lib/statementPdf');
+const { statementToPdf, sortRowsByDate, fitScale, formatDisplayDate } = require('../lib/statementPdf');
 const { rgbaToPng } = require('../lib/pdf');
 
 function tinyPng() { return rgbaToPng(Buffer.alloc(2 * 2 * 4, 0xff), 2, 2); }
@@ -87,6 +87,32 @@ test('every receipted row still appends its page, regardless of statement-line v
   const base = (await statementToPdf(model, {})).pages;
   assert.strictEqual(pages, base + 2);
   assert.strictEqual(skippedReceipts, 0);
+});
+
+// --- Long statement page-overflow (stray-fragment bug) -----------------------------------
+// A statement with many categories + pad rows overflows past one page. The category TOTAL,
+// SUBTOTAL and footer rows are NOT wrapped in pageBreak() (only the data rows are), so
+// before the tableRow overflow guard they'd split — cell borders on one page, the "TOTAL"/
+// "0.00" text flung onto a near-blank next page. This renders that exact shape and asserts
+// the doc is still a single valid multi-page PDF (no crash, no runaway blank pages). The
+// pixel-level "no orphaned TOTAL" check is a visual diff (per this file's header note), done
+// on a real generated PDF; this is the structural backstop that the overflow path stays sane.
+
+test('a long, multi-page statement renders one valid PDF without runaway fragment pages', async () => {
+  const cats = ['Petrol/Diesel', 'Touch-n-Go', 'Entertainment', 'Printing', 'Sundry', 'Travelling', 'Accommodation', 'Hardware', 'Parking', 'Others'];
+  const big = buildStatementModel({
+    companyName: 'Placeholder Trading Sdn Bhd', branchLabel: 'QA Testing', preparedBy: 'Barat', period: '2026-07',
+    categories: cats, currency: 'MYR', showStaffColumn: true, showBranchColumn: true, balanceBf: 0,
+    expenses: cats.map((category, i) => ({ id: 'e' + i, amount: 50, category, expense_date: '2026-07-' + String(10 + i).padStart(2, '0'), merchant: 'Bank Islam ' + i, branch_id: 'b1', staff_user_id: 'u1' })),
+    staffNames: { u1: 'Barat' }, branchNames: { b1: 'QA Testing' }, padRows: 6,
+    signoff: { prepared: true, checked: false, approved: true },
+  });
+  const { buffer, pages } = await statementToPdf(big, {});
+  assert.strictEqual(buffer.subarray(0, 5).toString('latin1'), '%PDF-');
+  assert.ok(pages >= 2, 'this dataset genuinely spans multiple pages');
+  // A sane upper bound: even worst-case one row per page couldn't exceed the total row count.
+  // Catches a regression that re-introduces runaway blank/fragment pages.
+  assert.ok(pages <= 6, 'no runaway fragment pages (got ' + pages + ')');
 });
 
 // --- Photo appendix DATE ordering (all-branches export follow-up) ------------------------
@@ -172,5 +198,67 @@ test('receiptEvidence ON: a real image receipt still renders fine (no crash), sa
     receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } },
   });
   assert.strictEqual(pages, base + 2);
+  assert.strictEqual(skippedReceipts, 0);
+});
+
+test('line-item split: one physical receipt still gets exactly one evidence page', async () => {
+  const splitModel = buildStatementModel({
+    companyName: 'X', branchLabel: 'HQ', period: '2025-10', categories: ['Food', 'Tickets'], currency: 'MYR',
+    expenses: [{ id: 'mixed', amount: 80, category: 'Food', voucher_no: 'RC-42', expense_date: '2025-10-01', merchant: 'Market',
+      line_items: [{ amount: 50, category: 'Food' }, { amount: 30, category: 'Tickets' }] }],
+  });
+  const base = (await statementToPdf(splitModel, {})).pages;
+  const out = await statementToPdf(splitModel, { receiptEvidence: true, receipts: { mixed: { buffer: tinyPng(), ext: 'png' } } });
+  assert.strictEqual(out.pages, base + 1, 'split statement rows must not duplicate the physical evidence page');
+});
+
+// --- ID-card redesign (Owner request, replaces the full-bleed "image dump" appendix): a
+// bordered card with a details block + a bordered photo box that NEVER upscales a small
+// image (the reported blur bug — a small photo stretched to fill the box). fitScale is the
+// pure core of that fix: the scale factor to draw an image at, capped at 1 so a photo
+// smaller than its box is drawn at its real size instead of blown up. ---------------------
+
+test('fitScale: a BIG image shrinks to fit inside the box (aspect preserved)', () => {
+  // 2000x1000 image into a 500x500 box -> width-constrained, scale = 500/2000 = 0.25
+  assert.strictEqual(fitScale(2000, 1000, 500, 500), 0.25);
+});
+
+test('fitScale: a SMALL image is NEVER upscaled — stays at its real size (the blur fix)', () => {
+  // 100x50 image into a 500x500 box -> would compute 5x if uncapped; must cap at 1
+  assert.strictEqual(fitScale(100, 50, 500, 500), 1);
+});
+
+test('fitScale: picks the more restrictive dimension (whichever of width/height is tighter)', () => {
+  // 400x100 image into a 200x200 box -> width-constrained: 200/400=0.5 vs height 200/100=2(capped 1) -> 0.5
+  assert.strictEqual(fitScale(400, 100, 200, 200), 0.5);
+});
+
+test('fitScale: garbage/zero input never throws, degrades to no scaling (1)', () => {
+  assert.strictEqual(fitScale(0, 0, 500, 500), 1);
+  assert.strictEqual(fitScale(NaN, 100, 500, 500), 1);
+  assert.strictEqual(fitScale(100, 100, 0, 0), 1);
+  assert.strictEqual(fitScale(null, undefined, 500, 500), 1);
+});
+
+test('formatDisplayDate: ISO YYYY-MM-DD -> "DD Mon YYYY" (matches the card spec example)', () => {
+  assert.strictEqual(formatDisplayDate('2026-07-03'), '03 Jul 2026');
+  assert.strictEqual(formatDisplayDate('2025-12-25'), '25 Dec 2025');
+});
+
+test('formatDisplayDate: garbage/empty input -> the raw string back, never throws', () => {
+  assert.strictEqual(formatDisplayDate(''), '');
+  assert.strictEqual(formatDisplayDate(null), '');
+  assert.strictEqual(formatDisplayDate('not-a-date'), 'not-a-date');
+});
+
+test('receiptEvidence ON: a receipt page still renders correctly with the card layout (no crash), same page arithmetic', async () => {
+  const base = (await statementToPdf(model, {})).pages;
+  // both expenses receipted -> 2 card pages, no summary page (nothing missing)
+  const { buffer, pages, skippedReceipts } = await statementToPdf(model, {
+    receiptEvidence: true,
+    receipts: { e1: { buffer: tinyPng(), ext: 'png' }, e2: { buffer: tinyPng(), ext: 'png' } },
+  });
+  assert.strictEqual(buffer.subarray(0, 5).toString('latin1'), '%PDF-');
+  assert.strictEqual(pages, base + 2, 'one card page per receipt, unchanged arithmetic');
   assert.strictEqual(skippedReceipts, 0);
 });

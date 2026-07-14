@@ -17,12 +17,18 @@ test('personal mode -> exactly the classic sections (same reference semantics)',
   assert.deepStrictEqual(sectionsFor({}), SECTIONS);
 });
 
-test('business mode -> Team + Payments appear, classic sections all kept, Settings stays last', () => {
+test('business mode default Premala packaging -> Team appears, Payments hidden, classic sections all kept, Settings stays last', () => {
   const ids = sectionsFor({ business: true, role: 'admin' }).map((s) => s.id);
   assert.ok(ids.includes('team'));
-  assert.ok(ids.includes('payments'));
+  assert.ok(!ids.includes('payments'));
   for (const s of SECTIONS) assert.ok(ids.includes(s.id), s.id + ' kept');
   assert.strictEqual(ids[ids.length - 1], 'settings');
+});
+
+test('business mode can opt Payments back in for another client', () => {
+  const ids = sectionsFor({ business: true, role: 'admin', paymentsPage: true }).map((s) => s.id);
+  assert.ok(ids.includes('team'));
+  assert.ok(ids.includes('payments'));
 });
 
 test('no standalone "ledger" section any more (it lives under Manage now)', () => {
@@ -54,7 +60,7 @@ test('excelLiteGrid flag no longer changes the nav (grid moved under Manage)', (
   const off = sectionsFor({ business: true, excelLiteGrid: false }).map((s) => s.id);
   const on = sectionsFor({ business: true, excelLiteGrid: true }).map((s) => s.id);
   assert.deepStrictEqual(off, on);
-  assert.ok(off.includes('team') && off.includes('payments'));
+  assert.ok(off.includes('team') && !off.includes('payments'));
 });
 
 test('excelLiteGrid flag is irrelevant in personal mode (classic sections regardless)', () => {

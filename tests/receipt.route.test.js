@@ -159,6 +159,51 @@ test('by-id: row with neither image -> 404', async () => {
   } finally { cfg.DASHBOARD_TOKEN = saved; }
 });
 
+// ADR-027: the SAME handlers are also mounted under /api/receipt/* so images ride the
+// /api/* → :3005 nginx catch-all that the co-tenant FrictionAI app never claims (the shared
+// /receipt/ location can only proxy_pass to ONE backend — root cause of the recurring
+// "no photo available"). The frontend uses this form; legacy /receipt/* stays for the bot.
+test('ADR-027: /api/receipt/by-id/:id serves identically to the legacy /receipt/by-id path', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  try {
+    const app = appWith({
+      sbSelect: async (_t, q) => (q.eq.id === 'e1' ? [{ id: 'e1', receipt_url: 'default/u.png' }] : []),
+      fetchReceiptObject: async (path) => (path === 'default/u.png' ? Buffer.from('stored-png-bytes') : null),
+    });
+    const { status, buf, headers } = await get(app, '/api/receipt/by-id/e1', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(buf.toString(), 'stored-png-bytes');
+    assert.strictEqual(headers.get('cache-control'), 'private, no-store');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('ADR-027: /api/receipt/:fileId serves via the Telegram proxy like the legacy path', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  try {
+    const app = appWith({
+      tgFileUrl: async (fid) => (fid === 'fidA' ? { url: 'http://x', path: 'a.jpg' } : null),
+      hreq: async () => Buffer.from('telegram-jpeg-bytes'),
+    });
+    const { status, buf } = await get(app, '/api/receipt/fidA', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(buf.toString(), 'telegram-jpeg-bytes');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('ADR-027: /api/receipt/:fileId is checkDash-gated too (no token -> 401)', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  let called = false;
+  try {
+    const app = appWith({ tgFileUrl: async () => { called = true; return { url: 'http://x', path: 'a.jpg' }; } });
+    const { status } = await get(app, '/api/receipt/fidA');
+    assert.strictEqual(status, 401);
+    assert.strictEqual(called, false, 'must not fetch the image before auth');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
 test('by-id: unknown expense id -> 404, never touches Storage/Telegram', async () => {
   const saved = cfg.DASHBOARD_TOKEN;
   cfg.DASHBOARD_TOKEN = 'tok-abc';

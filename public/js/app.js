@@ -23,6 +23,7 @@
   var AUTO_MODE_KEY = 'auto_mode';
   var DEFAULT_VIEW_KEY = 'default_view';
   var SESSION_KEY = 'session_info'; // ADR-021 Phase 6: { role, branch_id, display_name } — identity only, NEVER the token
+  var AUTH_EXPIRED_KEY = 'auth_expired_notice'; // one-shot flag: set before the reload in handleAuthExpired, read+cleared in boot()
 
   // Resolve dependencies from either CommonJS (Node) or the browser globals that
   // the earlier <script> tags attached. In Node these are only used by boot(),
@@ -191,6 +192,29 @@
     try { if (root && root.location && typeof root.location.reload === 'function') root.location.reload(); } catch (e) { /* ignore */ }
   }
 
+  // Live incident, 2026-07-11: the Owner's session hit its 12h TTL and EVERY panel
+  // (Overview/Activity/review queue) failed identically with a dead-end "could not
+  // load, please try again shortly" — no indication that logging in again was the fix.
+  // Only a manual logout+login recovered it. Api.onAuthExpired (api.js) notifies here
+  // the first time any call gets a real 401 (a token was attached and rejected), so the
+  // WHOLE app reacts once instead of every view quietly failing its own way: clear the
+  // dead token/session (mirrors logout()'s own cleanup, minus the /api/logout call —
+  // that request would just 401 again since the session is already gone) and reload.
+  // AUTH_EXPIRED_KEY survives the reload so boot() can show a clear "log in again"
+  // message instead of a blank gate. Guarded to fire once — multiple panels can all
+  // 401 around the same moment and would otherwise race to reload repeatedly.
+  var authExpiredHandled = false;
+  function handleAuthExpired() {
+    if (authExpiredHandled) return;
+    authExpiredHandled = true;
+    var s = ss();
+    try { if (s) s.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
+    storeSession(null);
+    try { var api = dep('Api'); if (api && api.setToken) api.setToken(null); } catch (e) { /* ignore */ }
+    try { if (s) s.setItem(AUTH_EXPIRED_KEY, '1'); } catch (e) { /* ignore */ }
+    reloadPage();
+  }
+
   // Owner request 2026-07-06: a small "what is this page for" hint on every
   // page, so a non-technical user always has a one-line explanation on hand
   // without having to ask. Plain, static strings (never user input), so a
@@ -292,7 +316,10 @@
   // When opened from Settings' "Log in" on a dashboard that does NOT require a
   // token, there's nothing to wait for — `onCancel` (a "Cancel" button) lets the
   // user back out instead of being stuck on a token box they have no token for.
-  function renderTokenGate(deps, onEntered, onCancel) {
+  // `initialMessage` is OPTIONAL — shown up front (e.g. "Your session expired.
+  // Please log in again." after handleAuthExpired's reload) instead of the blank
+  // message paragraph a plain boot leaves until the first submit attempt.
+  function renderTokenGate(deps, onEntered, onCancel, initialMessage) {
     var Escape = deps.Escape, Api = deps.Api, AuthGate = deps.AuthGate;
     var mount = document.getElementById('app');
     if (!mount) return;
@@ -319,6 +346,7 @@
 
     var msg = document.createElement('p');
     msg.className = 'token-gate-msg muted';
+    if (initialMessage) Escape.setText(msg, initialMessage);
 
     form.appendChild(label);
     form.appendChild(input);
@@ -382,6 +410,11 @@
       // Same signal `sections` above already uses — the nav and the header title
       // must never disagree about which mode this boot is in.
       business: !!deps.session,
+      // Telegram bot link (2026-07-14): already-fetched /api/config carries the
+      // bot's public @handle; no second round-trip needed. Same value for every
+      // role (one bot per account) — Nav.buildBrandHeader omits the icon entirely
+      // when this is blank (BOT_USERNAME not configured/auto-detected yet).
+      botUsername: deps.config && deps.config.bot_username,
       onSettings: function () { select('settings'); },
       // The Settings view is built once at boot and never re-rendered, so its
       // theme <select> (tagged .set-select--theme) would otherwise show a
@@ -504,11 +537,27 @@
     };
     if (!deps.Escape || !deps.Api || !deps.AuthGate || !deps.Nav) return;
 
+    // Subscribe once, before any view can possibly fetch and hit a dead session.
+    if (deps.Api.onAuthExpired) deps.Api.onAuthExpired(handleAuthExpired);
+
     applyTheme(storedTheme());
 
     // Attach any already-stored token to Api up front so config carries it too.
     var stored = getStoredToken();
     if (stored) deps.Api.setToken(stored);
+
+    // One-shot: handleAuthExpired sets this right before reloading, so the login/token
+    // gate this boot lands on can say WHY it's asking again instead of just appearing
+    // blank (the exact gap in the 2026-07-11 incident — nothing told the user a fresh
+    // login was the fix).
+    var expiredNotice = null;
+    var s = ss();
+    try {
+      if (s && s.getItem(AUTH_EXPIRED_KEY)) {
+        expiredNotice = 'Your session expired. Please log in again.';
+        s.removeItem(AUTH_EXPIRED_KEY);
+      }
+    } catch (e) { /* ignore */ }
 
     deps.Api.apiFetch('/api/config').then(function (cfg) {
       // Share the already-fetched config (incl. `categories`) with mounted view
@@ -527,9 +576,9 @@
         deps.Login && deps.Login.render(mount, deps, function (session) {
           storeSession(session);
           enterApp(deps);
-        });
+        }, expiredNotice);
       } else if (decision === 'prompt') {
-        renderTokenGate(deps, function () { enterApp(deps); });
+        renderTokenGate(deps, function () { enterApp(deps); }, undefined, expiredNotice);
       } else {
         enterApp(deps);
       }
@@ -566,5 +615,6 @@
     setAutoMode: setAutoMode,
     storedDefaultView: storedDefaultView,
     setDefaultView: setDefaultView,
+    handleAuthExpired: handleAuthExpired,
   };
 });

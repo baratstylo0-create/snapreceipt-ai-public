@@ -5,7 +5,29 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, managedExportButtons, statementExportButtons, ledgerTableClass, submissionPeriod, submissionState, readyToCloseRows } = require('../../public/js/components/grid');
+
+test('submissionPeriod returns the local YYYY-MM month used by the submit signal', () => {
+  assert.strictEqual(submissionPeriod(new Date(2026, 6, 13)), '2026-07');
+  assert.strictEqual(submissionPeriod(new Date(2026, 0, 2)), '2026-01');
+});
+
+test('submissionState distinguishes submitted, withdrawn, and not-yet-submitted', () => {
+  assert.strictEqual(submissionState(null), 'not_submitted');
+  assert.strictEqual(submissionState({ status: 'submitted' }), 'submitted');
+  assert.strictEqual(submissionState({ status: 'withdrawn' }), 'withdrawn');
+});
+
+test('readyToCloseRows keeps submitted branches, labels them safely, and ignores withdrawn rows', () => {
+  assert.deepStrictEqual(readyToCloseRows([
+    { id: 's1', branch_id: 'b2', period: '2026-07', status: 'submitted' },
+    { id: 's2', branch_id: 'b1', period: '2026-07', status: 'withdrawn' },
+    { id: 's3', branch_id: 'b3', period: '2026-06', status: 'submitted' },
+  ], { b2: 'South' }, '2026-07'), [
+    { id: 's1', branch_id: 'b2', period: '2026-07', label: 'South' },
+  ]);
+  assert.deepStrictEqual(readyToCloseRows(null, {}), []);
+});
 
 const ROW = { id: 'e1', merchant: 'Cafe', amount: 10, expense_date: '2026-07-01', category: 'Meals & Entertainment', remark: '', updated_at: '2026-07-07T10:00:00+00:00' };
 
@@ -127,7 +149,7 @@ test('rowsToCSV: raw export header + one CSV line per expense, including receipt
   ]);
   const lines = csv.split('\r\n');
   assert.strictEqual(lines[0], 'Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL');
-  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",12.5,MYR,Meals & Entertainment,b1,s1,paid,/receipt/by-id/e1');
+  assert.strictEqual(lines[1], '2026-07-08,"Cafe, KL",12.5,MYR,Meals & Entertainment,b1,s1,paid,/api/receipt/by-id/e1');
 });
 
 test('rowsToCSV: a formula-like merchant name is neutralised (defense in depth for a re-imported export)', () => {
@@ -143,4 +165,61 @@ test('rowsToCSV: empty input -> header row only; garbage input never throws', ()
 
 test('blankTemplateCSV: exactly the header row, matching rowsToCSV\'s own header', () => {
   assert.strictEqual(blankTemplateCSV(), 'Date,Merchant,Category,Amount,Remark');
+});
+
+// --- Petty Cash Statement export moved into the Data editor toolbar (C1) ---
+
+test('statementExportUrl: builds the existing statement route query for xlsx/pdf', () => {
+  assert.strictEqual(statementExportUrl({ period: '2026-07', format: 'xlsx', branch: 'all' }), '/api/statement?period=2026-07&format=xlsx&branch=all');
+  assert.strictEqual(statementExportUrl({ period: '2026-07', format: 'pdf', branch: 'bA' }), '/api/statement?period=2026-07&format=pdf&branch=bA');
+});
+
+test('statementExportUrl: clerk/own-branch path omits branch so the server hard-forces scope', () => {
+  assert.strictEqual(statementExportUrl({ period: '2026-07', format: 'pdf', branch: '' }), '/api/statement?period=2026-07&format=pdf');
+});
+
+test('statementBranchOptions: admin gets All + My uploads + branch ids from loaded rows', () => {
+  const opts = statementBranchOptions([
+    { branch_id: 'bA' }, { branch_id: 'bB' }, { branch_id: 'bA' }, { branch_id: null },
+  ], { role: 'admin', branch_id: 'bHQ' });
+  assert.deepStrictEqual(opts.map((o) => [o.value, o.label]), [
+    ['all', 'All branches'],
+    ['bHQ', 'My uploads'],
+    ['bA', 'Branch bA'],
+    ['bB', 'Branch bB'],
+  ]);
+});
+
+test('statementBranchOptions: clerk gets no branch picker options', () => {
+  assert.deepStrictEqual(statementBranchOptions([{ branch_id: 'bA' }], { role: 'clerk', branch_id: 'bA' }), []);
+});
+
+// --- Export menu trimmed (QA 2026-07-13, Untitled document.md): keep ONLY Export Excel +
+// Statement PDF; remove Export CSV / Export PDF (with receipts) / Export template / Statement
+// Excel. The kept buttons' FORMAT must stay 'xlsx'/'pdf' so the actual export output is
+// unchanged (the Owner's explicit constraint). These pure descriptors are the single source
+// of truth the toolbar builds from, so this locks the button set against a silent re-add. ---
+
+test('managedExportButtons: exactly one button — Export Excel wired to the unchanged xlsx format', () => {
+  assert.deepStrictEqual(managedExportButtons(), [{ label: 'Export Excel', format: 'xlsx' }]);
+});
+
+test('statementExportButtons: exactly one button — Statement PDF wired to the unchanged pdf format', () => {
+  assert.deepStrictEqual(statementExportButtons(), [{ label: 'Statement PDF', format: 'pdf' }]);
+});
+
+test('export button set contains NONE of the four removed options', () => {
+  const labels = managedExportButtons().concat(statementExportButtons()).map((b) => b.label);
+  ['Export CSV', 'Export PDF (with receipts)', 'Export template', 'Statement Excel'].forEach((gone) => {
+    assert.ok(labels.indexOf(gone) === -1, gone + ' must no longer be offered');
+  });
+  assert.deepStrictEqual(labels, ['Export Excel', 'Statement PDF']);
+});
+
+// --- Edit Mode visual cue (QA 2026-07-13): the ledger table gets an `is-editing` hook class
+// while Edit cells is on, so CSS can green the editable columns; off = plain. ---
+
+test('ledgerTableClass: adds the is-editing hook only while editing', () => {
+  assert.strictEqual(ledgerTableClass(true), 'ledger-table is-editing');
+  assert.strictEqual(ledgerTableClass(false), 'ledger-table');
 });

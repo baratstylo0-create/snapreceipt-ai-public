@@ -406,10 +406,16 @@ test('POST /api/templates: an admin-scoped session still succeeds end-to-end (20
 
 test('POST /api/templates: JSON { categories } with NO csv -> categories-only save, columns untouched', async () => {
   let written = null;
-  const db = (_u, opt) => {
+  const db = (u, opt) => {
     const method = (opt && opt.method) || 'GET';
     if (method === 'GET') {
-      return { text: async () => JSON.stringify([{ id: 'row1', columns: [{ key: 'merchant', label: 'Vendor', type: 'text', required: true }], categories: ['Fuel'], updated_at: 'old' }]) };
+      // 'Fuel' is dropped by this save; the delete-in-use guard queries `expenses` too —
+      // table-scoped so that lookup correctly sees no expenses (not an echo of the
+      // field_templates fixture, which would wrongly block the save as "still in use").
+      if (String(u).includes('/rest/v1/field_templates')) {
+        return { text: async () => JSON.stringify([{ id: 'row1', columns: [{ key: 'merchant', label: 'Vendor', type: 'text', required: true }], categories: ['Fuel'], updated_at: 'old' }]) };
+      }
+      return { text: async () => '[]' };
     }
     written = { method, body: opt.body ? JSON.parse(opt.body) : null };
     return { text: async () => '' };
@@ -426,6 +432,39 @@ test('POST /api/templates: JSON { categories } with NO csv -> categories-only sa
     assert.deepStrictEqual(spec.categories, ['Petrol/Diesel', 'Touch-n-Go', 'Others']);
     assert.strictEqual(written.method, 'PATCH');
     assert.ok(!('columns' in written.body), 'a categories-only save must never send a columns key');
+  });
+});
+
+// 2026-07-13 round-2 plan §2.2: saveCategories' delete-in-use guard must surface as a clean
+// 400 with its own message — not the generic 502 "save failed" every other saveCategories/
+// saveTemplate error already avoids via the 'saveTemplate:' prefix convention.
+test('POST /api/templates: removing an in-use category via the categories-only save -> 400 with the guard message, no write', async () => {
+  let wrote = false;
+  const db = (u, opt) => {
+    const method = (opt && opt.method) || 'GET';
+    if (method === 'GET') {
+      if (String(u).includes('/rest/v1/field_templates')) {
+        return { text: async () => JSON.stringify([{ id: 'row1', columns: [{ key: 'merchant', label: 'Vendor', type: 'text', required: true }], categories: ['Fuel', 'Meals'], updated_at: 'old' }]) };
+      }
+      // 'Meals' is being dropped and still has a live expense.
+      if (String(u).includes('/rest/v1/expenses') && String(u).includes('category=eq.Meals')) {
+        return { text: async () => JSON.stringify([{ id: 'e1', category: 'Meals' }]) };
+      }
+      return { text: async () => '[]' };
+    }
+    wrote = true;
+    return { text: async () => '' };
+  };
+  await withServer(db, async (base) => {
+    const r = await fetch(base + '/api/templates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: ['Fuel'] }), // drops 'Meals'
+    });
+    assert.strictEqual(r.status, 400, 'guard rejection is a client error, not a 502');
+    const j = await r.json();
+    assert.match(j.error, /Meals/);
+    assert.match(j.error, /still used/i);
+    assert.strictEqual(wrote, false, 'nothing written when the guard rejects');
   });
 });
 
