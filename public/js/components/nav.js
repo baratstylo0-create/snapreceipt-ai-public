@@ -98,10 +98,21 @@
   // no "Team" tab, no mascot illustration — those are business-mockup extras,
   // out of scope here.
 
-  // Build the big top block: logo badge + title + tagline, plus 3 icon actions
-  // (settings shortcut, theme toggle, refresh). onSettings/onToggleTheme/onRefresh
-  // are called on their respective button clicks. Returns { el } or null outside a
-  // browser.
+  // https://t.me/<bot_username> — pure so it's unit-testable without a DOM. Same
+  // link for every role (one bot per client account, ADR-020); the bot's @handle
+  // comes from GET /api/config's `bot_username` (already fetched at boot, no new
+  // endpoint needed). Returns null when unset (BOT_USERNAME not yet configured/
+  // auto-detected) so the caller can skip rendering the icon entirely rather than
+  // link to a broken/empty bot handle.
+  function telegramLink(botUsername) {
+    var u = botUsername == null ? '' : String(botUsername).trim();
+    return u ? 'https://t.me/' + encodeURIComponent(u) : null;
+  }
+
+  // Build the big top block: logo badge + title + tagline, plus icon actions
+  // (Telegram bot link, settings shortcut, theme toggle, refresh). onSettings/
+  // onToggleTheme/onRefresh are called on their respective button clicks. Returns
+  // { el } or null outside a browser.
   //
   // opts.business (bool, ADR-021 Phase 6 follow-up): the original two-tier header
   // (Owner request 2026-07-06) hardcoded "AutoReceipt Dashboard (Personal)" —
@@ -144,6 +155,28 @@
 
     var actions = document.createElement('div');
     actions.className = 'header-actions';
+
+    // Telegram bot link (Owner request 2026-07-14): neither role had any persistent,
+    // nav-accessible way to find "their" bot — a clerk's/admin's one-time bind LINK
+    // (with the secret bind_token) is only ever shown once via Team's credential
+    // panel and must stay that way (re-exposing a live bind_token in the nav would
+    // let anyone with page access re-bind the branch's chat to themselves). This
+    // icon is the safe, always-visible piece: a plain link to open a chat with the
+    // account's bot (no token, nothing secret) — the same URL for every role, since
+    // there is exactly one bot per client account (ADR-020). Omitted entirely when
+    // BOT_USERNAME isn't configured yet, rather than linking to a dead handle.
+    var tgLink = telegramLink(opts.botUsername);
+    if (tgLink) {
+      var tgBtn = document.createElement('a');
+      tgBtn.className = 'icon-btn';
+      tgBtn.href = tgLink;
+      tgBtn.target = '_blank';
+      tgBtn.rel = 'noopener noreferrer';
+      tgBtn.title = 'Open Telegram bot';
+      tgBtn.setAttribute('aria-label', 'Open Telegram bot');
+      tgBtn.textContent = '✈'; // ✈ plane glyph, single-character like the sibling icon buttons
+      actions.appendChild(tgBtn);
+    }
 
     var settingsBtn = document.createElement('button');
     settingsBtn.type = 'button';
@@ -216,5 +249,9 @@
     return { el: nav, setActive: setActive };
   }
 
-  return { buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem, SECTIONS: SECTIONS, sectionsFor: sectionsFor, paymentsPageEnabled: paymentsPageEnabled };
+  return {
+    buildNav: buildNav, buildBrandHeader: buildBrandHeader, buildEmblem: buildEmblem,
+    SECTIONS: SECTIONS, sectionsFor: sectionsFor, paymentsPageEnabled: paymentsPageEnabled,
+    telegramLink: telegramLink,
+  };
 });
