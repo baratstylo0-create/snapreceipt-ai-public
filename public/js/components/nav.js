@@ -114,20 +114,28 @@
   // innerHTML — same discipline as buildEmblem above, so the strict no-inline CSP holds.
   // stroke="currentColor" inherits .icon-btn's color (and its hover-color transition) for
   // free, matching the plain-glyph siblings (⚙ ☾ ↻) it sits next to.
+  // Owner report 2026-07-14 (round 2): the first pass (a generic stroke paper-plane/"send"
+  // icon) still just read as "an aeroplane", not specifically Telegram. Swapped for the
+  // actual Telegram logomark (blue circle + white paper-plane silhouette) — instantly
+  // recognisable, so there's no more ambiguity about what the icon does. Brand colour is
+  // fixed (not `currentColor`/theme-tinted) on purpose: a brand mark should look the same
+  // in every theme, same as how a real Telegram/WhatsApp/etc. badge never re-themes.
   function buildTelegramIcon() {
     var svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '18');
-    svg.setAttribute('height', '18');
-    svg.setAttribute('fill', 'none');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
     svg.setAttribute('aria-hidden', 'true');
-    var path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', 'M22 2 11 13M22 2 15 22 11 13 2 9 22 2');
-    path.setAttribute('stroke', 'currentColor');
-    path.setAttribute('stroke-width', '2');
-    path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('stroke-linejoin', 'round');
-    svg.appendChild(path);
+    var circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', '12');
+    circle.setAttribute('cy', '12');
+    circle.setAttribute('r', '12');
+    circle.setAttribute('fill', '#29A9EB');
+    var plane = document.createElementNS(SVG_NS, 'path');
+    plane.setAttribute('fill', '#fff');
+    plane.setAttribute('d', 'M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71l-4.14-3.05-2 1.93c-.23.23-.42.42-.83.42z');
+    svg.appendChild(circle);
+    svg.appendChild(plane);
     return svg;
   }
 
