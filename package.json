@@ -17,7 +17,7 @@
     "@hyzyla/pdfium": "^2.1.13",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
-    "express": "^4.19.2",
+    "express": "^5.2.1",
     "pdfkit": "^0.19.1"
   },
   "overrides": {
