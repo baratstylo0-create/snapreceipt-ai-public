@@ -358,6 +358,53 @@
     return ISO_DATE_RE.test(s) ? s.slice(0, 10) : null;
   }
 
+  // ---- Date filter presets (QA 2026-07-14, Untitled document (1).md) -------------
+  // Three preset modes for the Activity date filter. All PURE + node-tested; they only
+  // compute ISO from/to strings that the EXISTING filterSortPage range filter already
+  // understands — the filter logic itself is untouched.
+
+  // normaliseDatePreset(v) -> 'month' | 'pick' | 'custom'. 'month' = This Month (default),
+  // 'pick' = a specific month via <input type="month">, 'custom' = free From/To. Garbage
+  // (null/unknown/legacy) falls back to 'month' so the page always has a valid default.
+  var DATE_PRESETS = { month: true, pick: true, custom: true };
+  function normaliseDatePreset(v) {
+    var s = str(v).trim();
+    return DATE_PRESETS[s] ? s : 'month';
+  }
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  // thisMonthRange(now) -> { from: 'YYYY-MM-01', to: 'YYYY-MM-DD' (today) }. Uses local
+  // date parts (matches the browser's own calendar, what the user sees as "this month").
+  function thisMonthRange(now) {
+    var d = now instanceof Date && Number.isFinite(now.getTime()) ? now : new Date();
+    var y = d.getFullYear();
+    var m = d.getMonth() + 1;
+    return { from: y + '-' + pad2(m) + '-01', to: y + '-' + pad2(m) + '-' + pad2(d.getDate()) };
+  }
+
+  // monthRange('YYYY-MM') -> that whole calendar month's { from, to } with the correct
+  // 28/29/30/31 last day (leap-aware, via Date day-0-of-next-month). Malformed input -> null.
+  var MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
+  function monthRange(month) {
+    var m = MONTH_RE.exec(str(month).trim());
+    if (!m) return null;
+    var y = Number(m[1]);
+    var mo = Number(m[2]);
+    var lastDay = new Date(y, mo, 0).getDate(); // day 0 of the NEXT month = last day of this one
+    return { from: m[1] + '-' + m[2] + '-01', to: m[1] + '-' + m[2] + '-' + pad2(lastDay) };
+  }
+
+  // displayDate(raw) -> the user's chosen Asian format YYYY/MM/DD (decided 2026-07-14).
+  // An ISO-ish date (with or without a time suffix) becomes e.g. 2026/07/08; anything that
+  // isn't a recognisable ISO date (messy OCR string, null, empty) is returned raw/unchanged,
+  // never blanked or crashed. Read-only display only — editable fields keep the raw ISO value.
+  function displayDate(raw) {
+    var iso = isoDatePrefix(raw);
+    if (iso === null) return str(raw);
+    return iso.replace(/-/g, '/');
+  }
+
   // Filter (search + status + category + date range) -> sort (date|amount, asc|desc)
   // -> page. Pure: returns { rows, total, page, pageCount, pageSize }. Never throws.
   function filterSortPage(rows, opts) {
@@ -854,28 +901,71 @@
       bar.appendChild(branchSel);
     }
 
-    // Date range (native <input type="date">, no picker library). expense_date is
-    // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
-    // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
-    var fromWrap = el('label', 'act-filter act-filter--date');
-    var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, 'From'); fromWrap.appendChild(fromLab);
-    var dateFrom = el('input', 'act-date-from');
-    dateFrom.type = 'date';
-    dateFrom.setAttribute('aria-label', 'From date');
-    dateFrom.value = state.dateFrom || '';
-    dateFrom.addEventListener('change', function () { onChange({ dateFrom: dateFrom.value, page: 1 }); });
-    fromWrap.appendChild(dateFrom);
-    bar.appendChild(fromWrap);
+    // Date preset (QA 2026-07-14): This Month (default) / Month Selection / Custom Period.
+    // This Month + Month Selection compute an ISO dateFrom/dateTo and feed the EXISTING
+    // filterSortPage range filter below — zero change to the filter itself. Custom Period
+    // shows the original free From/To pair, unchanged behaviour.
+    var presetSel = el('select', 'act-filter act-filter--datepreset');
+    presetSel.setAttribute('aria-label', 'Date range preset');
+    [['month', 'This Month'], ['pick', 'Month Selection'], ['custom', 'Custom Period']].forEach(function (pair) {
+      var o = el('option'); o.value = pair[0]; Escape.setText(o, pair[1]); presetSel.appendChild(o);
+    });
+    var preset = normaliseDatePreset(state.datePreset);
+    presetSel.value = preset;
+    presetSel.addEventListener('change', function () {
+      var next = normaliseDatePreset(presetSel.value);
+      if (next === 'month') {
+        var r = thisMonthRange(new Date());
+        onChange({ datePreset: next, dateFrom: r.from, dateTo: r.to, page: 1 });
+      } else if (next === 'pick') {
+        var mm = state.selectedMonth || thisMonthRange(new Date()).from.slice(0, 7);
+        var r2 = monthRange(mm) || thisMonthRange(new Date());
+        onChange({ datePreset: next, selectedMonth: mm, dateFrom: r2.from, dateTo: r2.to, page: 1 });
+      } else {
+        onChange({ datePreset: next, page: 1 }); // Custom Period: the From/To pair below takes over
+      }
+    });
+    bar.appendChild(presetSel);
 
-    var toWrap = el('label', 'act-filter act-filter--date');
-    var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, 'To'); toWrap.appendChild(toLab);
-    var dateTo = el('input', 'act-date-to');
-    dateTo.type = 'date';
-    dateTo.setAttribute('aria-label', 'To date');
-    dateTo.value = state.dateTo || '';
-    dateTo.addEventListener('change', function () { onChange({ dateTo: dateTo.value, page: 1 }); });
-    toWrap.appendChild(dateTo);
-    bar.appendChild(toWrap);
+    if (preset === 'pick') {
+      var monthWrap = el('label', 'act-filter act-filter--date');
+      var monthLab = el('span', 'act-filter-date-label'); Escape.setText(monthLab, 'Month'); monthWrap.appendChild(monthLab);
+      var monthInput = el('input', 'act-date-month');
+      monthInput.type = 'month';
+      monthInput.setAttribute('aria-label', 'Select month');
+      monthInput.value = state.selectedMonth || thisMonthRange(new Date()).from.slice(0, 7);
+      monthInput.addEventListener('change', function () {
+        var mm = monthInput.value;
+        var r = monthRange(mm);
+        if (r) onChange({ selectedMonth: mm, dateFrom: r.from, dateTo: r.to, page: 1 });
+      });
+      monthWrap.appendChild(monthInput);
+      bar.appendChild(monthWrap);
+    } else if (preset === 'custom') {
+      // Date range (native <input type="date">, no picker library). expense_date is
+      // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
+      // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
+      var fromWrap = el('label', 'act-filter act-filter--date');
+      var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, 'From'); fromWrap.appendChild(fromLab);
+      var dateFrom = el('input', 'act-date-from');
+      dateFrom.type = 'date';
+      dateFrom.setAttribute('aria-label', 'From date');
+      dateFrom.value = state.dateFrom || '';
+      dateFrom.addEventListener('change', function () { onChange({ dateFrom: dateFrom.value, page: 1 }); });
+      fromWrap.appendChild(dateFrom);
+      bar.appendChild(fromWrap);
+
+      var toWrap = el('label', 'act-filter act-filter--date');
+      var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, 'To'); toWrap.appendChild(toLab);
+      var dateTo = el('input', 'act-date-to');
+      dateTo.type = 'date';
+      dateTo.setAttribute('aria-label', 'To date');
+      dateTo.value = state.dateTo || '';
+      dateTo.addEventListener('change', function () { onChange({ dateTo: dateTo.value, page: 1 }); });
+      toWrap.appendChild(dateTo);
+      bar.appendChild(toWrap);
+    }
+    // preset === 'month': no extra control — This Month has no input, it's computed silently.
 
     return bar;
   }
@@ -1049,7 +1139,7 @@
       mCell.appendChild(badgeChips(r));
       tr.appendChild(mCell);
 
-      tr.appendChild(textCell('td', 'act-td', r.expense_date));
+      tr.appendChild(textCell('td', 'act-td', displayDate(r.expense_date)));
 
       var amt = el('td', 'act-td act-td--amount');
       Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
@@ -1115,7 +1205,7 @@
     body.appendChild(badgeChips(r));
 
     var meta = el('div', 'act-card-meta');
-    meta.appendChild(textCell('span', 'act-card-date', r.expense_date));
+    meta.appendChild(textCell('span', 'act-card-date', displayDate(r.expense_date)));
     var amt = el('span', 'act-card-amount');
     Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
     meta.appendChild(amt);
@@ -1458,9 +1548,14 @@
     // second, redundant /api/config call here. If boot's fetch hasn't resolved
     // yet (or failed) opts.config is absent/undefined and resolveCategories
     // falls back to DEFAULT_CATEGORIES — never an empty dropdown, never a throw.
+    // QA 2026-07-14: opens scoped to the CURRENT MONTH (not all history) — This Month is the
+    // default preset. thisMonthRange computed once at mount time, not on every render.
+    var defaultMonthRange = thisMonthRange(new Date());
     var state = {
       loaded: false, loading: false, rows: [],
-      search: '', filterStatus: 'all', filterCategory: 'all', filterBranch: isAdmin ? 'mine' : 'all', dateFrom: '', dateTo: '',
+      search: '', filterStatus: 'all', filterCategory: 'all', filterBranch: isAdmin ? 'mine' : 'all',
+      datePreset: 'month', selectedMonth: defaultMonthRange.from.slice(0, 7),
+      dateFrom: defaultMonthRange.from, dateTo: defaultMonthRange.to,
       sortBy: 'date', sortDir: 'desc', page: 1, pageSize: DEFAULT_PAGE_SIZE,
       viewMode: getStoredViewMode(storageRoot),
       categories: resolveCategories(opts.config),
@@ -1645,7 +1740,7 @@
       var amt = el('span', 'act-deleted-amount');
       Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
       item.appendChild(amt);
-      item.appendChild(textCell('span', 'act-deleted-date muted', rowObj.expense_date));
+      item.appendChild(textCell('span', 'act-deleted-date muted', displayDate(rowObj.expense_date)));
       var recover = el('button', 'act-deleted-recover'); recover.type = 'button'; Escape.setText(recover, 'Recover');
       var st = el('span', 'act-deleted-msg muted');
       recover.addEventListener('click', function () { handlers.onRecover(rowObj, st, recover); });
@@ -1888,6 +1983,10 @@
   return {
     // pure
     filterSortPage: filterSortPage,
+    normaliseDatePreset: normaliseDatePreset,
+    thisMonthRange: thisMonthRange,
+    monthRange: monthRange,
+    displayDate: displayDate,
     badgesFor: badgesFor,
     categoryColor: categoryColor,
     mixedCategoryLabel: mixedCategoryLabel,

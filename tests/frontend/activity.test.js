@@ -14,6 +14,7 @@ const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
+  normaliseDatePreset, thisMonthRange, monthRange, displayDate,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
@@ -670,6 +671,92 @@ test('filterSortPage: dateFrom/dateTo composes with search/status/category filte
   ];
   const out = filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30', filterCategory: 'Food' });
   assert.deepStrictEqual(out.rows.map((r) => r.id), ['a']);
+});
+
+// --- Date filter presets (QA 2026-07-14, Untitled document (1).md): This Month /
+// Month Selection / Custom Period + displayed dates in YYYY/MM/DD. -----------------
+
+test('normaliseDatePreset: each real value passes through unchanged', () => {
+  assert.strictEqual(normaliseDatePreset('month'), 'month');
+  assert.strictEqual(normaliseDatePreset('pick'), 'pick');
+  assert.strictEqual(normaliseDatePreset('custom'), 'custom');
+});
+
+test('normaliseDatePreset: garbage/unknown/null falls back to "month" (This Month is the default)', () => {
+  assert.strictEqual(normaliseDatePreset(null), 'month');
+  assert.strictEqual(normaliseDatePreset(undefined), 'month');
+  assert.strictEqual(normaliseDatePreset(''), 'month');
+  assert.strictEqual(normaliseDatePreset('yesterday'), 'month');
+  assert.strictEqual(normaliseDatePreset({}), 'month');
+});
+
+test('thisMonthRange: 1st-of-month through today, using the given clock', () => {
+  const r = thisMonthRange(new Date(2026, 6, 14)); // 2026-07-14 (local)
+  assert.deepStrictEqual(r, { from: '2026-07-01', to: '2026-07-14' });
+});
+
+test('thisMonthRange: pads single-digit month/day', () => {
+  const r = thisMonthRange(new Date(2026, 0, 5)); // 2026-01-05
+  assert.deepStrictEqual(r, { from: '2026-01-01', to: '2026-01-05' });
+});
+
+test('thisMonthRange: an invalid clock falls back to "now" rather than throwing', () => {
+  assert.doesNotThrow(() => thisMonthRange(new Date(NaN)));
+  assert.doesNotThrow(() => thisMonthRange(null));
+});
+
+test('monthRange: a 31-day month', () => {
+  assert.deepStrictEqual(monthRange('2026-07'), { from: '2026-07-01', to: '2026-07-31' });
+});
+
+test('monthRange: a 30-day month', () => {
+  assert.deepStrictEqual(monthRange('2026-09'), { from: '2026-09-01', to: '2026-09-30' });
+});
+
+test('monthRange: February — leap vs non-leap year', () => {
+  assert.deepStrictEqual(monthRange('2028-02'), { from: '2028-02-01', to: '2028-02-29' }, '2028 is a leap year');
+  assert.deepStrictEqual(monthRange('2026-02'), { from: '2026-02-01', to: '2026-02-28' }, '2026 is not a leap year');
+});
+
+test('monthRange: malformed input returns null, never throws', () => {
+  assert.strictEqual(monthRange('2026-13'), null);
+  assert.strictEqual(monthRange('2026-00'), null);
+  assert.strictEqual(monthRange('July 2026'), null);
+  assert.strictEqual(monthRange(''), null);
+  assert.strictEqual(monthRange(null), null);
+  assert.strictEqual(monthRange(undefined), null);
+});
+
+test('displayDate: ISO date -> YYYY/MM/DD', () => {
+  assert.strictEqual(displayDate('2026-07-08'), '2026/07/08');
+});
+
+test('displayDate: a timestamp suffix is stripped to just the date', () => {
+  assert.strictEqual(displayDate('2026-07-08T10:15:00Z'), '2026/07/08');
+});
+
+test('displayDate: a non-ISO / messy OCR date falls back to the raw string, never blanked', () => {
+  assert.strictEqual(displayDate('08 July 2026'), '08 July 2026');
+  assert.strictEqual(displayDate('not a date'), 'not a date');
+});
+
+test('displayDate: null/undefined/empty never throws, returns empty string', () => {
+  assert.strictEqual(displayDate(null), '');
+  assert.strictEqual(displayDate(undefined), '');
+  assert.strictEqual(displayDate(''), '');
+});
+
+test('monthRange -> filterSortPage: selects exactly one calendar month, nothing outside it', () => {
+  const rows = [
+    row({ id: 'prev', expense_date: '2026-06-30' }),
+    row({ id: 'a', expense_date: '2026-07-01' }),
+    row({ id: 'b', expense_date: '2026-07-15' }),
+    row({ id: 'c', expense_date: '2026-07-31' }),
+    row({ id: 'next', expense_date: '2026-08-01' }),
+  ];
+  const r = monthRange('2026-07');
+  const out = filterSortPage(rows, { dateFrom: r.from, dateTo: r.to });
+  assert.deepStrictEqual(out.rows.map((x) => x.id).sort(), ['a', 'b', 'c']);
 });
 
 // --- badgesFor: shared between table row and card rendering (Task L) ------
