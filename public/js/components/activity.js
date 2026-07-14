@@ -622,6 +622,22 @@
     return 'Could not load the receipt. Please try again shortly.';
   }
 
+  // Approve/Reject failure -> {message, resync}. A 409 means the row is no longer pending —
+  // this row's own first click double-submitted, another tab, or another user already decided —
+  // so the decision effectively happened: re-sync the queue quietly (resync:true) instead of a
+  // scary "Action failed" (the Owner-reported symptom, 2026-07-12). 401 gets specific guidance;
+  // 403 and everything else defer to decisionErrorText (a same-day, independent fix for the same
+  // report) so the REAL server reason — e.g. the review-valve's "the branch clerk decides first…"
+  // — surfaces instead of a second hardcoded generic 403 string that would hide it again. Pure so
+  // it's unit-testable without a fetch/DOM (mirrors receiptErrorMessage). resync:true callers
+  // reload the queue and skip re-enabling the buttons — the cards are about to be rebuilt.
+  function reviewDecisionError(err) {
+    var status = err && err.status;
+    if (status === 409) return { message: 'Already decided — refreshing…', resync: true };
+    if (status === 401) return { message: 'Session expired — please refresh and sign in again.', resync: false };
+    return { message: decisionErrorText(err), resync: false };
+  }
+
   // Review-queue card meta (Owner 2026-07-10): the ordered, displayable key fields shown under a
   // flagged receipt so it can be reviewed in place — [date, category, ref]. Blanks and the
   // internal '__pending__' category sentinel are dropped so the UI never shows an empty or
@@ -1462,8 +1478,12 @@
     var approve = el('button', 'act-review-approve'); approve.type = 'button'; Escape.setText(approve, 'Approve');
     var reject = el('button', 'act-review-reject'); reject.type = 'button'; Escape.setText(reject, 'Reject');
     var st = el('span', 'act-review-msg muted');
-    approve.addEventListener('click', function () { handlers.onDecide(rowObj, 'approve', card, st); });
-    reject.addEventListener('click', function () { handlers.onDecide(rowObj, 'reject', card, st); });
+    // Pass BOTH buttons so onDecide can disable them for the in-flight request — without a
+    // re-entrancy guard a double-click (or Approve-then-Reject before the row clears) fires a
+    // second POST that lands on an already-decided row and 409s, which looked like "Action failed"
+    // even though the first click succeeded. Mirrors buildAwaitingItem's saveBtn.disabled guard.
+    approve.addEventListener('click', function () { handlers.onDecide(rowObj, 'approve', card, st, [approve, reject]); });
+    reject.addEventListener('click', function () { handlers.onDecide(rowObj, 'reject', card, st, [approve, reject]); });
     actions.appendChild(approve); actions.appendChild(reject); actions.appendChild(st);
     main.appendChild(actions);
 
@@ -1904,7 +1924,9 @@
       reviewState.rows.forEach(function (r) {
         reviewArea.appendChild(buildReviewItem(r, {
           onOpen: openDrawer, // clicking the receipt thumbnail opens the full detail drawer
-          onDecide: function (rowObj, decision, card, st) {
+          onDecide: function (rowObj, decision, card, st, btns) {
+            btns = btns || [];
+            btns.forEach(function (b) { b.disabled = true; }); // re-entrancy guard: no second POST while this one is in flight
             Escape.setText(st, decision === 'approve' ? 'Approving…' : 'Rejecting…');
             apiFetch('/api/review/' + encodeURIComponent(rowObj.id), { method: 'POST', body: { decision: decision } })
               .then(function () {
@@ -1914,7 +1936,12 @@
                 if (idx !== -1) state.rows[idx].status = decision === 'approve' ? 'approved' : 'rejected';
                 renderReview(); renderTable();
               })
-              .catch(function (err) { Escape.setText(st, decisionErrorText(err)); });
+              .catch(function (e) {
+                var res = reviewDecisionError(e);
+                Escape.setText(st, res.message);
+                if (res.resync) { loadReview(); return; } // cards get rebuilt — no need to re-enable
+                btns.forEach(function (b) { b.disabled = false; }); // let the user retry a genuine failure
+              });
           },
         }));
       });
@@ -2035,6 +2062,7 @@
     receiptKind: receiptKind,
     receiptLabel: receiptLabel,
     receiptErrorMessage: receiptErrorMessage,
+    reviewDecisionError: reviewDecisionError,
     reviewMetaParts: reviewMetaParts,
     normaliseViewMode: normaliseViewMode,
     statusLabel: statusLabel,

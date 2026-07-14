@@ -19,7 +19,7 @@ const {
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
   purgeReminderDate, DELETED_RETENTION_DAYS,
-  receiptErrorMessage, statusLabel, decisionErrorText, mixedCategoryLabel, lineItemDetails,
+  receiptErrorMessage, statusLabel, decisionErrorText, reviewDecisionError, mixedCategoryLabel, lineItemDetails,
   branchNamesFromResponse, staffNamesFromResponse, activityBranchOptions,
   displayBranchName, displayStaffName,
 } = Activity;
@@ -159,6 +159,48 @@ test('decisionErrorText: falls back to the generic line when there is no server 
   assert.strictEqual(decisionErrorText({}), 'Action failed. Please try again.');
   assert.strictEqual(decisionErrorText({ status: 502, body: {} }), 'Action failed. Please try again.');
   assert.strictEqual(decisionErrorText({ body: { error: 42 } }), 'Action failed. Please try again.');
+});
+
+// --- reviewDecisionError (Owner-reported 2026-07-12: Approve/Reject showed "action fail") --
+// The review buttons now disable on click (re-entrancy guard) so a double-click / Approve-then-
+// Reject can't fire a second POST. When one does slip through (or another tab/user decided first),
+// the backend returns 409 — which used to render the scary generic "Action failed" even though the
+// decision actually succeeded. reviewDecisionError maps the thrown { status } to {message, resync}:
+// 409 -> quietly re-sync the queue; 401 -> specific guidance; 403/anything else -> decisionErrorText's
+// real-server-message-first behavior (a merge of two independent same-day fixes for the same bug —
+// #215's decisionErrorText already surfaces the real 403 valve reason, so 403 defers to it instead of
+// a second hardcoded generic string that would have hidden that reason again).
+// Pure so the mapping is unit-testable without a fetch/DOM (mirrors receiptErrorMessage).
+
+test('reviewDecisionError: 409 (already decided) re-syncs the queue instead of showing a failure', () => {
+  const out = reviewDecisionError({ status: 409 });
+  assert.strictEqual(out.resync, true, '409 must trigger a queue re-sync, not a dead-end error');
+  assert.match(out.message, /already decided/i);
+});
+
+test('reviewDecisionError: 401 gets specific, non-generic guidance and does NOT re-sync', () => {
+  const s401 = reviewDecisionError({ status: 401 });
+  assert.strictEqual(s401.resync, false);
+  assert.match(s401.message, /session expired/i);
+});
+
+test('reviewDecisionError: 403 surfaces the real server reason when present (e.g. the valve message)', () => {
+  const out = reviewDecisionError({ status: 403, body: { error: 'the branch clerk decides first, the admin valve opens 7 days after flagging' } });
+  assert.strictEqual(out.resync, false);
+  assert.strictEqual(out.message, 'the branch clerk decides first, the admin valve opens 7 days after flagging');
+});
+
+test('reviewDecisionError: any other status (400/404/502/none), or a 403 with no server message, keeps the generic retry, no re-sync', () => {
+  [400, 404, 502].forEach((status) => {
+    const out = reviewDecisionError({ status });
+    assert.strictEqual(out.resync, false);
+    assert.strictEqual(out.message, 'Action failed. Please try again.');
+  });
+  assert.strictEqual(reviewDecisionError({ status: 403 }).message, 'Action failed. Please try again.');
+  // tolerates a thrown value with no status / a bare network error, never throws
+  assert.doesNotThrow(() => reviewDecisionError(undefined));
+  assert.strictEqual(reviewDecisionError(undefined).message, 'Action failed. Please try again.');
+  assert.strictEqual(reviewDecisionError({}).resync, false);
 });
 
 // --- reviewMetaParts (review-queue card: receipt details, Owner 2026-07-10) --
