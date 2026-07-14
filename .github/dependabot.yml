@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # npm dependencies (package.json). Weekly scan; opens a PR per update/advisory —
+  # nothing auto-merges, CI (ci.yml) still gates every PR the same as a human's.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # GitHub Actions versions used in ci.yml/deploy.yml (e.g. actions/checkout@v4).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
