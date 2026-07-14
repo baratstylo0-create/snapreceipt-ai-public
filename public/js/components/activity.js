@@ -2006,6 +2006,13 @@
     }
 
     function load(force) {
+      // The Review Queue reflects other people's/other paths' decisions (bulk actions,
+      // another admin, another device) that this tab has no other way to learn about, so
+      // it must refetch on every re-entry to this view — not just the very first one.
+      // Stale queue rows produced the "approved but still stuck in the queue with an
+      // unkillable error" bug (2026-07-14): once state.loaded flipped true, this whole
+      // function became a no-op on every later tab visit, freezing reviewState forever.
+      loadReview();
       if ((state.loading || state.loaded) && !force) { return; }
       if (!apiFetch) return;
       state.loading = true; state.error = false; renderTable();
@@ -2015,7 +2022,6 @@
         renderTable();
       }).catch(function () { state.loading = false; state.error = true; renderTable(); });
       loadDirectory();
-      loadReview();
       loadFieldSpec();
     }
 
