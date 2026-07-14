@@ -1557,6 +1557,58 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 }
 .up-status { margin: 0; font-size: 14px; }
 
+/* QA 2026-07-14 (Untitled document (2).md): "Upload a file" / "Enter manually" toggle —
+   same pill-button language as .act-view-toggle/.act-view-btn. */
+.up-mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.up-mode-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.up-mode-btn.is-active { background: var(--accent); color: #fff; }
+body.theme-dark .up-mode-btn.is-active { color: var(--bg); }
+
+.up-file-section { display: flex; flex-direction: column; gap: 14px; }
+
+/* Manual-entry form — same field language as .act-field/.act-field-input (activity.js's
+   edit drawer), so typing an expense by hand looks consistent with editing one. */
+.up-manual-section { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.up-manual-form { display: flex; flex-direction: column; gap: 10px; }
+.up-manual-field { display: flex; flex-direction: column; gap: 4px; }
+.up-manual-label { color: var(--muted); font-size: 12px; }
+.up-manual-input {
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.up-manual-save {
+  align-self: flex-start;
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.up-manual-save:disabled { opacity: 0.5; cursor: default; }
+.up-manual-status { margin: 0; font-size: 14px; }
+
 .up-summary { display: flex; flex-direction: column; gap: 12px; }
 .up-counts { display: flex; flex-wrap: wrap; gap: 10px; }
 .up-count {
