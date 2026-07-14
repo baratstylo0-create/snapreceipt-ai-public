@@ -839,7 +839,7 @@
     clear(host);
     var band = el('section', 'ov-metrics-band');
     var heading = el('div', 'ov-metrics-heading');
-    heading.appendChild(textCell('h3', 'ov-metrics-title', 'Automation impact'));
+    heading.appendChild(textCell('h3', 'ov-metrics-title', 'Friction Automation Impact'));
     var periodLabel = el('label', 'ov-metrics-period-label');
     periodLabel.appendChild(textCell('span', 'ov-metrics-period-caption', 'Period'));
     var periodInput = el('input', 'ov-metrics-period');

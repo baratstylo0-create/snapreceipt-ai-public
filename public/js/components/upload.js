@@ -158,6 +158,66 @@
     return { text: m + ' — ' + reason, duplicate: false };
   }
 
+  // ---- "Enter manually" (QA 2026-07-14, Untitled document (2).md) --------------
+  // A second way to log an expense on this page: type every field by hand, no photo/OCR.
+  // POSTs to the new POST /api/expenses (routes/expenses.js) — nothing here touches the
+  // file-upload flow above, which stays byte-for-byte unchanged.
+
+  var DEFAULT_MANUAL_CATEGORIES = ['Others'];
+
+  function normaliseUploadMode(v) { return v === 'manual' ? 'manual' : 'file'; }
+
+  // resolveManualCategories(config, fallback) -> mirrors activity.js's resolveCategories
+  // (same /api/config shape: { categories:[...] }, same never-empty/never-throw contract).
+  // Duplicated locally rather than a shared cross-file import, matching this codebase's
+  // existing per-component convention (each UMD module is self-contained).
+  function resolveManualCategories(config, fallback) {
+    var fb = Array.isArray(fallback) && fallback.length ? fallback : DEFAULT_MANUAL_CATEGORIES;
+    if (!config || typeof config !== 'object') return fb;
+    var cats = config.categories;
+    if (!Array.isArray(cats) || !cats.length) return fb;
+    var clean = cats.filter(function (c) { return typeof c === 'string' && c.trim() !== ''; });
+    return clean.length ? clean : fb;
+  }
+
+  // Mirrors routes/expenses.js's MANUAL_DATE_RE exactly — kept in sync deliberately (both
+  // reject a structurally-invalid month/day like '2026-13-01', not just a shape mismatch).
+  var MANUAL_DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+  // validateManualEntry(fields) -> { ok:true, body } | { ok:false, error }. Mirrors the
+  // server's required-field floor exactly (merchant/date/amount/category all mandatory,
+  // amount > 0) so the client never submits something the server would reject anyway — a
+  // UX nicety, not the security boundary (the server independently re-validates everything).
+  function validateManualEntry(fields) {
+    fields = (fields && typeof fields === 'object') ? fields : {};
+    var merchant = str(fields.merchant).trim();
+    if (!merchant) return { ok: false, error: 'Merchant is required.' };
+    var expense_date = str(fields.expense_date).trim();
+    if (!MANUAL_DATE_RE.test(expense_date)) return { ok: false, error: 'Date is required (YYYY-MM-DD).' };
+    var amount = Number(fields.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Amount must be a positive number.' };
+    var category = str(fields.category).trim();
+    if (!category) return { ok: false, error: 'Category is required.' };
+    var body = { merchant: merchant, expense_date: expense_date, amount: amount, category: category };
+    var currency = str(fields.currency).trim();
+    if (currency) body.currency = currency;
+    var remark = str(fields.remark).trim();
+    if (remark) body.remark = remark;
+    return { ok: true, body: body };
+  }
+
+  // manualErrorMessage(status, body) -> a 400 carries the server's OWN fixed validation
+  // reason (routes/expenses.js's validateManualCreate — every message is a static string,
+  // never interpolated user input or internals), so it's safe to surface directly instead
+  // of a generic "something went wrong". Every other status gets a safe generic message.
+  function manualErrorMessage(status, body) {
+    var s = Number(status);
+    if (s === 400 && body && typeof body.error === 'string' && body.error) return body.error;
+    if (s === 401 || s === 403) return 'You are not signed in. Please refresh the page and try again.';
+    if (s === 429) return 'Too many requests right now. Please wait a moment and try again.';
+    return 'Could not save that expense. Please try again.';
+  }
+
   // ---- DOM / browser helpers (browser only) -------------------------------
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -222,8 +282,27 @@
     var rootEl = el('div', 'up-root');
     section.appendChild(rootEl);
 
+    // "Upload a file" / "Enter manually" toggle (QA 2026-07-14, Untitled document (2).md).
+    // Two pill buttons — mirrors the toggle pattern already used elsewhere (e.g. activity.js's
+    // Table/Cards switch). "Upload a file" is the default; the existing OCR flow below is
+    // completely untouched by this — only its section gets a hidden/shown wrapper.
+    var uploadMode = 'file';
+    var modeToggle = el('div', 'up-mode-toggle');
+    modeToggle.setAttribute('role', 'group');
+    modeToggle.setAttribute('aria-label', 'Choose how to add an expense');
+    var fileModeBtn = el('button', 'up-mode-btn'); fileModeBtn.type = 'button'; Escape.setText(fileModeBtn, 'Upload a file');
+    var manualModeBtn = el('button', 'up-mode-btn'); manualModeBtn.type = 'button'; Escape.setText(manualModeBtn, 'Enter manually');
+    modeToggle.appendChild(fileModeBtn);
+    modeToggle.appendChild(manualModeBtn);
+    rootEl.appendChild(modeToggle);
+
+    // Existing file-upload flow — wrapped in its own section so the toggle can hide/show it as
+    // a whole, without touching a single line of its own logic below.
+    var fileSection = el('div', 'up-file-section');
+    rootEl.appendChild(fileSection);
+
     // Intro line.
-    rootEl.appendChild(msg('up-intro muted', 'Drag receipts here, or pick files. Images and PDFs are supported.'));
+    fileSection.appendChild(msg('up-intro muted', 'Drag receipts here, or pick files. Images and PDFs are supported.'));
 
     // Drop zone + hidden file input + browse button.
     var zone = el('div', 'up-zone');
@@ -241,24 +320,24 @@
     input.setAttribute('accept', 'image/*,application/pdf');
     input.hidden = true;
     zone.appendChild(input);
-    rootEl.appendChild(zone);
+    fileSection.appendChild(zone);
 
     // Selected-files list + hints.
     var hintsArea = el('div', 'up-hints');
     var listArea = el('div', 'up-list');
-    rootEl.appendChild(hintsArea);
-    rootEl.appendChild(listArea);
+    fileSection.appendChild(hintsArea);
+    fileSection.appendChild(listArea);
 
     // Actions + status + summary areas.
     var actions = el('div', 'up-actions');
     var uploadBtn = el('button', 'up-upload'); uploadBtn.type = 'button'; Escape.setText(uploadBtn, 'Upload');
     var clearBtn = el('button', 'up-clear'); clearBtn.type = 'button'; Escape.setText(clearBtn, 'Clear');
     actions.appendChild(uploadBtn); actions.appendChild(clearBtn);
-    rootEl.appendChild(actions);
+    fileSection.appendChild(actions);
     var statusEl = msg('up-status muted', '');
-    rootEl.appendChild(statusEl);
+    fileSection.appendChild(statusEl);
     var summaryArea = el('div', 'up-summary');
-    rootEl.appendChild(summaryArea);
+    fileSection.appendChild(summaryArea);
 
     // State: current File objects (not yet encoded) + a busy flag.
     var files = [];
@@ -631,6 +710,114 @@
       });
     }
 
+    // ---- "Enter manually" section (QA 2026-07-14) --------------------------------
+    var manualSection = el('div', 'up-manual-section');
+    rootEl.appendChild(manualSection);
+
+    var manualCategories = resolveManualCategories(opts.config);
+    var defaultCurrency = (opts.config && typeof opts.config.default_currency === 'string' && opts.config.default_currency) || '';
+
+    function manualField(labelText, inputEl) {
+      var wrap = el('label', 'up-manual-field');
+      var lab = el('span', 'up-manual-label'); Escape.setText(lab, labelText); wrap.appendChild(lab);
+      wrap.appendChild(inputEl);
+      return wrap;
+    }
+
+    var manualForm = el('form', 'up-manual-form');
+
+    var manualMerchant = el('input', 'up-manual-input');
+    manualMerchant.type = 'text';
+    manualMerchant.setAttribute('aria-label', 'Merchant');
+    manualForm.appendChild(manualField('Merchant', manualMerchant));
+
+    var manualDate = el('input', 'up-manual-input');
+    manualDate.type = 'date';
+    manualDate.setAttribute('aria-label', 'Date');
+    manualForm.appendChild(manualField('Date', manualDate));
+
+    var manualAmount = el('input', 'up-manual-input');
+    manualAmount.type = 'number';
+    manualAmount.step = 'any';
+    manualAmount.setAttribute('aria-label', 'Amount');
+    manualForm.appendChild(manualField('Amount', manualAmount));
+
+    var manualCurrency = el('input', 'up-manual-input');
+    manualCurrency.type = 'text';
+    manualCurrency.value = defaultCurrency;
+    manualCurrency.setAttribute('aria-label', 'Currency');
+    manualForm.appendChild(manualField('Currency', manualCurrency));
+
+    var manualCategory = el('select', 'up-manual-input');
+    manualCategory.setAttribute('aria-label', 'Category');
+    manualCategories.forEach(function (c) {
+      var o = el('option'); o.value = c; Escape.setText(o, c); manualCategory.appendChild(o);
+    });
+    manualForm.appendChild(manualField('Category', manualCategory));
+
+    var manualRemark = el('input', 'up-manual-input');
+    manualRemark.type = 'text';
+    manualRemark.setAttribute('aria-label', 'Remark (optional)');
+    manualForm.appendChild(manualField('Remark', manualRemark));
+
+    var manualSaveBtn = el('button', 'up-manual-save'); manualSaveBtn.type = 'submit'; Escape.setText(manualSaveBtn, 'Save');
+    manualForm.appendChild(manualSaveBtn);
+    manualSection.appendChild(manualForm);
+
+    var manualStatus = msg('up-manual-status muted', '');
+    manualSection.appendChild(manualStatus);
+
+    function resetManualForm() {
+      manualMerchant.value = '';
+      manualDate.value = '';
+      manualAmount.value = '';
+      manualCurrency.value = defaultCurrency;
+      manualCategory.value = manualCategories[0] || '';
+      manualRemark.value = '';
+    }
+    resetManualForm();
+
+    var manualBusy = false;
+    manualForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (manualBusy || !apiFetch) return;
+      var v = validateManualEntry({
+        merchant: manualMerchant.value, expense_date: manualDate.value, amount: manualAmount.value,
+        currency: manualCurrency.value, category: manualCategory.value, remark: manualRemark.value,
+      });
+      if (!v.ok) { Escape.setText(manualStatus, v.error); return; }
+      manualBusy = true;
+      manualSaveBtn.disabled = true;
+      Escape.setText(manualStatus, 'Saving…');
+      apiFetch('/api/expenses', { method: 'POST', body: v.body }).then(function (resp) {
+        manualBusy = false;
+        manualSaveBtn.disabled = false;
+        var savedMerchant = (resp && typeof resp.merchant === 'string' && resp.merchant) || v.body.merchant;
+        Escape.setText(manualStatus, 'Saved: ' + savedMerchant + '.');
+        resetManualForm();
+      }).catch(function (err) {
+        manualBusy = false;
+        manualSaveBtn.disabled = false;
+        var status = err && typeof err === 'object' ? err.status : 0;
+        var body = err && typeof err === 'object' ? err.body : null;
+        Escape.setText(manualStatus, manualErrorMessage(status, body));
+      });
+    });
+
+    // ---- mode toggle wiring --------------------------------------------------------
+    function setMode(mode) {
+      uploadMode = normaliseUploadMode(mode);
+      fileSection.hidden = uploadMode !== 'file';
+      manualSection.hidden = uploadMode !== 'manual';
+      fileModeBtn.classList.toggle('is-active', uploadMode === 'file');
+      manualModeBtn.classList.toggle('is-active', uploadMode === 'manual');
+      fileModeBtn.setAttribute('aria-pressed', String(uploadMode === 'file'));
+      manualModeBtn.setAttribute('aria-pressed', String(uploadMode === 'manual'));
+    }
+    fileModeBtn.addEventListener('click', function () { setMode('file'); });
+    manualModeBtn.addEventListener('click', function () { setMode('manual'); });
+    setMode('file');
+
     // initial state
     renderList();
 
@@ -651,6 +838,10 @@
     applyStaffAssignResult: applyStaffAssignResult,
     flaggedDisplay: flaggedDisplay,
     MASS_MAX_IMAGES: MASS_MAX_IMAGES,
+    normaliseUploadMode: normaliseUploadMode,
+    resolveManualCategories: resolveManualCategories,
+    validateManualEntry: validateManualEntry,
+    manualErrorMessage: manualErrorMessage,
     // render (browser)
     mount: mount,
   };
