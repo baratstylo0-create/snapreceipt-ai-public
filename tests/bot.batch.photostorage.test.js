@@ -76,6 +76,16 @@ test('album: a storage failure (null) still saves the row imageless — receipt_
   assert.strictEqual(perImageMeta[0].receipt_url, null, 'a failed store degrades to null, row still saves');
 });
 
+test('album: each image ALSO carries its own Telegram fileId (2026-07-12 — receipt_file_id gives album rows the Telegram serve-fallback single photos always had)', async () => {
+  const timers = fakeTimers();
+  const { deps, perImageMeta } = baseDeps({ setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
+  await handleUpdate(albumUpdate('grpFid', 'fileA'), deps);
+  await handleUpdate(albumUpdate('grpFid', 'fileB'), deps);
+  await timers.runPending();
+  assert.strictEqual(perImageMeta[0].fileId, 'fileA', 'image 0 carries its own Telegram file id');
+  assert.strictEqual(perImageMeta[1].fileId, 'fileB', 'image 1 carries its own Telegram file id');
+});
+
 test('album: personal mode is unchanged — image still stored, no branch_id, receipt_url present', async () => {
   const timers = fakeTimers();
   const { deps, perImageMeta } = baseDeps({

@@ -60,9 +60,15 @@ module.exports = function mountReceipt(app, deps = {}) {
       if (!row) return res.status(404).send('not found');
       if (row.receipt_url) {
         const buf = await fetchReceiptObject(row.receipt_url);
-        if (!buf) return res.status(404).send('not found');
-        res.set('Content-Type', ctypeForExt(String(row.receipt_url).split('.').pop()));
-        return res.send(buf);
+        if (buf) {
+          res.set('Content-Type', ctypeForExt(String(row.receipt_url).split('.').pop()));
+          return res.send(buf);
+        }
+        // Storage fetch failed (2026-07-12 resilience fix): fall THROUGH to the Telegram
+        // proxy instead of a dead 404 — Telegram still holds a copy for recent captures,
+        // so a Storage hiccup/misconfig degrades to "photo still shows" rather than
+        // "Could not load the receipt." fetchReceiptObject already logged the real cause.
+        console.error('[receipt by-id] storage fetch failed for', id, '— trying Telegram fallback:', row.receipt_file_id ? 'available' : 'none');
       }
       if (row.receipt_file_id) return await serveTelegram(res, row.receipt_file_id);
       return res.status(404).send('not found');

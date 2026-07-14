@@ -117,6 +117,38 @@ test('by-id: row with only receipt_file_id falls back to the Telegram proxy', as
   } finally { cfg.DASHBOARD_TOKEN = saved; }
 });
 
+// --- 2026-07-12 resilience fix: a FAILED storage fetch falls back to Telegram instead of
+// a dead 404 — the exact "Could not load the receipt." symptom the Owner hit live. ---
+
+test('by-id: storage fetch FAILS but receipt_file_id exists -> falls back to the Telegram proxy, photo still serves', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  try {
+    const app = appWith({
+      sbSelect: async () => [{ id: 'e4', receipt_url: 'default/gone.jpg', receipt_file_id: 'fid4' }],
+      fetchReceiptObject: async () => null, // storage hiccup/misconfig — fetch failed
+      tgFileUrl: async (fid) => (fid === 'fid4' ? { url: 'http://x', path: 'a.jpg' } : null),
+      hreq: async () => Buffer.from('telegram-fallback-bytes'),
+    });
+    const { status, buf } = await get(app, '/receipt/by-id/e4', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 200, 'a storage failure must not become a dead 404 when Telegram still has the photo');
+    assert.strictEqual(buf.toString(), 'telegram-fallback-bytes');
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
+test('by-id: storage fetch fails and NO receipt_file_id -> honest 404 (nothing left to try)', async () => {
+  const saved = cfg.DASHBOARD_TOKEN;
+  cfg.DASHBOARD_TOKEN = 'tok-abc';
+  try {
+    const app = appWith({
+      sbSelect: async () => [{ id: 'e5', receipt_url: 'default/gone.jpg', receipt_file_id: null }],
+      fetchReceiptObject: async () => null,
+    });
+    const { status } = await get(app, '/receipt/by-id/e5', { Authorization: 'Bearer tok-abc' });
+    assert.strictEqual(status, 404);
+  } finally { cfg.DASHBOARD_TOKEN = saved; }
+});
+
 test('by-id: row with neither image -> 404', async () => {
   const saved = cfg.DASHBOARD_TOKEN;
   cfg.DASHBOARD_TOKEN = 'tok-abc';
