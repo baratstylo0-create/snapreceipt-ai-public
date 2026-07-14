@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const { cfg } = require('../lib/config');
-const { sbSelect, sbUpdate, sbSoftDelete, sbHardDelete } = require('../lib/supabase');
+const { sbSelect, sbUpdate, sbSoftDelete, sbHardDelete, sbInsertReturning } = require('../lib/supabase');
 const { hreq } = require('../lib/http'); // Phase 4 bulk-pay: chunked id=in.(…) PATCH (multi-row, unlike sbUpdate)
 const { recordCorrection, CATEGORIES } = require('../lib/categorize'); // #6 learning loop
 const { getFieldSpec } = require('../lib/templates'); // read-only: the account's own chart of accounts
@@ -23,8 +23,46 @@ const dashAuthLimiter = createRateLimiter({ max: Number(process.env.DASH_AUTH_RA
 // The M2 route carries its own generous rate limiter (SEC-7).
 const BULK_PAY_CHUNK = Number(process.env.BULK_PAY_CHUNK) || 100;
 const BULK_PAY_MAX_IDS = Number(process.env.BULK_PAY_MAX_IDS) || 1000;
+
+function envFlag(name, fallback = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || raw === '') return !!fallback;
+  return /^(1|true|yes|on)$/i.test(String(raw).trim());
+}
 const STAFF_ASSIGN_MAX_IDS = Number(process.env.STAFF_ASSIGN_MAX_IDS) || 200;
 const paymentsLimiter = createRateLimiter({ max: Number(process.env.PAYMENTS_RATE_MAX) || 60 });
+// QA 2026-07-14 (Untitled document (2).md): "Enter manually" on Upload creates a brand-new
+// expense with no OCR gate in front of it — same abuse-defense spirit as uploadLimiter
+// (routes/upload.js), a distinct financial-record-creation surface, its own limiter.
+const createExpenseLimiter = createRateLimiter({ max: Number(process.env.CREATE_EXPENSE_RATE_MAX) || 60 });
+
+// Manual-create validation: reuses sanitizeExpensePatch's allow-list/type rules as-is, then
+// layers on the required-field floor a CREATE needs that a PATCH doesn't (a partial patch is
+// fine; a brand-new row with no merchant/date/amount/category is just a blank row). Category is
+// mandatory (not defaulted to "Others") — Owner directive: no OCR here to guess one, so the
+// person typing it commits to a real pick. status is always forced to 'saved' — a manual entry
+// has no OCR/anomaly pass to flag it for review, so it goes straight to the ordinary saved state,
+// matching how an already-confirmed edit behaves.
+const MANUAL_DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+function validateManualCreate(rawBody) {
+  const clean = sanitizeExpensePatch(rawBody);
+  if (!clean.ok) return clean;
+  const body = clean.body;
+  const merchant = typeof body.merchant === 'string' ? body.merchant.trim() : '';
+  if (!merchant) return { ok: false, error: 'merchant is required' };
+  if (typeof body.expense_date !== 'string' || !MANUAL_DATE_RE.test(body.expense_date)) {
+    return { ok: false, error: 'expense_date is required and must be YYYY-MM-DD' };
+  }
+  if (!Number.isFinite(body.amount) || body.amount <= 0) {
+    return { ok: false, error: 'amount is required and must be a positive number' };
+  }
+  const category = typeof body.category === 'string' ? body.category.trim() : '';
+  if (!category) return { ok: false, error: 'category is required' };
+  body.merchant = merchant;
+  body.category = category;
+  body.status = 'saved';
+  return { ok: true, body };
+}
 
 // QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Delete on the Activity list.
 // Each id needs its OWN clerk/branch check (unlike bulk-pay's single blanket id=in.(…) PATCH),
@@ -159,6 +197,31 @@ module.exports = function mountExpenses(app) {
       const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000, scope: req.scope });
       res.json(clerkVisible(rows, req.scope));
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
+  });
+
+  // POST /api/expenses (QA 2026-07-14, Untitled document (2).md): "Enter manually" on the
+  // Upload page — create a brand-new expense with no receipt image and no OCR pass. The ONLY
+  // way to create an expense before this was the OCR/bot capture paths; this is genuinely new
+  // write surface, so it gets the same auth (checkDash) + rate limiting + server-side
+  // validation rigor as the existing PATCH endpoint, not a shortcut version. Branch/company
+  // attribution mirrors routes/upload.js's OCR-capture path exactly (stamped from the session,
+  // never trusted from the client body — sanitizeExpensePatch already drops branch_id/
+  // company_id/account_id/id/voucher_no from anything the client sends).
+  app.post('/api/expenses', createExpenseLimiter, checkDash, express.json({ limit: '16kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    const clean = validateManualCreate(req.body);
+    if (!clean.ok) return res.status(400).json({ error: clean.error });
+    const body = clean.body;
+    if (req.user && req.user.branch_id) body.branch_id = req.user.branch_id;
+    if (req.user && req.user.company_id) body.company_id = req.user.company_id;
+    try {
+      const row = await sbInsertReturning('expenses', body, req.scope);
+      if (!row) return res.status(502).json({ error: 'create failed' });
+      res.status(201).json(row);
+    } catch (e) {
+      console.error('[create expense]', e.message);
+      res.status(502).json({ error: 'create failed' });
+    }
   });
 
   // POST /api/expenses/bulk-delete { ids } — QA B4: the Activity list's bulk Select -> Delete
@@ -403,6 +466,9 @@ module.exports = function mountExpenses(app) {
       multi_user: !!caps.multiUser,
       excel_lite_grid: !!caps.excelLiteGrid,
       branch_submission: !!caps.branchSubmission,
+      payments_page: envFlag('CAP_PAYMENTS_PAGE', false),
+      template_builder: envFlag('CAP_TEMPLATE_BUILDER', false),
+      companies_ui: envFlag('CAP_COMPANIES_UI', false),
       // Public @handle, not a secret (BOT_TOKEN itself is never exposed here) — lets the
       // Team view render a clickable t.me/<bot>?start=<code> bot-binding link. Empty when
       // unset; the frontend falls back to showing the raw code.

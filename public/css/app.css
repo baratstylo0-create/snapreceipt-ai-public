@@ -470,6 +470,139 @@ body.theme-warm {
 }
 
 .ov-shell { display: flex; flex-direction: column; gap: 16px; }
+
+/* --- Overview: Automation impact band (C4) ------------------------------- */
+.ov-metrics-band {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow);
+}
+.ov-metrics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ov-metrics-title {
+  margin: 0;
+  color: var(--txt);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ov-metrics-period-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ov-metrics-period-caption {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ov-metrics-period {
+  min-width: 132px;
+  padding: 6px 9px;
+  color: var(--txt);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.ov-metrics-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.ov-metric-tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ov-metric-label {
+  order: 1;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.ov-metric-value {
+  order: 2;
+  color: var(--txt);
+  font-size: clamp(22px, 2.5vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.ov-metric-sub {
+  order: 3;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.ov-metrics-details-toggle {
+  align-self: flex-start;
+  padding: 6px 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ov-metrics-details-toggle:hover {
+  color: var(--txt);
+  border-color: var(--accent);
+  background: var(--moss-bg);
+}
+.ov-metrics-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+.ov-metrics-details .ov-metric-tile { height: 100%; }
+.ov-metrics-detail-list {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ov-metrics-detail-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ov-metrics-detail-list ul { margin: 0; padding-left: 18px; color: var(--txt-soft); font-size: 12px; }
+.ov-metrics-detail-list p { margin: 0; font-size: 12px; }
+
 .ov-segments {
   display: inline-flex;
   align-self: flex-start;
@@ -1264,6 +1397,11 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
 .act-deleted-date { font-size: 12px; }
 .act-deleted-recover { padding: 5px 12px; background: var(--moss); color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12px; }
 .act-deleted-recover:disabled { opacity: .6; cursor: default; }
+/* QA 2026-07-13 (Untitled document (4).md): additive-only — the reminder line sits below
+   the untouched .act-deleted-item grid (see buildDeletedItem's comment), so it needs its own
+   minimal spacing/size rather than inheriting the grid's own gap/columns. */
+.act-deleted-row { display: flex; flex-direction: column; gap: 2px; }
+.act-deleted-purge { font-size: 11.5px; padding: 0 12px; }
 .act-deleted-msg { font-size: 11px; }
 
 /* QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill Status-cell controls — the
@@ -1418,6 +1556,65 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   cursor: pointer;
 }
 .up-status { margin: 0; font-size: 14px; }
+
+/* QA 2026-07-14 (Untitled document (2).md): "Upload a file" / "Enter manually" toggle —
+   same pill-button language as .act-view-toggle/.act-view-btn. */
+.up-mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.up-mode-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.up-mode-btn.is-active { background: var(--accent); color: #fff; }
+body.theme-dark .up-mode-btn.is-active { color: var(--bg); }
+
+.up-file-section { display: flex; flex-direction: column; gap: 14px; }
+
+/* Manual-entry form — same field language as .act-field/.act-field-input (activity.js's
+   edit drawer), so typing an expense by hand looks consistent with editing one. */
+.up-manual-section { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+/* BUG FIX 2026-07-14 (live QA): the [hidden] attribute JS toggles between the two sections
+   was being silently overridden — .up-file-section/.up-manual-section's own `display: flex`
+   rule has the SAME specificity as the browser's default `[hidden] { display: none }` UA
+   rule, and this stylesheet loads after the UA sheet, so `hidden` lost every time and both
+   sections showed at once. A compound selector (class + [hidden]) has higher specificity
+   than either alone, so this always wins regardless of declaration order. */
+.up-file-section[hidden], .up-manual-section[hidden] { display: none; }
+.up-manual-form { display: flex; flex-direction: column; gap: 10px; }
+.up-manual-field { display: flex; flex-direction: column; gap: 4px; }
+.up-manual-label { color: var(--muted); font-size: 12px; }
+.up-manual-input {
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.up-manual-save {
+  align-self: flex-start;
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.up-manual-save:disabled { opacity: 0.5; cursor: default; }
+.up-manual-status { margin: 0; font-size: 14px; }
 
 .up-summary { display: flex; flex-direction: column; gap: 12px; }
 .up-counts { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -2423,6 +2620,17 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 }
 .ledger-badge--edit { color: var(--moss); background: var(--moss-bg); }
 
+.ledger-statement-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+}
+.ledger-statement-label { font-size: 12px; font-weight: 700; color: var(--txt); }
+.ledger-statement-month,
+.ledger-statement-branch {
+  min-height: 36px; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+}
+
 .ledger-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
 .ledger-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .ledger-btn--ghost { background: var(--panel); color: var(--muted); }
@@ -2447,6 +2655,14 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 .ledger-cell.is-editable { cursor: pointer; }
 .ledger-cell.is-editable:hover { background: rgba(91, 157, 255, 0.08); }
 .ledger-cell.is-editing { padding: 4px 8px; }
+/* QA 2026-07-13 (Untitled document.md): "which fields are editable?" was unclear in Edit
+   Mode — a green cue on the editable columns answers it. Additive only (new selectors,
+   existing rules above untouched) so this can't collide with any other in-flight CSS
+   change to this file. Reuses --moss, the same green already used for the "Editing
+   enabled" badge (.ledger-badge--edit), so it reads as one consistent "edit is on" cue. */
+.ledger-table.is-editing th { color: var(--moss); }
+.ledger-table.is-editing .ledger-cell.is-editable { border-left: 3px solid var(--moss); background: var(--moss-bg); }
+.ledger-table.is-editing .ledger-cell.is-editable:hover { background: var(--moss-bg); filter: brightness(0.96); }
 .ledger-cell-input {
   width: 100%; padding: 6px 8px; font: inherit; font-size: 13.5px; color: var(--txt); background: var(--bg);
   border: 1px solid var(--accent); border-radius: 6px;

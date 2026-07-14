@@ -14,10 +14,14 @@ const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
+  normaliseDatePreset, thisMonthRange, monthRange, displayDate,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
-  receiptErrorMessage, reviewDecisionError,
+  purgeReminderDate, DELETED_RETENTION_DAYS,
+  receiptErrorMessage, statusLabel, decisionErrorText, reviewDecisionError, mixedCategoryLabel, lineItemDetails,
+  branchNamesFromResponse, staffNamesFromResponse, activityBranchOptions,
+  displayBranchName, displayStaffName,
 } = Activity;
 
 // A representative /api/expenses row (see schema.sql expenses table).
@@ -93,8 +97,8 @@ test('filterSortPage sorts by date asc/desc', () => {
 // --- receiptByIdPath / hasReceiptImage (ADR-018 durable receipt images) ----
 
 test('receiptByIdPath builds the by-id serve URL, encoding the id', () => {
-  assert.strictEqual(receiptByIdPath('abc-123'), '/receipt/by-id/abc-123');
-  assert.strictEqual(receiptByIdPath('a/b c'), '/receipt/by-id/a%2Fb%20c');
+  assert.strictEqual(receiptByIdPath('abc-123'), '/api/receipt/by-id/abc-123');
+  assert.strictEqual(receiptByIdPath('a/b c'), '/api/receipt/by-id/a%2Fb%20c');
 });
 
 test('hasReceiptImage is true when EITHER receipt_url or receipt_file_id is present', () => {
@@ -123,12 +127,49 @@ test('receiptErrorMessage: any other status (or no status) keeps the generic ret
   assert.strictEqual(receiptErrorMessage({}), 'Could not load the receipt. Please try again shortly.');
 });
 
+// --- statusLabel (Owner 2026-07-12: raw snake_case "needs_review" leaked into the UI) --
+test('statusLabel: known machine statuses map to human labels ("needs_review" -> "Need Review")', () => {
+  assert.strictEqual(statusLabel('needs_review'), 'Need Review');
+  assert.strictEqual(statusLabel('saved'), 'Saved');
+  assert.strictEqual(statusLabel('approved'), 'Approved');
+  assert.strictEqual(statusLabel('rejected'), 'Rejected');
+  assert.strictEqual(statusLabel('awaiting_category'), 'Awaiting Category');
+});
+
+test('statusLabel: an unknown status is Title-Cased from its raw value; empty/garbage never throws', () => {
+  assert.strictEqual(statusLabel('some_new_state'), 'Some New State');
+  assert.strictEqual(statusLabel(''), '');
+  assert.strictEqual(statusLabel(null), '');
+  assert.strictEqual(statusLabel(undefined), '');
+});
+
+// --- decisionErrorText (Owner 2026-07-12: Approve failed with a bare "Action failed", --
+// hiding the real 403 valve reason "the branch clerk decides first...") ------------------
+test('decisionErrorText: surfaces the server\'s specific error message when present', () => {
+  assert.strictEqual(
+    decisionErrorText({ status: 403, body: { error: 'the branch clerk decides first — the admin valve opens 7 days after flagging' } }),
+    'the branch clerk decides first — the admin valve opens 7 days after flagging');
+  assert.strictEqual(
+    decisionErrorText({ status: 409, body: { error: 'expense is not pending review (status=approved)' } }),
+    'expense is not pending review (status=approved)');
+});
+
+test('decisionErrorText: falls back to the generic line when there is no server message', () => {
+  assert.strictEqual(decisionErrorText(undefined), 'Action failed. Please try again.');
+  assert.strictEqual(decisionErrorText({}), 'Action failed. Please try again.');
+  assert.strictEqual(decisionErrorText({ status: 502, body: {} }), 'Action failed. Please try again.');
+  assert.strictEqual(decisionErrorText({ body: { error: 42 } }), 'Action failed. Please try again.');
+});
+
 // --- reviewDecisionError (Owner-reported 2026-07-12: Approve/Reject showed "action fail") --
 // The review buttons now disable on click (re-entrancy guard) so a double-click / Approve-then-
 // Reject can't fire a second POST. When one does slip through (or another tab/user decided first),
 // the backend returns 409 — which used to render the scary generic "Action failed" even though the
 // decision actually succeeded. reviewDecisionError maps the thrown { status } to {message, resync}:
-// 409 -> quietly re-sync the queue; 401/403 -> specific guidance; anything else -> generic retry.
+// 409 -> quietly re-sync the queue; 401 -> specific guidance; 403/anything else -> decisionErrorText's
+// real-server-message-first behavior (a merge of two independent same-day fixes for the same bug —
+// #215's decisionErrorText already surfaces the real 403 valve reason, so 403 defers to it instead of
+// a second hardcoded generic string that would have hidden that reason again).
 // Pure so the mapping is unit-testable without a fetch/DOM (mirrors receiptErrorMessage).
 
 test('reviewDecisionError: 409 (already decided) re-syncs the queue instead of showing a failure', () => {
@@ -137,21 +178,25 @@ test('reviewDecisionError: 409 (already decided) re-syncs the queue instead of s
   assert.match(out.message, /already decided/i);
 });
 
-test('reviewDecisionError: 401 / 403 get specific, non-generic guidance and do NOT re-sync', () => {
+test('reviewDecisionError: 401 gets specific, non-generic guidance and does NOT re-sync', () => {
   const s401 = reviewDecisionError({ status: 401 });
   assert.strictEqual(s401.resync, false);
   assert.match(s401.message, /session expired/i);
-  const s403 = reviewDecisionError({ status: 403 });
-  assert.strictEqual(s403.resync, false);
-  assert.match(s403.message, /permission/i);
 });
 
-test('reviewDecisionError: any other status (400/404/502/none) keeps the generic retry, no re-sync', () => {
+test('reviewDecisionError: 403 surfaces the real server reason when present (e.g. the valve message)', () => {
+  const out = reviewDecisionError({ status: 403, body: { error: 'the branch clerk decides first, the admin valve opens 7 days after flagging' } });
+  assert.strictEqual(out.resync, false);
+  assert.strictEqual(out.message, 'the branch clerk decides first, the admin valve opens 7 days after flagging');
+});
+
+test('reviewDecisionError: any other status (400/404/502/none), or a 403 with no server message, keeps the generic retry, no re-sync', () => {
   [400, 404, 502].forEach((status) => {
     const out = reviewDecisionError({ status });
     assert.strictEqual(out.resync, false);
     assert.strictEqual(out.message, 'Action failed. Please try again.');
   });
+  assert.strictEqual(reviewDecisionError({ status: 403 }).message, 'Action failed. Please try again.');
   // tolerates a thrown value with no status / a bare network error, never throws
   assert.doesNotThrow(() => reviewDecisionError(undefined));
   assert.strictEqual(reviewDecisionError(undefined).message, 'Action failed. Please try again.');
@@ -577,21 +622,21 @@ test('control bytes are stripped by safeText before display', () => {
 // Task K), but the URL builder itself is pure and is the part worth a unit test:
 // fileId is untrusted (OCR/Telegram-sourced), so it must always be percent-encoded,
 // never string-concatenated raw into the path.
-test('receiptPath: builds /receipt/<encoded fileId>', () => {
-  assert.strictEqual(receiptPath('abc123'), '/receipt/abc123');
+test('receiptPath: builds /api/receipt/<encoded fileId> (ADR-027 collision-proof path)', () => {
+  assert.strictEqual(receiptPath('abc123'), '/api/receipt/abc123');
 });
 
 test('receiptPath: percent-encodes a hostile/path-breaking fileId (no raw markup, no raw slashes)', () => {
   const hostile = '../../etc/passwd?x=<script>alert(1)</script>';
   const out = receiptPath(hostile);
-  assert.strictEqual(out.indexOf('/receipt/'), 0);
+  assert.strictEqual(out.indexOf('/api/receipt/'), 0);
   assert.ok(out.indexOf('<script>') === -1, 'must not carry raw markup');
-  assert.strictEqual(out, '/receipt/' + encodeURIComponent(hostile));
+  assert.strictEqual(out, '/api/receipt/' + encodeURIComponent(hostile));
 });
 
 test('receiptPath: null/undefined fileId does not throw, yields a safe empty-ish path', () => {
-  assert.strictEqual(receiptPath(null), '/receipt/');
-  assert.strictEqual(receiptPath(undefined), '/receipt/');
+  assert.strictEqual(receiptPath(null), '/api/receipt/');
+  assert.strictEqual(receiptPath(undefined), '/api/receipt/');
 });
 
 // --- filterSortPage: dateFrom / dateTo (Task L) ----------------------------
@@ -668,6 +713,92 @@ test('filterSortPage: dateFrom/dateTo composes with search/status/category filte
   ];
   const out = filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30', filterCategory: 'Food' });
   assert.deepStrictEqual(out.rows.map((r) => r.id), ['a']);
+});
+
+// --- Date filter presets (QA 2026-07-14, Untitled document (1).md): This Month /
+// Month Selection / Custom Period + displayed dates in YYYY/MM/DD. -----------------
+
+test('normaliseDatePreset: each real value passes through unchanged', () => {
+  assert.strictEqual(normaliseDatePreset('month'), 'month');
+  assert.strictEqual(normaliseDatePreset('pick'), 'pick');
+  assert.strictEqual(normaliseDatePreset('custom'), 'custom');
+});
+
+test('normaliseDatePreset: garbage/unknown/null falls back to "month" (This Month is the default)', () => {
+  assert.strictEqual(normaliseDatePreset(null), 'month');
+  assert.strictEqual(normaliseDatePreset(undefined), 'month');
+  assert.strictEqual(normaliseDatePreset(''), 'month');
+  assert.strictEqual(normaliseDatePreset('yesterday'), 'month');
+  assert.strictEqual(normaliseDatePreset({}), 'month');
+});
+
+test('thisMonthRange: 1st-of-month through today, using the given clock', () => {
+  const r = thisMonthRange(new Date(2026, 6, 14)); // 2026-07-14 (local)
+  assert.deepStrictEqual(r, { from: '2026-07-01', to: '2026-07-14' });
+});
+
+test('thisMonthRange: pads single-digit month/day', () => {
+  const r = thisMonthRange(new Date(2026, 0, 5)); // 2026-01-05
+  assert.deepStrictEqual(r, { from: '2026-01-01', to: '2026-01-05' });
+});
+
+test('thisMonthRange: an invalid clock falls back to "now" rather than throwing', () => {
+  assert.doesNotThrow(() => thisMonthRange(new Date(NaN)));
+  assert.doesNotThrow(() => thisMonthRange(null));
+});
+
+test('monthRange: a 31-day month', () => {
+  assert.deepStrictEqual(monthRange('2026-07'), { from: '2026-07-01', to: '2026-07-31' });
+});
+
+test('monthRange: a 30-day month', () => {
+  assert.deepStrictEqual(monthRange('2026-09'), { from: '2026-09-01', to: '2026-09-30' });
+});
+
+test('monthRange: February — leap vs non-leap year', () => {
+  assert.deepStrictEqual(monthRange('2028-02'), { from: '2028-02-01', to: '2028-02-29' }, '2028 is a leap year');
+  assert.deepStrictEqual(monthRange('2026-02'), { from: '2026-02-01', to: '2026-02-28' }, '2026 is not a leap year');
+});
+
+test('monthRange: malformed input returns null, never throws', () => {
+  assert.strictEqual(monthRange('2026-13'), null);
+  assert.strictEqual(monthRange('2026-00'), null);
+  assert.strictEqual(monthRange('July 2026'), null);
+  assert.strictEqual(monthRange(''), null);
+  assert.strictEqual(monthRange(null), null);
+  assert.strictEqual(monthRange(undefined), null);
+});
+
+test('displayDate: ISO date -> YYYY/MM/DD', () => {
+  assert.strictEqual(displayDate('2026-07-08'), '2026/07/08');
+});
+
+test('displayDate: a timestamp suffix is stripped to just the date', () => {
+  assert.strictEqual(displayDate('2026-07-08T10:15:00Z'), '2026/07/08');
+});
+
+test('displayDate: a non-ISO / messy OCR date falls back to the raw string, never blanked', () => {
+  assert.strictEqual(displayDate('08 July 2026'), '08 July 2026');
+  assert.strictEqual(displayDate('not a date'), 'not a date');
+});
+
+test('displayDate: null/undefined/empty never throws, returns empty string', () => {
+  assert.strictEqual(displayDate(null), '');
+  assert.strictEqual(displayDate(undefined), '');
+  assert.strictEqual(displayDate(''), '');
+});
+
+test('monthRange -> filterSortPage: selects exactly one calendar month, nothing outside it', () => {
+  const rows = [
+    row({ id: 'prev', expense_date: '2026-06-30' }),
+    row({ id: 'a', expense_date: '2026-07-01' }),
+    row({ id: 'b', expense_date: '2026-07-15' }),
+    row({ id: 'c', expense_date: '2026-07-31' }),
+    row({ id: 'next', expense_date: '2026-08-01' }),
+  ];
+  const r = monthRange('2026-07');
+  const out = filterSortPage(rows, { dateFrom: r.from, dateTo: r.to });
+  assert.deepStrictEqual(out.rows.map((x) => x.id).sort(), ['a', 'b', 'c']);
 });
 
 // --- badgesFor: shared between table row and card rendering (Task L) ------
@@ -831,4 +962,149 @@ test('permanentDeletePath: builds /api/expenses/<id>/permanent, encoding the id'
 test('permanentDeletePath: null/undefined id does not throw', () => {
   assert.strictEqual(permanentDeletePath(null), '/api/expenses//permanent');
   assert.strictEqual(permanentDeletePath(undefined), '/api/expenses//permanent');
+});
+
+// --- purgeReminderDate (QA 2026-07-13, Untitled document (4).md): the recently-deleted
+// bin didn't say WHEN a bill would fall out of the system, just that it could be recovered
+// "for now". There is no automatic purge job today (deleted_at is a permanent soft-delete —
+// confirmed by reading routes/expenses.js: nothing ever clears old deleted rows), so this is
+// a DISPLAY-ONLY reminder of the retention policy, not a promise a job enforces yet. Building
+// the actual auto-purge is a separate, infra-lane piece (a scheduled job); flagged, not built
+// here — see the WORKLOG entry. -------------------------------------------------------------
+
+test('purgeReminderDate: adds DELETED_RETENTION_DAYS to deleted_at, returned as YYYY-MM-DD', () => {
+  assert.strictEqual(purgeReminderDate('2026-07-01T00:00:00Z'), '2026-07-31');
+});
+
+test('purgeReminderDate: an explicit retentionDays overrides the default', () => {
+  assert.strictEqual(purgeReminderDate('2026-07-01T00:00:00Z', 7), '2026-07-08');
+  assert.strictEqual(purgeReminderDate('2026-07-01T00:00:00Z', 90), '2026-09-29');
+});
+
+test('purgeReminderDate: crosses a month/year boundary correctly', () => {
+  assert.strictEqual(purgeReminderDate('2026-12-15T00:00:00Z', 30), '2027-01-14');
+});
+
+test('purgeReminderDate: missing/invalid deleted_at never throws, returns null', () => {
+  assert.strictEqual(purgeReminderDate(null), null);
+  assert.strictEqual(purgeReminderDate(undefined), null);
+  assert.strictEqual(purgeReminderDate(''), null);
+  assert.strictEqual(purgeReminderDate('not-a-date'), null);
+});
+
+test('DELETED_RETENTION_DAYS: the documented default retention window', () => {
+  assert.strictEqual(DELETED_RETENTION_DAYS, 30);
+});
+
+// --- inline line-item categorisation (QA C3) ------------------------------
+
+test('mixedCategoryLabel counts distinct usable categories and labels mixed receipts', () => {
+  assert.strictEqual(mixedCategoryLabel(row({
+    line_items: [
+      { description: 'Lunch', amount: 50, category: 'Food' },
+      { description: 'Fuel', amount: 30, category: 'Petrol' },
+    ],
+  })), 'Mixed (2)');
+  assert.strictEqual(mixedCategoryLabel(row({
+    line_items: [
+      { category: 'Food' }, { category: 'Petrol' }, { category: 'Software' },
+    ],
+  })), 'Mixed (3)');
+});
+
+test('mixedCategoryLabel leaves single, empty, and unusable categories unchanged', () => {
+  assert.strictEqual(mixedCategoryLabel(row({ line_items: [{ category: 'Food' }, { category: 'Food' }] })), null);
+  assert.strictEqual(mixedCategoryLabel(row({ line_items: [] })), null);
+  assert.strictEqual(mixedCategoryLabel(row({ line_items: [{ category: '' }, { category: null }] })), null);
+  assert.strictEqual(mixedCategoryLabel(row({})), null);
+  assert.strictEqual(mixedCategoryLabel(null), null);
+});
+
+test('mixedCategoryLabel treats category case and surrounding whitespace as the same', () => {
+  assert.strictEqual(mixedCategoryLabel(row({
+    line_items: [{ category: ' Food ' }, { category: 'food' }, { category: ' PETROL' }],
+  })), 'Mixed (2)');
+});
+
+test('lineItemDetails returns safe drawer fields without mutating line_items', () => {
+  const items = [
+    { description: 'Lunch', amount: 50, category: 'Food' },
+    { name: 'Fuel', amount: '30.00', category: 'Petrol', flagged: true },
+  ];
+  const out = lineItemDetails(row({ line_items: items }));
+  assert.deepStrictEqual(out, [
+    { description: 'Lunch', amount: 50, category: 'Food', flagged: false },
+    { description: 'Fuel', amount: '30.00', category: 'Petrol', flagged: true },
+  ]);
+  assert.deepStrictEqual(items, [
+    { description: 'Lunch', amount: 50, category: 'Food' },
+    { name: 'Fuel', amount: '30.00', category: 'Petrol', flagged: true },
+  ]);
+  assert.deepStrictEqual(lineItemDetails(row({ line_items: [] })), []);
+  assert.deepStrictEqual(lineItemDetails(null), []);
+});
+
+// --- admin Activity branch/staff clarity (QA C6) --------------------------
+
+test('filterSortPage applies the admin branch filter and My uploads scope', () => {
+  const rows = [
+    row({ id: 'own', branch_id: 'b1' }),
+    row({ id: 'other', branch_id: 'b2' }),
+    row({ id: 'legacy', branch_id: null }),
+  ];
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'mine', sessionBranchId: 'b1' }).rows.map((r) => r.id),
+    ['own'],
+  );
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'b2', sessionBranchId: 'b1' }).rows.map((r) => r.id),
+    ['other'],
+  );
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'all', sessionBranchId: 'b1' }).rows.map((r) => r.id),
+    ['own', 'other', 'legacy'],
+  );
+});
+
+test('filterSortPage My uploads matches an unassigned admin branch without hiding the row', () => {
+  const rows = [row({ id: 'hq', branch_id: null }), row({ id: 'branch', branch_id: 'b1' })];
+  assert.deepStrictEqual(
+    filterSortPage(rows, { filterBranch: 'mine', sessionBranchId: null }).rows.map((r) => r.id),
+    ['hq'],
+  );
+});
+
+test('branch/staff response maps use display labels and safe ID fallbacks', () => {
+  assert.deepStrictEqual(branchNamesFromResponse({
+    branches: [{ id: 'b1', office: 'Head Office' }, { id: 'b2', office: '' }, { id: null, office: 'bad' }],
+  }), { b1: 'Head Office', b2: 'b2' });
+  assert.deepStrictEqual(staffNamesFromResponse({
+    staff: [
+      { id: 's1', display_name: 'Alice' },
+      { id: 's2', display_name: '', username: 'bob' },
+      { id: 's3' },
+    ],
+  }), { s1: 'Alice', s2: 'bob', s3: 's3' });
+  assert.strictEqual(displayBranchName({ branch_id: 'b1' }, { b1: 'Head Office' }), 'Head Office');
+  assert.strictEqual(displayBranchName({ branch_id: 'missing' }, {}), 'missing');
+  assert.strictEqual(displayBranchName({ branch_id: null }, {}), '—');
+  assert.strictEqual(displayStaffName({ staff_user_id: 's1' }, { s1: 'Alice' }), 'Alice');
+  assert.strictEqual(displayStaffName({ staff_user_id: 'missing' }, {}), 'missing');
+  assert.strictEqual(displayStaffName({ staff_user_id: null }, {}), '—');
+});
+
+test('activityBranchOptions includes All branches, My uploads, mapped branches, and row-only IDs', () => {
+  assert.deepStrictEqual(activityBranchOptions(
+    [{ id: 'b2', office: 'Branch 2' }, { id: 'b1', office: 'Branch 1' }],
+    [row({ branch_id: 'b1' }), row({ branch_id: 'legacy' }), row({ branch_id: null })],
+    { role: 'admin', branch_id: 'b1' },
+  ), [
+    { value: 'all', label: 'All branches' },
+    { value: 'mine', label: 'My uploads' },
+    { value: 'b1', label: 'Branch 1' },
+    { value: 'b2', label: 'Branch 2' },
+    { value: 'legacy', label: 'legacy' },
+    { value: 'unassigned', label: 'Unassigned' },
+  ]);
+  assert.deepStrictEqual(activityBranchOptions([], [], { role: 'clerk', branch_id: 'b1' }), []);
 });

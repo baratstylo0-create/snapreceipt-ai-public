@@ -121,13 +121,24 @@ test('sign-off rows honor the per-company config (checked hidden when false)', (
   assert.ok(!findText(noChecked, 'CHECKED BY'), 'checked hidden when disabled');
 });
 
-test('empty category still renders a banner (visual fidelity)', () => {
+test('empty category does not render a banner (zero-expense sections are omitted)', () => {
   const m = buildStatementModel({ ...baseArgs, categories: ['Tickets', 'Hotel', 'Food', 'Hardware'], expenses: [] });
   const cs = cells(statementToWorkbook(m).worksheets[0]);
-  assert.ok(findText(cs, 'Hardware'), 'the empty Hardware category still appears');
+  assert.ok(!findText(cs, 'Hardware'), 'the empty Hardware category is omitted');
 });
 
 test('returns a real workbook whose first sheet is the statement', () => {
   const wb = statementToWorkbook(buildStatementModel(baseArgs));
   assert.strictEqual(wb.worksheets[0].name.length > 0, true);
+});
+
+test('line-item split: xlsx category totals carry each portion, not the rolled-up receipt total', () => {
+  const model = buildStatementModel({ ...baseArgs, categories: ['Food', 'Tickets'], expenses: [{
+    id: 'mix', amount: 80, category: 'Food', voucher_no: 'RC-42', expense_date: '2025-10-04', merchant: 'Market',
+    line_items: [{ amount: 50, category: 'Food' }, { amount: 30, category: 'Tickets' }],
+  }] });
+  const cs = cells(statementToWorkbook(model).worksheets[0]);
+  assert.ok(cs.some((c) => c.value === 50), 'Food TOTAL is 50');
+  assert.ok(cs.some((c) => c.value === 30), 'Tickets TOTAL is 30');
+  assert.ok(cs.some((c) => c.value === 80), 'statement subtotal remains 80');
 });

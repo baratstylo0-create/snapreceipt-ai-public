@@ -1,4 +1,6 @@
 # STATUS — Receipt Analyser SaaS
+> 2026-07-13 Codex: C4-UI automation-impact band is implemented on `codex/c4-ui-metrics`; full suite 1979/1979. PR push/review pending; no merge by Codex.
+> 2026-07-13 Codex: C6 admin Activity clarity is implemented on `codex/c6-admin-activity`; full suite 1980/1980. PR push/review pending; no merge by Codex.
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
 > _Last refreshed 2026-07-08 (Claude, for Barat) — reconciled against `git log` / `gh pr list` / WORKLOG, not the previous stale copy. When in doubt, trust `gh pr list`/WORKLOG over this file._
 
@@ -7,6 +9,9 @@
 > 2026-07-11 Claude (Opus, for Jeevan) update: PR #190 merged + deployed — Falc (the dashboard/Telegram chat assistant, `lib/agent.js`) now answers general "how do I use this" product-usage questions (dashboard nav, admin-vs-clerk scoping, Telegram bot commands) via a new additive `PRODUCT_GUIDE` prompt block, not only questions about the account's own expense data. Bot-usage text is reused verbatim from `lib/bot.js` (single source of truth, drift-guarded by test) and deliberately excludes internal/dev docs since it's user-facing. Full suite 1825/1825; CI + Deploy (Premala VPS) both green; live `/health`+`/ready` reconfirmed post-deploy. No schema/route/dependency change, unrelated to the M2/Premala launch-blocker list below — see WORKLOG for detail.
 
 > 2026-07-10 Codex update: Track 1 review of PRs #160/#161/#165/#167/#169 plus doc #163 is complete (fix commits pushed where needed; no merges). Issue #153 dashboard bulk-upload parity is implemented on `qa/upload-staff-assign-153`: staff assignment grid + branch-scoped bulk `PATCH /api/expenses`, upload saved-row branch/staff payload, duplicate flagged-row View/Discard presentation. Full suite 1657/1657; PR pending Claude-J review/merge.
+
+> 2026-07-13 Codex: C5 submit-signal is implemented on `codex/c5-submit-signal`; full suite 1990/1990. PR push/review pending; no merge by Codex.
+> 2026-07-13 Codex: C7 admin Overview + Reports branch filters and visibility-aware 25s live refresh are implemented on `codex/c7-overview-reports`; full suite 1985/1985. PR push/review pending; no merge by Codex.
 
 ## Current phase
 **M1 personal = feature-complete, live-E2E-verified, and stable on `main` (unchanged by M2).**

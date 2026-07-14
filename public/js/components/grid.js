@@ -39,6 +39,18 @@
     { key: 'receipt_url', label: 'Receipt URL' },
   ];
 
+  // Export buttons the Data-editor toolbar renders (QA 2026-07-13, Untitled document.md:
+  // trimmed to just these two — Export CSV / Export PDF (with receipts) / Export template /
+  // Statement Excel were removed to de-clutter). The `format` is deliberately unchanged
+  // ('xlsx' for the managed export, 'pdf' for the statement) so the produced files are
+  // byte-for-byte identical to before — only the button set shrinks. These are the single
+  // source of truth the toolbar builds from (grid.test.js locks the set).
+  function managedExportButtons() { return [{ label: 'Export Excel', format: 'xlsx' }]; }
+  function statementExportButtons() { return [{ label: 'Statement PDF', format: 'pdf' }]; }
+
+  // Edit-mode hook class for the ledger table — CSS greens the editable columns while on.
+  function ledgerTableClass(editMode) { return 'ledger-table' + (editMode ? ' is-editing' : ''); }
+
   // ---- pure logic (node-tested) ------------------------------------------------
 
   // buildCellPatch(row, field, rawValue) -> { ok:true, patch } | { ok:false, error?, noop? }.
@@ -112,7 +124,9 @@
 
   function receiptLink(row) {
     if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
-    return '/receipt/by-id/' + encodeURIComponent(row.id);
+    // ADR-027: `/api/receipt/*` (not legacy `/receipt/*`) so the image rides the `/api/*`
+    // → :3005 nginx catch-all the co-tenant app never claims — collision-proof. See DECISIONS.
+    return '/api/receipt/by-id/' + encodeURIComponent(row.id);
   }
 
   function exportValue(row, key) {
@@ -136,6 +150,60 @@
   // in the exact column shape this view accepts.
   function blankTemplateCSV() {
     return EDITABLE.map(function (f) { return escapeCSVValue(LABELS[f]); }).join(',');
+  }
+
+  function statementExportUrl(opts) {
+    opts = opts || {};
+    var period = String(opts.period || '').trim();
+    var format = String(opts.format || '').trim().toLowerCase();
+    var url = '/api/statement?period=' + encodeURIComponent(period) + '&format=' + encodeURIComponent(format);
+    var branch = opts.branch == null ? '' : String(opts.branch).trim();
+    if (branch) url += '&branch=' + encodeURIComponent(branch);
+    return url;
+  }
+
+  function statementFilename(format) {
+    return String(format).toLowerCase() === 'xlsx' ? 'petty-cash-statement.xlsx' : 'Expense_Report.pdf';
+  }
+
+  function statementBranchOptions(rows, session) {
+    if (!session || session.role !== 'admin') return [];
+    var out = [{ value: 'all', label: 'All branches' }];
+    var own = session.branch_id ? String(session.branch_id) : '';
+    if (own) out.push({ value: own, label: 'My uploads' });
+    var seen = {};
+    if (own) seen[own] = true;
+    var ids = [];
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      var id = row && row.branch_id ? String(row.branch_id) : '';
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      ids.push(id);
+    });
+    ids.sort().forEach(function (id) { out.push({ value: id, label: 'Branch ' + id }); });
+    return out;
+  }
+
+  function submissionPeriod(now) {
+    var d = now instanceof Date ? new Date(now.getTime()) : new Date(typeof now === 'number' ? now : Date.now());
+    if (!Number.isFinite(d.getTime())) d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function submissionState(submission) {
+    var status = submission && String(submission.status || '').toLowerCase();
+    return status === 'submitted' || status === 'withdrawn' ? status : 'not_submitted';
+  }
+
+  function readyToCloseRows(submissions, branchNames, period) {
+    var names = branchNames && typeof branchNames === 'object' ? branchNames : {};
+    var target = period ? String(period) : '';
+    return (Array.isArray(submissions) ? submissions : []).filter(function (row) {
+      return row && submissionState(row) === 'submitted' && (!target || String(row.period || '') === target);
+    }).map(function (row) {
+      var id = row.branch_id == null ? '' : String(row.branch_id);
+      return { id: row.id == null ? '' : String(row.id), branch_id: id, period: String(row.period || ''), label: names[id] || id || 'Unassigned branch' };
+    });
   }
 
   // ---- DOM helpers (browser only) -----------------------------------------------
@@ -181,8 +249,12 @@
     // Owner follow-up (2026-07-10): the export-reminder popup's "Review" button navigates to
     // Activity — same shared switcher Upload's "View in Activity" button already uses.
     var switchView = typeof deps.switchView === 'function' ? deps.switchView : null;
+    var session = deps.session || null;
+    var isClerk = !!(session && session.role === 'clerk');
+    var isAdmin = !!(session && session.role === 'admin');
+    var submissionOn = !!(deps.config && deps.config.branch_submission);
 
-    var state = { rows: [], loaded: false, editMode: false, search: '', page: 1 };
+    var state = { rows: [], loaded: false, editMode: false, search: '', page: 1, submission: null, submissions: [], branchNames: {} };
 
     var wrap = document.createElement('div');
     wrap.className = 'ledger';
@@ -208,32 +280,73 @@
     });
     toolbar.appendChild(editBtn);
 
-    var exportBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(exportBtn, 'Export CSV');
-    exportBtn.type = 'button';
-    exportBtn.addEventListener('click', function () { doManagedExport('csv'); });
-    toolbar.appendChild(exportBtn);
-
-    var excelBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(excelBtn, 'Export Excel');
-    excelBtn.type = 'button';
-    excelBtn.addEventListener('click', function () { doManagedExport('xlsx'); });
-    toolbar.appendChild(excelBtn);
-
-    var pdfBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(pdfBtn, 'Export PDF (with receipts)');
-    pdfBtn.type = 'button';
-    pdfBtn.addEventListener('click', function () { doManagedExport('pdf'); });
-    toolbar.appendChild(pdfBtn);
-
-    var templateBtn = el('button', 'ledger-btn ledger-btn--ghost');
-    Escape.setText(templateBtn, 'Export template');
-    templateBtn.type = 'button';
-    templateBtn.addEventListener('click', function () {
-      downloadText(blankTemplateCSV(), 'ledger-template.csv');
+    // The export buttons this toolbar keeps (managed + statement). setExportBusy() disables
+    // whatever ends up here, so it can never reference a button that no longer exists.
+    var exportButtonEls = [];
+    managedExportButtons().forEach(function (cfg) {
+      var b = el('button', 'ledger-btn ledger-btn--ghost');
+      b.type = 'button';
+      Escape.setText(b, cfg.label);
+      b.addEventListener('click', function () { doManagedExport(cfg.format); });
+      toolbar.appendChild(b);
+      exportButtonEls.push(b);
     });
-    toolbar.appendChild(templateBtn);
     wrap.appendChild(toolbar);
+
+    var statementTools = el('div', 'ledger-statement-tools');
+    statementTools.appendChild(textEl('span', 'ledger-statement-label', 'Petty Cash Statement'));
+    var statementMonth = el('input', 'ledger-statement-month');
+    statementMonth.type = 'month';
+    statementMonth.setAttribute('aria-label', 'Statement month');
+    var now = new Date();
+    statementMonth.value = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    statementTools.appendChild(statementMonth);
+
+    var statementBranch = null;
+    if (session && session.role === 'admin') {
+      statementBranch = el('select', 'ledger-statement-branch');
+      statementBranch.setAttribute('aria-label', 'Statement branch');
+      statementTools.appendChild(statementBranch);
+    }
+
+    statementExportButtons().forEach(function (cfg) {
+      var b = el('button', 'ledger-btn ledger-btn--ghost');
+      b.type = 'button';
+      Escape.setText(b, cfg.label);
+      b.addEventListener('click', function () { doStatementExport(cfg.format); });
+      statementTools.appendChild(b);
+      exportButtonEls.push(b);
+    });
+    wrap.appendChild(statementTools);
+
+    // -- Submit-signal (C5): move a month-ready signal into the Data editor --
+    // The legacy Payments implementation remains intact behind its feature flag;
+    // this is the new home after the Payments page is hidden.
+    var submissionWrap = null, submissionMsg = null, submissionBtn = null, withdrawBtn = null, readyList = null;
+    if (submissionOn && (isClerk || isAdmin)) {
+      submissionWrap = el('div', 'ledger-submission');
+      var submissionHeading = textEl('span', 'ledger-submission-label', isClerk ? 'Month ready' : 'Ready to close');
+      submissionWrap.appendChild(submissionHeading);
+      submissionMsg = el('span', 'ledger-submission-msg muted');
+      submissionWrap.appendChild(submissionMsg);
+      if (isClerk) {
+        submissionBtn = el('button', 'ledger-btn ledger-btn--ghost');
+        submissionBtn.type = 'button';
+        submissionBtn.addEventListener('click', submitMonth);
+        submissionWrap.appendChild(submissionBtn);
+        withdrawBtn = el('button', 'ledger-btn ledger-btn--ghost');
+        withdrawBtn.type = 'button';
+        Escape.setText(withdrawBtn, 'Withdraw');
+        withdrawBtn.hidden = true;
+        withdrawBtn.addEventListener('click', withdrawMonth);
+        submissionWrap.appendChild(withdrawBtn);
+      } else if (isAdmin) {
+        readyList = el('div', 'ledger-ready-list');
+        submissionWrap.appendChild(readyList);
+      }
+      wrap.appendChild(submissionWrap);
+    }
+    statementMonth.addEventListener('change', function () { refreshSubmissionSignal(); });
 
     // -- search --
     var searchRow = el('div', 'ledger-search-row');
@@ -267,9 +380,139 @@
     }
 
     function setExportBusy(busy) {
-      exportBtn.disabled = !!busy;
-      excelBtn.disabled = !!busy;
-      pdfBtn.disabled = !!busy;
+      exportButtonEls.forEach(function (b) { b.disabled = !!busy; });
+    }
+
+    function refreshStatementBranches() {
+      if (!statementBranch) return;
+      var previous = statementBranch.value;
+      clear(statementBranch);
+      statementBranchOptions(state.rows, session).forEach(function (opt) {
+        var o = document.createElement('option');
+        o.value = opt.value;
+        Escape.setText(o, opt.label);
+        statementBranch.appendChild(o);
+      });
+      if (previous) statementBranch.value = previous;
+      if (!statementBranch.value && statementBranch.options.length) statementBranch.value = statementBranch.options[0].value;
+    }
+
+    function doStatementExport(format) {
+      var period = statementMonth.value;
+      if (!/^\d{4}-\d{2}$/.test(period)) {
+        note('Choose a statement month first.');
+        return;
+      }
+      var branch = statementBranch ? statementBranch.value : '';
+      setExportBusy(true);
+      note('Preparing statement ' + String(format).toUpperCase() + '...');
+      Api.fetchBlob(statementExportUrl({ period: period, format: format, branch: branch })).then(function (blob) {
+        downloadBlob(blob, statementFilename(format));
+        note('Statement ' + String(format).toUpperCase() + ' downloaded.');
+      }).catch(function () {
+        note('Statement export failed. Please try again.');
+      }).then(function () {
+        setExportBusy(false);
+      });
+    }
+
+    function selectStatementBranch(branchId, period) {
+      if (period) statementMonth.value = String(period);
+      if (!statementBranch) return;
+      refreshStatementBranches();
+      var wanted = branchId == null ? '' : String(branchId);
+      var found = false;
+      for (var i = 0; i < statementBranch.options.length; i++) {
+        if (statementBranch.options[i].value === wanted) { found = true; break; }
+      }
+      if (!found && wanted) {
+        var option = document.createElement('option');
+        option.value = wanted;
+        Escape.setText(option, state.branchNames[wanted] || wanted);
+        statementBranch.appendChild(option);
+      }
+      if (wanted) statementBranch.value = wanted;
+    }
+
+    function renderReadyList(period) {
+      if (!readyList) return;
+      clear(readyList);
+      var rows = readyToCloseRows(state.submissions, state.branchNames, period);
+      Escape.setText(submissionMsg, rows.length ? rows.length + ' branch' + (rows.length === 1 ? '' : 'es') + ' submitted.' : 'No branches submitted yet.');
+      if (!rows.length) return;
+      rows.forEach(function (row) {
+        var item = el('div', 'ledger-ready-item');
+        var label = textEl('span', 'ledger-ready-branch', row.label + ' (' + row.period + ')');
+        item.appendChild(label);
+        ['xlsx', 'pdf'].forEach(function (format) {
+          var button = el('button', 'ledger-btn ledger-btn--ghost');
+          button.type = 'button';
+          Escape.setText(button, format === 'xlsx' ? 'Export Excel' : 'Export PDF');
+          button.addEventListener('click', function () {
+            selectStatementBranch(row.branch_id, row.period);
+            doStatementExport(format);
+          });
+          item.appendChild(button);
+        });
+        readyList.appendChild(item);
+      });
+    }
+
+    function refreshSubmissionSignal() {
+      if (!submissionOn || !submissionWrap || !Api || typeof Api.apiFetch !== 'function') return;
+      var period = statementMonth.value || submissionPeriod();
+      if (!/^\d{4}-\d{2}$/.test(period)) return;
+      Api.apiFetch('/api/submissions?period=' + encodeURIComponent(period)).then(function (payload) {
+        state.submissions = payload && Array.isArray(payload.submissions) ? payload.submissions : [];
+        state.submission = state.submissions[0] || null;
+        if (isClerk) {
+          var status = submissionState(state.submission);
+          Escape.setText(submissionMsg, status === 'submitted' ? 'Submitted for ' + period + '.'
+            : status === 'withdrawn' ? 'Withdrawn for ' + period + '.' : 'Not submitted for ' + period + '.');
+          if (submissionBtn) {
+            Escape.setText(submissionBtn, status === 'submitted' ? 'Re-submit month ready' : 'Submit month ready');
+            submissionBtn.disabled = false;
+          }
+          if (withdrawBtn) withdrawBtn.hidden = status !== 'submitted';
+        } else if (isAdmin) {
+          renderReadyList(period);
+        }
+      }).catch(function () {
+        Escape.setText(submissionMsg, 'Could not load submission status.');
+      });
+    }
+
+    function submitMonth() {
+      if (!submissionBtn || !Api || typeof Api.apiFetch !== 'function') return;
+      var period = statementMonth.value || submissionPeriod();
+      submissionBtn.disabled = true;
+      Escape.setText(submissionMsg, 'Submitting…');
+      Api.apiFetch('/api/submissions', { method: 'POST', body: { period: period } })
+        .then(function () { refreshSubmissionSignal(); })
+        .catch(function (err) {
+          submissionBtn.disabled = false;
+          Escape.setText(submissionMsg, err && err.status === 403 ? 'Only a branch clerk can submit.' : 'Submit failed. Please try again.');
+        });
+    }
+
+    function withdrawMonth() {
+      if (!withdrawBtn || !state.submission || !Api || typeof Api.apiFetch !== 'function') return;
+      withdrawBtn.disabled = true;
+      Api.apiFetch('/api/submissions/' + encodeURIComponent(state.submission.id), { method: 'PATCH', body: { status: 'withdrawn' } })
+        .then(function () { withdrawBtn.disabled = false; refreshSubmissionSignal(); })
+        .catch(function () { withdrawBtn.disabled = false; Escape.setText(submissionMsg, 'Withdraw failed. Please try again.'); });
+    }
+
+    function loadBranchDirectory() {
+      if (!submissionOn || !isAdmin || !Api || typeof Api.apiFetch !== 'function') return;
+      Api.apiFetch('/api/branches').then(function (payload) {
+        var branches = payload && Array.isArray(payload.branches) ? payload.branches : [];
+        branches.forEach(function (branch) {
+          if (branch && branch.id != null) state.branchNames[String(branch.id)] = branch.office || String(branch.id);
+        });
+        if (statementBranch) refreshStatementBranches();
+        renderReadyList(statementMonth.value);
+      }).catch(function () { /* raw branch IDs remain safe fallbacks */ });
     }
 
     function doManagedExport(format) {
@@ -440,7 +683,7 @@
       note(state.editMode ? 'Click a cell to edit. Enter saves, Esc cancels.' : 'Read-only — tap "Edit cells" to make changes.');
 
       var table = document.createElement('table');
-      table.className = 'ledger-table';
+      table.className = ledgerTableClass(state.editMode);
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
       EDITABLE.forEach(function (f) {
@@ -469,10 +712,13 @@
     }
 
     function load() {
+      loadBranchDirectory();
       return Api.apiFetch('/api/expenses').then(function (rows) {
         state.rows = Array.isArray(rows) ? rows : [];
         state.loaded = true;
+        refreshStatementBranches();
         render();
+        refreshSubmissionSignal();
       }).catch(function () { note('Could not load expenses. Please try again shortly.'); });
     }
 
@@ -485,5 +731,8 @@
     mount: mount, buildCellPatch: buildCellPatch, EDITABLE: EDITABLE,
     filterRows: filterRows, paginate: paginate, escapeCSVValue: escapeCSVValue,
     rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
+    statementExportUrl: statementExportUrl, statementBranchOptions: statementBranchOptions, statementFilename: statementFilename,
+    managedExportButtons: managedExportButtons, statementExportButtons: statementExportButtons, ledgerTableClass: ledgerTableClass,
+    submissionPeriod: submissionPeriod, submissionState: submissionState, readyToCloseRows: readyToCloseRows,
   };
 });

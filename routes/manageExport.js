@@ -31,7 +31,7 @@ const EXPORT_COLUMNS = [
 
 function receiptLink(row) {
   if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
-  return '/receipt/by-id/' + encodeURIComponent(row.id);
+  return '/api/receipt/by-id/' + encodeURIComponent(row.id); // ADR-027 collision-proof path
 }
 
 function csvValue(value) {
@@ -147,6 +147,7 @@ module.exports = function mountManageExport(app) {
           branchStaff: true,
           branchNames: maps.branchNames,
           staffNames: maps.staffNames,
+          categories: (fieldSpec && Array.isArray(fieldSpec.categories)) ? fieldSpec.categories : undefined,
           receiptLinks,
           embedReceipts: false,
         });

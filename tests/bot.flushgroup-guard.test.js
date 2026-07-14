@@ -35,7 +35,7 @@ test('flushGroup: a dep that throws synchronously while being resolved (before t
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
     debounceMs: 1,
-    tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
+    tgSend: async (chatId, text) => { sent.push({ chatId, text }); return { ok: true }; },
     // A hostile/misbehaving dep: throws the instant it's read, not when called.
     get tgFileUrl() { throw new Error('boom while resolving tgFileUrl'); },
   };
@@ -57,11 +57,93 @@ test('flushGroup: even if flushGroup itself somehow rejected, the setTimeout cal
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
     debounceMs: 1,
-    tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
+    tgSend: async (chatId, text) => { sent.push({ chatId, text }); return { ok: true }; },
     tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
     getFieldSpec: async () => { throw new Error('spec load failed'); },
   };
   await handleUpdate(photoUpdate('g2', 'f1'), deps);
   await assert.doesNotReject(() => timers.runPending());
   assert.match(sent[sent.length - 1].text, /Couldn't process that batch/i);
+});
+
+// --- Live QA (2026-07-13): an album's ack arrived, the final summary never did — no
+// error, no trace. Root cause: tgSend NEVER THROWS (it swallows a Telegram/network
+// failure internally and just console.errors), so flushGroup's own try/catch — which only
+// guards against a THROW — cannot detect a swallowed send failure on its one summary
+// message. From the user's side that's indistinguishable from "stuck forever". Fix:
+// flushGroup's terminal replies (download-fail / summary / catch-all) now check tgSend's
+// own return value and retry once before giving up, via a shared sendFinal() helper.
+//
+// These tests deliberately do NOT inject a fake setTimeout: sendFinal's retry delay is
+// scheduled from INSIDE a debounce timer callback that a hand-rolled fake-timer queue is
+// already mid-await for — draining that queue again from within itself deadlocks (a fake
+// timer can't be "woken" by code that's blocked waiting for it to fire). Real timers with
+// a 1ms debounce/retry delay side-step that entirely and are simpler to reason about. -----
+
+function baseRealDeps(tgSend) {
+  return {
+    debounceMs: 1,
+    finalRetryDelayMs: 1,
+    tgFileUrl: async (fid) => ({ url: 'https://tg/' + fid }),
+    getFieldSpec: async () => ({}),
+    runBatch: async () => ({ images: 1, receipts: 1, saved: 1, skipped: 0, skippedDetails: [], duplicates: 0, duplicateDetails: [], failed: [], flagged: [], truncated_images: [] }),
+    downloadAndStoreReceiptImage: async () => null,
+    tgSend,
+  };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 60)); // real short sleep: debounce (1ms) + retry delay (1ms) both fire well within this
+
+test('flushGroup: a summary send that fails once (tgSend swallows and returns undefined) is retried and reaches the user', async () => {
+  const sent = [];
+  let summaryCalls = 0;
+  const deps = baseRealDeps(async (chatId, text) => {
+    sent.push({ chatId, text });
+    if (/Batch processed/.test(text)) {
+      summaryCalls += 1;
+      if (summaryCalls === 1) return undefined; // simulates tgSend's own swallowed failure
+    }
+    return { ok: true };
+  });
+  await handleUpdate(photoUpdate('g3', 'f1'), deps);
+  await settle();
+  const summaryMsgs = sent.filter((s) => /Batch processed/.test(s.text));
+  assert.strictEqual(summaryCalls, 2, 'the summary send must be retried exactly once after the swallowed failure');
+  assert.strictEqual(summaryMsgs.length, 2, 'both attempts are real tgSend calls (the first is the lost one, the second reaches the user)');
+});
+
+test('flushGroup: a summary send that fails twice never throws and never double-sends beyond the one retry', async () => {
+  let summaryCalls = 0;
+  const deps = baseRealDeps(async (chatId, text) => {
+    if (/Batch processed/.test(text)) { summaryCalls += 1; return undefined; }
+    return { ok: true };
+  });
+  await assert.doesNotReject(async () => {
+    await handleUpdate(photoUpdate('g4', 'f1'), deps);
+    await settle();
+  });
+  assert.strictEqual(summaryCalls, 2, 'exactly one retry — not an infinite/unbounded retry loop');
+});
+
+test('flushGroup: a successful summary send on the first try is NOT retried (no duplicate message)', async () => {
+  let summaryCalls = 0;
+  const deps = baseRealDeps(async (chatId, text) => { if (/Batch processed/.test(text)) summaryCalls += 1; return { ok: true }; });
+  await handleUpdate(photoUpdate('g5', 'f1'), deps);
+  await settle();
+  assert.strictEqual(summaryCalls, 1, 'a message that reaches Telegram fine must never be sent twice');
+});
+
+test('flushGroup: logs a start and a done marker for the flush, with the groupId/chatId — so a future stuck-batch report is diagnosable instead of a silent gap', async () => {
+  const deps = baseRealDeps(async () => ({ ok: true }));
+  const origLog = console.log;
+  const logs = [];
+  console.log = (...args) => logs.push(args.join(' '));
+  try {
+    await handleUpdate(photoUpdate('g6', 'f1', 200), deps);
+    await settle();
+  } finally {
+    console.log = origLog;
+  }
+  assert.ok(logs.some((l) => /\[group flush:start\]/.test(l) && /g6/.test(l) && /200/.test(l)), 'expected a flush:start log with the groupId and chatId');
+  assert.ok(logs.some((l) => /\[group flush:done\]/.test(l) && /g6/.test(l)), 'expected a flush:done log');
 });

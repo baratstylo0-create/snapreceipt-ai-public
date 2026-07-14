@@ -29,7 +29,8 @@
   // old Ledger tab) AND unless the excelLiteGrid capability is explicitly off (config
   // .excel_lite_grid === false — the "missing/old config defaults ON" rule). Pure, never throws.
   function subPagesFor(config, business) {
-    var pages = [{ id: 'template', label: 'Template & Categories' }];
+    var templateBuilderOff = !!(config && config.template_builder === false);
+    var pages = [templateBuilderOff ? { id: 'category', label: 'Categories' } : { id: 'template', label: 'Template & Categories' }];
     var gridOff = !!(config && config.excel_lite_grid === false);
     if (business && !gridOff) pages.push({ id: 'data', label: 'Data editor (spreadsheet)' });
     return pages;
@@ -102,9 +103,15 @@
       panelsWrap.appendChild(panel);
       panels[p.id] = panel;
 
-      var comp = p.id === 'template' ? Templates : p.id === 'data' ? Grid : null;
+      var comp = (p.id === 'template' || p.id === 'category') ? Templates : p.id === 'data' ? Grid : null;
       if (comp && typeof comp.mount === 'function') {
-        var inst = comp.mount(panel, deps);
+        var childDeps = deps;
+        if (p.id === 'category') {
+          childDeps = {};
+          for (var k in deps) childDeps[k] = deps[k];
+          childDeps.categoryOnly = true;
+        }
+        var inst = comp.mount(panel, childDeps);
         if (inst) instances[p.id] = inst;
       } else {
         var ph = document.createElement('p');
