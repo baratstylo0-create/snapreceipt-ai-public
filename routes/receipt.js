@@ -41,7 +41,15 @@ module.exports = function mountReceipt(app, deps = {}) {
   // browser never learns the raw Storage object path (and can't request an arbitrary one).
   // Prefer the durable Storage copy (receipt_url); fall back to the live Telegram proxy for
   // old rows that only have a receipt_file_id. Same checkDash gate + private, no-store.
-  app.get('/receipt/by-id/:id', checkDash, async (req, res) => {
+  //
+  // Served at BOTH `/receipt/*` (legacy) AND `/api/receipt/*` (ADR-027, 2026-07-13): on the
+  // shared-tenant nginx box, `/receipt/` is a dedicated location that FrictionAI (:3001) and
+  // this app (:3005) BOTH claim, so a single `proxy_pass` can only feed one of them — every
+  // fix for one side broke the other (recurred 3× in a day; see docs + MEMORY_LEDGER GOTCHA).
+  // `/api/receipt/*` rides the `/api/*` → :3005 catch-all that FrictionAI never touches, so
+  // our images can never again be stolen by a `/receipt/` route edit. The frontend uses the
+  // `/api/receipt/*` form; the legacy `/receipt/*` mounts stay for any cached client + the bot.
+  app.get(['/receipt/by-id/:id', '/api/receipt/by-id/:id'], checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     res.set('Cache-Control', 'private, no-store');
     try {
@@ -61,7 +69,7 @@ module.exports = function mountReceipt(app, deps = {}) {
     } catch (e) { console.error('[receipt by-id]', e.message); res.status(502).send('error'); }
   });
 
-  app.get('/receipt/:fileId', checkDash, async (req, res) => {
+  app.get(['/receipt/:fileId', '/api/receipt/:fileId'], checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     // Never let anything (proxy, browser back/forward cache, CDN) retain a sensitive image.
     res.set('Cache-Control', 'private, no-store');

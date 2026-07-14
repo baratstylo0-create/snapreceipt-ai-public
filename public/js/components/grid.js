@@ -124,7 +124,9 @@
 
   function receiptLink(row) {
     if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
-    return '/receipt/by-id/' + encodeURIComponent(row.id);
+    // ADR-027: `/api/receipt/*` (not legacy `/receipt/*`) so the image rides the `/api/*`
+    // → :3005 nginx catch-all the co-tenant app never claims — collision-proof. See DECISIONS.
+    return '/api/receipt/by-id/' + encodeURIComponent(row.id);
   }
 
   function exportValue(row, key) {

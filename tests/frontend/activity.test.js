@@ -96,8 +96,8 @@ test('filterSortPage sorts by date asc/desc', () => {
 // --- receiptByIdPath / hasReceiptImage (ADR-018 durable receipt images) ----
 
 test('receiptByIdPath builds the by-id serve URL, encoding the id', () => {
-  assert.strictEqual(receiptByIdPath('abc-123'), '/receipt/by-id/abc-123');
-  assert.strictEqual(receiptByIdPath('a/b c'), '/receipt/by-id/a%2Fb%20c');
+  assert.strictEqual(receiptByIdPath('abc-123'), '/api/receipt/by-id/abc-123');
+  assert.strictEqual(receiptByIdPath('a/b c'), '/api/receipt/by-id/a%2Fb%20c');
 });
 
 test('hasReceiptImage is true when EITHER receipt_url or receipt_file_id is present', () => {
@@ -579,21 +579,21 @@ test('control bytes are stripped by safeText before display', () => {
 // Task K), but the URL builder itself is pure and is the part worth a unit test:
 // fileId is untrusted (OCR/Telegram-sourced), so it must always be percent-encoded,
 // never string-concatenated raw into the path.
-test('receiptPath: builds /receipt/<encoded fileId>', () => {
-  assert.strictEqual(receiptPath('abc123'), '/receipt/abc123');
+test('receiptPath: builds /api/receipt/<encoded fileId> (ADR-027 collision-proof path)', () => {
+  assert.strictEqual(receiptPath('abc123'), '/api/receipt/abc123');
 });
 
 test('receiptPath: percent-encodes a hostile/path-breaking fileId (no raw markup, no raw slashes)', () => {
   const hostile = '../../etc/passwd?x=<script>alert(1)</script>';
   const out = receiptPath(hostile);
-  assert.strictEqual(out.indexOf('/receipt/'), 0);
+  assert.strictEqual(out.indexOf('/api/receipt/'), 0);
   assert.ok(out.indexOf('<script>') === -1, 'must not carry raw markup');
-  assert.strictEqual(out, '/receipt/' + encodeURIComponent(hostile));
+  assert.strictEqual(out, '/api/receipt/' + encodeURIComponent(hostile));
 });
 
 test('receiptPath: null/undefined fileId does not throw, yields a safe empty-ish path', () => {
-  assert.strictEqual(receiptPath(null), '/receipt/');
-  assert.strictEqual(receiptPath(undefined), '/receipt/');
+  assert.strictEqual(receiptPath(null), '/api/receipt/');
+  assert.strictEqual(receiptPath(undefined), '/api/receipt/');
 });
 
 // --- filterSortPage: dateFrom / dateTo (Task L) ----------------------------

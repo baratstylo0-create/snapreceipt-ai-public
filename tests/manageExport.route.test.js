@@ -69,8 +69,8 @@ test('manage export CSV: exports requested filtered-row ids in client order with
     assert.match(r.headers.get('content-type'), /text\/csv/);
     const lines = r.buf.toString('utf8').trim().split('\r\n');
     assert.strictEqual(lines[0], 'Date,Merchant,Amount,Currency,Category,Branch,Staff,Status,Receipt URL');
-    assert.strictEqual(lines[1], '2026-07-02,Taxi,20,MYR,Travel,Penang,Ben,paid,/receipt/by-id/e2');
-    assert.strictEqual(lines[2], '2026-07-01,Cafe,10,MYR,Food,HQ,Aisha,pending,/receipt/by-id/e1');
+    assert.strictEqual(lines[1], '2026-07-02,Taxi,20,MYR,Travel,Penang,Ben,paid,/api/receipt/by-id/e2');
+    assert.strictEqual(lines[2], '2026-07-01,Cafe,10,MYR,Food,HQ,Aisha,pending,/api/receipt/by-id/e1');
     assert.strictEqual(lines.length, 3);
   });
 });
@@ -86,7 +86,7 @@ test('manage export Excel: includes clickable receipt hyperlinks', async () => {
     const headers = sheet.getRow(2).values.slice(1);
     const receiptCol = headers.indexOf('Receipt') + 1;
     assert.ok(receiptCol > 0, 'Receipt column present');
-    assert.strictEqual(sheet.getRow(3).getCell(receiptCol).value.hyperlink, '/receipt/by-id/e1');
+    assert.strictEqual(sheet.getRow(3).getCell(receiptCol).value.hyperlink, '/api/receipt/by-id/e1');
   });
 });
 
