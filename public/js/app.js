@@ -410,6 +410,11 @@
       // Same signal `sections` above already uses — the nav and the header title
       // must never disagree about which mode this boot is in.
       business: !!deps.session,
+      // Telegram bot link (2026-07-14): already-fetched /api/config carries the
+      // bot's public @handle; no second round-trip needed. Same value for every
+      // role (one bot per account) — Nav.buildBrandHeader omits the icon entirely
+      // when this is blank (BOT_USERNAME not configured/auto-detected yet).
+      botUsername: deps.config && deps.config.bot_username,
       onSettings: function () { select('settings'); },
       // The Settings view is built once at boot and never re-rendered, so its
       // theme <select> (tagged .set-select--theme) would otherwise show a
