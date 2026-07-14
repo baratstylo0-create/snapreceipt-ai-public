@@ -514,15 +514,20 @@
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
+  // ADR-027: the `/api/receipt/*` form (not legacy `/receipt/*`) so images ride the
+  // `/api/*` → :3005 nginx catch-all that the co-tenant FrictionAI app never claims — a
+  // shared `/receipt/` location can only proxy_pass to ONE backend, which is why receipt
+  // display kept breaking whenever the other app's route was fixed. See docs/DECISIONS.md.
   function receiptPath(fileId) {
-    return '/receipt/' + encodeURIComponent(str(fileId));
+    return '/api/receipt/' + encodeURIComponent(str(fileId));
   }
 
   // ADR-018: serve the receipt image BY EXPENSE ID. The server looks the row up and streams
   // the durable Storage copy (receipt_url) or falls back to the Telegram proxy — so the
   // browser never learns the raw storage path. id is encodeURIComponent'd (never raw).
+  // `/api/receipt/*` path per ADR-027 (collision-proof — see receiptPath above).
   function receiptByIdPath(id) {
-    return '/receipt/by-id/' + encodeURIComponent(str(id));
+    return '/api/receipt/by-id/' + encodeURIComponent(str(id));
   }
 
   // Does this row have a viewable receipt image on either surface? True for a durable

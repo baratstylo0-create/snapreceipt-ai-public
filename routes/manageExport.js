@@ -31,7 +31,7 @@ const EXPORT_COLUMNS = [
 
 function receiptLink(row) {
   if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
-  return '/receipt/by-id/' + encodeURIComponent(row.id);
+  return '/api/receipt/by-id/' + encodeURIComponent(row.id); // ADR-027 collision-proof path
 }
 
 function csvValue(value) {
