@@ -471,6 +471,57 @@ body.theme-warm {
 
 .ov-shell { display: flex; flex-direction: column; gap: 16px; }
 
+/* --- Overview: admin branch-filter dropdown (C6/C7) ----------------------
+   Was completely unstyled — a raw native <select> that rendered as a stray
+   black box against the paper theme (the "is this a bug?" the Owner spotted).
+   Themed to match the metrics-period control below it: paper background, ink
+   text, a "VIEW" caption so it reads as a deliberate filter, and a custom
+   chevron (native arrow removed via appearance:none) that swaps colour in
+   dark mode. Admin-only element, so this never affects the clerk view. */
+.ov-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 2px;
+}
+.ov-filter-toolbar::before {
+  content: "View";
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ov-branch-filter {
+  min-width: 168px;
+  padding: 7px 34px 7px 12px;
+  color: var(--txt);
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%235d6450' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.75 4.5 6 7.75 9.25 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ov-branch-filter:hover { border-color: var(--accent); }
+.ov-branch-filter:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(95, 122, 71, 0.25);
+}
+body.theme-dark .ov-branch-filter {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%23a7a88e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.75 4.5 6 7.75 9.25 4.5'/%3E%3C/svg%3E");
+}
+
 /* --- Overview: Automation impact band (C4) ------------------------------- */
 .ov-metrics-band {
   display: flex;
