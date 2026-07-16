@@ -1,5 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-16 · Claude (orchestrator) · jeevan-claude/polish-overview-branch-filter — Overview: style the admin branch-filter dropdown (was an unstyled raw <select>)
+
+- **Files:** `public/css/app.css` (new `.ov-filter-toolbar` / `.ov-branch-filter` block; no JS/DOM changes). No test changes — pure CSS, no unit-testable surface in this DOM-less test convention.
+- **Context:** Owner spotted the "My uploads" control on Overview and asked what it was / whether it was a bug. It's the **admin-only branch-scope filter** (round-2 C6/C7): All branches / My uploads / per-branch, built in `overview.js:970` but **never given any CSS** — so it rendered as a stray black native `<select>` against the paper theme (that's what read as "a bug"). Confirmed it's a real, wanted feature; Owner said keep it and polish it.
+- **What changed:** themed the `<select>` to match the sibling `.ov-metrics-period` control — paper `--bg`, ink `--txt`, `--line-2` hairline border, 9px radius, `font: inherit`. Removed the inconsistent native arrow (`appearance: none`) and drew a custom chevron via an inline data-URI SVG; added a `View` caption (CSS `::before`, aria-label on the select already covers a11y), plus hover/focus-visible (accent border + moss focus ring). Dark theme swaps the chevron to a light stroke (`body.theme-dark` override); light + warm share the dark chevron (both are dark-ink-on-cream).
+- **Verification:** rendered a fresh `.ov-branch-filter` in the live browser against the real `app.css` with the theme class pre-applied (mimics app.js's real load order) and read computed styles — light/dark/warm all resolve correctly: dark gets a **visible** light hairline border `rgba(236,230,210,0.2)` on the dark bg (specifically checked this — an invisible dark-on-dark border would have been the obvious failure mode), chevron stroke swaps per theme, `appearance:none` applied. Full suite **2081/2081** (`.env` moved aside/restored, confirmed back with `ls`).
+- **What's next:** PR opened; Owner directed the merge in-chat ("if it is necessary, polish in the css, and merge it").
+
+---
+
 ## 2026-07-14 · Claude (Sonnet, orchestrator/#5 owner) · jeevan-claude/anomaly-llm-summary — Review queue: "Anomaly Detection" label + one-sentence LLM summary of why a row was flagged
 
 - **Files:** `lib/anomaly.js` (new `summarizeReasons`/`buildSummaryMessages`; `detectAnomalies` now returns an additive `summary` field), `lib/ocr.js` (`assembleExpense` carries `result.summary` through onto `expense.anomaly.summary`), `public/js/components/activity.js` (`anomalyReasonText` prefers `anomaly.summary` over the joined `reasons[].detail` strings; title rename to "Anomaly Detection" + explanatory note — this half was already sitting uncommitted locally from an earlier pass, finished here). Tests: `tests/anomaly.test.js` (+6), `tests/ingest.test.js` (+2), `tests/frontend/activity.anomaly.test.js` (+3).
