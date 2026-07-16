@@ -1,5 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-16 · Claude (orchestrator, crossed into Codex's lane on explicit Owner authorization "as a CTO do what you think is right") · jeevan-claude/default-all-branches-activity-reports — Activity + Reports: default admin branch filter to "All branches" (finish the Overview fix consistently)
+
+- **Files:** `public/js/components/activity.js` (state default `filterBranch: isAdmin ? 'mine' : 'all'` → `'all'`, plus the render fallback `state.filterBranch || 'mine'` → `|| 'all'` so no lingering 'mine' default anywhere), `public/js/components/reports.js` (`branchState.filter` default → `'all'`). No test changes — the existing pure tests exercise `filterSortPage`/`activityBranchOptions`/`branchQueryValue` with explicit filter values and the option list, none assert the default state, so all stay green (2081/2081).
+- **Context:** immediately after PR #257 flipped Overview's *Summary* default to "All branches", I checked the two other components that share the same `isAdmin ? 'mine' : 'all'` pattern — **Activity** (its own tab) and **Reports** (mounted as Overview's *Trends* segment). Both still defaulted to "My uploads", so an admin's Activity list and the Trends charts would STILL open empty/partial while Summary showed the whole company — inconsistent and the same demo-risk the Owner flagged. Owner: *"as a cto do what u think is right."* The right call is to make all three consistent, not leave the fix half-applied.
+- **Behaviour:** admin now opens Overview (Summary + Trends) and Activity all to the whole-company view; "My uploads" stays one click away in each dropdown. Clerk unchanged everywhere — no dropdown, server-side `scopeEq` still pins them to their own branch regardless of the (absent) `branch` param, so a client-side `'all'` default can't widen a clerk's data.
+- **Lane note:** `activity.js`/`reports.js` are Codex's ownership; edited here under the Owner's explicit in-chat CTO authorization (same pattern as the earlier `qa/pr-ac-manual-expense-entry` cross-lane entry). Change is a 3-line default flip, no interface/contract touched.
+- **What's next:** PR opened; Owner directed the change for the demo.
+
+---
+
 ## 2026-07-16 · Claude (orchestrator) · jeevan-claude/overview-default-all-branches — Overview: default admin branch filter to "All branches" (was "My uploads")
 
 - **Files:** `public/js/components/overview.js` (one line in `mount()`: `branchState.filter` default `isAdmin ? 'mine' : 'all'` → `'all'`). No test changes — the existing pure-helper tests assert the "My uploads" *option* and the query-scoping helpers, not the default, so all stay green (2081/2081).
