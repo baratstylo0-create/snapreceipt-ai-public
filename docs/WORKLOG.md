@@ -1,5 +1,14 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-16 · Claude (orchestrator) · jeevan-claude/overview-default-all-branches — Overview: default admin branch filter to "All branches" (was "My uploads")
+
+- **Files:** `public/js/components/overview.js` (one line in `mount()`: `branchState.filter` default `isAdmin ? 'mine' : 'all'` → `'all'`). No test changes — the existing pure-helper tests assert the "My uploads" *option* and the query-scoping helpers, not the default, so all stay green (2081/2081).
+- **Context:** demo-prep. An admin's Overview defaulted to "My uploads" (own branch only); an admin who doesn't personally upload much opened to a near-empty screen that reads as data loss (the recurring "admin sees no data" confusion in the MEMORY_LEDGER). Owner: *"default it to All branches for the demo."*
+- **Behaviour:** admin now opens to the whole-company view; "My uploads" is still one click away in the (now-styled, PR #256) dropdown. Clerk unchanged — no dropdown, and the server scopes them to their own branch via `scopeEq` regardless of the (absent) `branch` param, so defaulting to `'all'` client-side can't widen a clerk's data.
+- **What's next:** PR opened; Owner directed the change for the demo.
+
+---
+
 ## 2026-07-16 · Claude (orchestrator) · jeevan-claude/polish-overview-branch-filter — Overview: style the admin branch-filter dropdown (was an unstyled raw <select>)
 
 - **Files:** `public/css/app.css` (new `.ov-filter-toolbar` / `.ov-branch-filter` block; no JS/DOM changes). No test changes — pure CSS, no unit-testable surface in this DOM-less test convention.
