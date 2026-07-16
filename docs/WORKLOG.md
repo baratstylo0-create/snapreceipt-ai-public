@@ -1,5 +1,14 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-16 · Claude (orchestrator) · jeevan-claude/revert-automation-impact-label — Overview: drop "Friction" from the metrics-band title (branding leak, client-facing)
+
+- **Files:** `public/js/components/overview.js` (one string: `'Friction Automation Impact'` → `'Automation Impact'`). No test changes — no test asserted the literal title string.
+- **Context:** "Friction" was added to this client-facing label on 2026-07-13 (PR #239, `0a933bd`). During demo-prep QA the Owner flagged it as confusing ("what is this? why does it keep appearing there?"); I identified it as a branding risk (our dev shop's internal name, meaningless to the client, unexplained anywhere in the UI) and recommended reverting. Owner: *"decide the Friction label for the demo"* — made the call to revert, per ADR-020 (delivered per-client system, not a Friction-branded product shown to the client).
+- **Tests: full suite 2081/2081** (`.env` moved aside/restored, confirmed with `ls`).
+- **What's next:** PR opened; Owner to name the merge.
+
+---
+
 ## 2026-07-16 · Claude (orchestrator, crossed into Codex's lane on explicit Owner authorization "as a CTO do what you think is right") · jeevan-claude/default-all-branches-activity-reports — Activity + Reports: default admin branch filter to "All branches" (finish the Overview fix consistently)
 
 - **Files:** `public/js/components/activity.js` (state default `filterBranch: isAdmin ? 'mine' : 'all'` → `'all'`, plus the render fallback `state.filterBranch || 'mine'` → `|| 'all'` so no lingering 'mine' default anywhere), `public/js/components/reports.js` (`branchState.filter` default → `'all'`). No test changes — the existing pure tests exercise `filterSortPage`/`activityBranchOptions`/`branchQueryValue` with explicit filter values and the option list, none assert the default state, so all stay green (2081/2081).
