@@ -1,5 +1,23 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-16 · Claude (orchestrator) · LIVE VPS CONFIG (no PR) — extended Premala's dashboard session length 12h → 7 days
+
+- **What:** `SESSION_TTL_MS=604800000` (7 days) added to `/opt/receipt-analyser/.env` on the Premala VPS (was unset → defaulting to `lib/auth.js`'s 12h fallback). Backed up first (`.env.bak.<epoch>` on the box), then `pm2 restart receipt-analyser --update-env`. Verified: `/health` + `/ready` both 200 post-restart, clean boot log (webhook re-registered, cred key loaded, no errors), `.env` line confirmed present after restart.
+- **Context:** Owner asked why the dashboard logs staff off at all / why 12h. Explained the security rationale (bounds exposure if a device is lost/stolen/shared — this dashboard shows real financial data) vs. the convenience cost, then asked the Owner to pick: keep 12h / extend / remove entirely. Owner chose extend, then specifically **7 days** over 30.
+- **No code change** — `SESSION_TTL_MS` was already a config knob (`Number(process.env.SESSION_TTL_MS) || 12h`, `lib/auth.js:22`), just never set on this box. Documented the knob in `.env.example` (see next entry) so a future session doesn't have to rediscover it live.
+- **Not deploy-affected:** `.env` is gitignored and never part of the git-tracked deploy artifact (confirmed in `deploy.yml`'s own comment: "git-tracked files only — .env/.git/node_modules can never leak in"), so this survives future `main` deploys untouched.
+
+---
+
+## 2026-07-16 · Claude (orchestrator) · jeevan-claude/document-session-ttl — Document SESSION_TTL_MS in .env.example
+
+- **Files:** `.env.example` only (comment block in the CAP_MULTI_USER section). No code/logic change.
+- **Context:** follows the live VPS SESSION_TTL_MS change above — the knob already existed in `lib/auth.js` but wasn't documented anywhere an operator would find it. Added alongside the other `CAP_*` business-mode flags with the security/convenience tradeoff spelled out and both the 7-day and 30-day values pre-computed in ms (avoids an operator hand-computing `604800000` next time).
+- **Tests: full suite 2081/2081** (`.env` moved aside/restored, confirmed with `ls`) — run for discipline even though this is a docs-only change with no testable surface.
+- **What's next:** PR opened; Owner to name the merge.
+
+---
+
 ## 2026-07-16 · Claude (orchestrator) · jeevan-claude/revert-automation-impact-label — Overview: drop "Friction" from the metrics-band title (branding leak, client-facing)
 
 - **Files:** `public/js/components/overview.js` (one string: `'Friction Automation Impact'` → `'Automation Impact'`). No test changes — no test asserted the literal title string.
