@@ -919,7 +919,7 @@
       activityBranchOptions(state.branches, state.rows, state.session).forEach(function (opt) {
         var o = el('option'); o.value = opt.value; Escape.setText(o, opt.label); branchSel.appendChild(o);
       });
-      branchSel.value = state.filterBranch || 'mine';
+      branchSel.value = state.filterBranch || 'all';
       branchSel.addEventListener('change', function () { onChange({ filterBranch: branchSel.value, page: 1 }); });
       bar.appendChild(branchSel);
     }
@@ -1588,7 +1588,7 @@
     var defaultMonthRange = thisMonthRange(new Date());
     var state = {
       loaded: false, loading: false, rows: [],
-      search: '', filterStatus: 'all', filterCategory: 'all', filterBranch: isAdmin ? 'mine' : 'all',
+      search: '', filterStatus: 'all', filterCategory: 'all', filterBranch: 'all',
       datePreset: 'month', selectedMonth: defaultMonthRange.from.slice(0, 7),
       dateFrom: defaultMonthRange.from, dateTo: defaultMonthRange.to,
       sortBy: 'date', sortDir: 'desc', page: 1, pageSize: DEFAULT_PAGE_SIZE,

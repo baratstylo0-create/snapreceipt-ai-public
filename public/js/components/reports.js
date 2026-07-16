@@ -639,7 +639,11 @@
     var rootEl = el('div', 'rp-root');
     section.appendChild(rootEl);
     var isAdmin = !!(opts.session && opts.session.role === 'admin');
-    var branchState = { filter: isAdmin ? 'mine' : 'all', branches: [], loaded: false };
+    // Demo/UX consistency (2026-07-16): default an admin to the whole-company
+    // "All branches" view, matching Overview + Activity. Defaulting to "My
+    // uploads" (own branch) made an admin who doesn't personally upload open to
+    // an empty screen that reads as data loss. "My uploads" stays selectable.
+    var branchState = { filter: 'all', branches: [], loaded: false };
 
     // --- toolbar: period tabs + Prev/current-unit/Next drill-down nav ---
     var toolbar = el('div', 'rp-toolbar');
