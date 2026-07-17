@@ -40,6 +40,43 @@ test('duplicate: different amount is NOT a duplicate', async () => {
   assert.strictEqual(has(r, 'duplicate'), false);
 });
 
+// 2026-07-17 live incident: the same physical receipt got saved 3x because OCR read its
+// merchant name differently each capture ("99 SPEED MART SDN. BHD." vs "99 Speed Mart") —
+// the exact-string match missed it entirely. These lock in the fuzzy-match fix.
+test('duplicate: legal-suffix variant of the same merchant IS caught (99 Speed Mart incident)', async () => {
+  const history = [{ id: 'a1', merchant: '99 SPEED MART SDN. BHD.', amount: 14.50, expense_date: '2026-07-09' }];
+  const r = await detectAnomalies({ merchant: '99 Speed Mart', amount: 14.50, expense_date: '2026-07-09' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), true);
+  assert.strictEqual(r.duplicateOf && r.duplicateOf.id, 'a1');
+});
+
+test('duplicate: suffix variant matches regardless of punctuation/casing (Sdn. Bhd. / SDN BHD / Bhd)', async () => {
+  const cases = ['Kedai Runcit Sdn. Bhd.', 'KEDAI RUNCIT SDN BHD', 'Kedai Runcit Bhd'];
+  for (const merchant of cases) {
+    const history = [{ id: 'a1', merchant, amount: 30, expense_date: '2026-07-09' }];
+    const r = await detectAnomalies({ merchant: 'Kedai Runcit', amount: 30, expense_date: '2026-07-09' }, { history, useLLM: false });
+    assert.strictEqual(has(r, 'duplicate'), true, 'expected a match against "' + merchant + '"');
+  }
+});
+
+test('duplicate: a single-character OCR typo still matches (fuzzy similarity fallback)', async () => {
+  const history = [{ id: 'a1', merchant: '99 Speed Mart', amount: 14.50, expense_date: '2026-07-09' }];
+  const r = await detectAnomalies({ merchant: '99 Speed Mrt', amount: 14.50, expense_date: '2026-07-09' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), true);
+});
+
+test('duplicate: genuinely different merchants with the same amount/date are NOT matched (no false positive)', async () => {
+  const history = [{ id: 'a1', merchant: '99 Speed Mart', amount: 14.50, expense_date: '2026-07-09' }];
+  const r = await detectAnomalies({ merchant: 'KFC', amount: 14.50, expense_date: '2026-07-09' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), false);
+});
+
+test('duplicate: different branches of the same chain are NOT matched (Tesco Extra vs Tesco Express)', async () => {
+  const history = [{ id: 'a1', merchant: 'Tesco Extra', amount: 20, expense_date: '2026-07-01' }];
+  const r = await detectAnomalies({ merchant: 'Tesco Express', amount: 20, expense_date: '2026-07-01' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), false);
+});
+
 test('outlier: amount >> median for the merchant is flagged', async () => {
   const history = ['a', 'b', 'c', 'd'].map((id, i) => ({ id, merchant: 'Cafe', amount: 10 + i, expense_date: '2026-06-0' + (i + 1) }));
   const r = await detectAnomalies({ merchant: 'Cafe', amount: 500, expense_date: '2026-06-10' }, { history, useLLM: false });
