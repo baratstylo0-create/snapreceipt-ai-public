@@ -119,3 +119,34 @@ test('HSTS IS sent on a secure (HTTPS) request, with a real max-age and no prema
   assert.ok(!/preload/.test(res.headers['Strict-Transport-Security']), 'no preload commitment yet');
   assert.ok(!/includeSubDomains/.test(res.headers['Strict-Transport-Security']));
 });
+
+// Incident 2026-07-17: a self-signed cert + HSTS is a permanent-lockout combo, not
+// downgrade protection. Once a browser accepts the self-signed cert once and receives
+// HSTS, it caches the policy and refuses to EVER show a cert-error bypass link again for
+// that host for the max-age window — an ordinary reload after that point hard-fails with
+// no way through except manually clearing chrome://net-internals/#hsts. HSTS only earns
+// its keep once the deployment has a CA-trusted cert (needs a real domain, not a bare IP).
+// HSTS_ENABLED=false is the opt-out for a self-signed deployment; unset/anything else
+// preserves the existing default-on behavior for a real HTTPS deploy.
+test('HSTS is suppressed when HSTS_ENABLED=false, even over HTTPS (self-signed-cert deployments)', () => {
+  const prev = process.env.HSTS_ENABLED;
+  process.env.HSTS_ENABLED = 'false';
+  try {
+    const res = fakeRes();
+    securityHeaders({ path: '/api/x', secure: true }, res, () => {});
+    assert.strictEqual(res.headers['Strict-Transport-Security'], undefined);
+  } finally {
+    if (prev === undefined) delete process.env.HSTS_ENABLED; else process.env.HSTS_ENABLED = prev;
+  }
+});
+test('HSTS_ENABLED unset (or anything other than "false") keeps the default-on behavior', () => {
+  const prev = process.env.HSTS_ENABLED;
+  delete process.env.HSTS_ENABLED;
+  try {
+    const res = fakeRes();
+    securityHeaders({ path: '/api/x', secure: true }, res, () => {});
+    assert.match(res.headers['Strict-Transport-Security'], /max-age=\d+/);
+  } finally {
+    if (prev === undefined) delete process.env.HSTS_ENABLED; else process.env.HSTS_ENABLED = prev;
+  }
+});
