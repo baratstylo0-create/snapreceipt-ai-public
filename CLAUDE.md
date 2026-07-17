@@ -16,6 +16,10 @@
 > 4. `docs/ARCHITECTURE.md` — module map + **frozen interfaces** (build against §3)
 > 5. `docs/WORKLOG.md` + `docs/STATUS.md` — what others did, current phase/blockers
 > 6. **your role file**: `docs/roles/JEEVAN.md` · `docs/roles/BARAT.md` · `docs/roles/MUGI.md`
+> 7. **before touching `lib/bot.js`, `activity.js`, or `lib/anomaly.js`**: `docs/qa/2026-07-17-lessons-learned-review-queue-stafflock-duplicates.md`
+>    — 4 real bugs + root causes + reusable lessons (stale-state guards, shared-constant call sites,
+>    local `.env` vs. production drift, exact-match logic over OCR text). Read it first; it will
+>    save you from re-deriving the same root causes from scratch.
 >
 > Then follow the pre-work ritual (SOP §4.2). **Edit only the files your role owns** (collision rule §4.6).
 > Precedence: Repo Owner (Jeevan) → SOP → this file → defaults. If a request conflicts with the SOP, STOP and ask.
