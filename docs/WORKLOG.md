@@ -12,6 +12,43 @@
 
 ---
 
+## 2026-07-17 · Claude (orchestrator) · fix/duplicate-detection-merchant-suffix — Fix: duplicate receipts not caught when OCR reads the merchant name differently (PR #265)
+
+- **Files:** `lib/anomaly.js` (`coreMerchant()` strips a narrow legal-suffix whitelist — Sdn Bhd, Bhd, Ltd, Inc, LLC, LLP, PLT, Corp, Pte Ltd — before comparing; bigram Dice-similarity fallback, 0.82 threshold, only applied after amount+date already matched exactly; every fuzzy match now logged), `tests/anomaly.test.js` (+5). Full suite **2106/2106**.
+- **Incident:** the same physical receipt ("99 Speed Mart") was saved 3 separate times. Root cause: `findDuplicate()`'s merchant match was an exact string comparison (case/whitespace-insensitive only); OCR read the same real shop as `"99 SPEED MART SDN. BHD."` on some captures and `"99 Speed Mart"` on others, so the duplicate check never fired even with matching amount+date.
+- **Verified no regression:** different merchants (KFC vs 99 Speed Mart) and different branches of the same chain (Tesco Extra vs Tesco Express), same amount/date, correctly do NOT match.
+- **Scope note:** prevents future duplicates only — does not retroactively clean up the rows already saved from this incident (flagged to Owner as a separate action needing explicit confirmation before touching real financial rows).
+- **See also:** `docs/qa/2026-07-17-lessons-learned-review-queue-stafflock-duplicates.md` — full postmortem covering this + 3 other issues from the same session, written for a future Claude Code session to read before touching `lib/bot.js`/`activity.js`/`lib/anomaly.js` again.
+- **Merged:** self-merged to `main` on Owner's explicit override (same override as #263/#264 below); deploy + health/readiness verified green post-restart.
+
+---
+
+## 2026-07-17 · Claude (orchestrator) · fix/stafflock-keyboard-gaps — Fix: Staff Lock button disappeared after using other menu buttons (PR #264)
+
+- **Files:** `lib/bot.js` (2 remaining call sites — the plain `/start` handler for an already-bound chat, and `handleTodayExpenses`/`handleWeeklyRecord` — switched from the hardcoded `MAIN_MENU_KEYBOARD` to `businessMenuKeyboard(lock)` when business-bound). Full suite **2101/2101**.
+- **Root cause:** PR #263 (below) added a 3rd keyboard variant but only wired it into 3 of the 5 places in `lib/bot.js` that send the persistent reply keyboard. Telegram only redraws that keyboard when a NEW message carries a new one, so tapping one of the 2 unfixed buttons silently reverted the visible menu to the old 4-button layout.
+- **Lesson locked in:** `docs/qa/2026-07-17-lessons-learned-review-queue-stafflock-duplicates.md` — grep every literal reference to a shared constant before considering a change to it complete.
+- **Merged:** self-merged to `main` on Owner's explicit override; deploy + health/readiness verified green post-restart.
+
+---
+
+## 2026-07-17 · Claude (orchestrator) · feat/staff-lock-mode — Add Staff Lock Mode for bulk receipt uploads (PR #263)
+
+- **Files:** `lib/bot.js` (new `staffLockByChat`/`pendingStaffLockPicks` Maps, `businessMenuKeyboard()`, `handleStaffLockStart()`, `sendLockedReceipt()`/locked batch summary, `slock:`/`slockdone` callback handlers, interception at the single-photo/batch/PDF save points), `tests/bot.stafflock.test.js` (new, 18 tests). Full suite **2101/2101**.
+- **What it does:** a clerk picks one staff member once ("👤 Staff Lock"), then every receipt uploaded (single photo, album batch, or PDF) auto-tags to that person with no per-receipt "Who is this for?" picker, until "✅ Done". Reuses the existing pipeline unchanged — injects `staff_user_id` into the same `meta` object that already flows through `expenseFromPhoto`/`assembleExpense`/`runBatch`; zero changes to `lib/ocr.js` or `lib/massupload.js`.
+- **Planned via** `/plan` (Explore → Plan → written plan file → user approval) before implementation — see conversation history for the full plan; not re-duplicated here.
+- **Merged:** self-merged to `main` on Owner's explicit override ("YES STRAIGHT MERGE TO MAIN") — the default (Jeevan reviews and merges) still stands for future changes unless the Owner says otherwise again. Deploy + health/readiness verified green post-restart.
+
+---
+
+## 2026-07-17 · Claude (orchestrator) · qa/pr-review-queue-refresh (activity.js) — Fix: Review Queue never refreshed after first load (PR #255)
+
+- **Files:** `public/js/components/activity.js` (`loadReview()` moved to run unconditionally at the top of `load()`, before the `state.loaded` early-return guard that was silently skipping it on every tab re-entry after the first). Full suite **2078/2078** at merge time.
+- **Root cause + full detail:** `docs/qa/2026-07-17-lessons-learned-review-queue-stafflock-duplicates.md` (Problem 1). Complements PR #213 (Jeevan, same day) which fixed the *symptom* half (stale-card click handling) — both were needed.
+- **Merged:** standard flow, Jeevan reviewed and merged.
+
+---
+
 ## 2026-07-17 · Claude (orchestrator) · jeevan-claude/fix-hsts-selfsigned-lockout — Fix: HSTS + self-signed cert = permanent client lockout (demo-night incident)
 
 - **Files:** `lib/security-headers.js` (HSTS now suppressed when `process.env.HSTS_ENABLED === 'false'`, default-on preserved otherwise), `.env.example` (documented the new knob), `tests/security-headers.test.js` (+2: suppressed when `HSTS_ENABLED=false`; still sent by default when unset). Full suite **2083/2083** (`.env` moved aside/restored, confirmed with `ls`).
