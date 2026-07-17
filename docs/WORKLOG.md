@@ -1,5 +1,16 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-17 · Claude (orchestrator) · jeevan-claude/fix-hsts-selfsigned-lockout — Fix: HSTS + self-signed cert = permanent client lockout (demo-night incident)
+
+- **Files:** `lib/security-headers.js` (HSTS now suppressed when `process.env.HSTS_ENABLED === 'false'`, default-on preserved otherwise), `.env.example` (documented the new knob), `tests/security-headers.test.js` (+2: suppressed when `HSTS_ENABLED=false`; still sent by default when unset). Full suite **2083/2083** (`.env` moved aside/restored, confirmed with `ls`).
+- **Incident:** Owner hit `NET::ERR_CERT_AUTHORITY_INVALID` on the live VPS (self-signed cert, standing known gap — see status/GOTCHAS above) right before a client demo, and after one refresh Chrome's "Advanced → Proceed anyway" bypass link disappeared entirely, leaving a hard-blocked "privacy error" with no way through.
+- **Root cause:** `securityHeaders()` sent `Strict-Transport-Security` unconditionally on every HTTPS response, with no awareness that this box's cert is self-signed (bare IP, no domain, so no CA-trusted cert is even possible via Let's Encrypt yet — see the earlier "real TLS cert" OPS item). Once a browser accepts the self-signed cert ONE time (the Owner had, earlier in the demo-prep session), Chrome caches the HSTS policy for that host and permanently refuses to show a cert-error bypass link again until the policy is manually cleared (`chrome://net-internals/#hsts`) or `max-age` (180 days) expires. A plain reload after that point hard-fails — this is a well-known HSTS+self-signed anti-pattern, not a new bug introduced tonight; it was just never hit until a real client-facing demo forced repeated visits to the raw IP.
+- **Severity beyond tonight:** this would eventually have locked out Premala's OWN staff too — the first successful load in any of their browsers caches the same HSTS trap.
+- **Fix:** `HSTS_ENABLED=false` escape hatch, read live (matches the `AUTH_REQUIRED` convention already in `lib/config.js`) so it can be toggled without a redeploy logic change. Applied on the live VPS `.env` (see status log below) + `pm2 restart --update-env`. Immediate unblock given to the Owner in-chat for tonight: clear the cached HSTS policy via `chrome://net-internals/#hsts` (client-side, no server change needed to un-stick an already-affected browser).
+- **What's next:** PR opened; Owner to name the merge. Once Premala has a real domain + Let's Encrypt cert (tracked as existing OPS debt), flip `HSTS_ENABLED` back on (or unset it) on the VPS.
+
+---
+
 ## 2026-07-16 · Claude (orchestrator) · LIVE VPS CONFIG (no PR) — extended Premala's dashboard session length 12h → 7 days
 
 - **What:** `SESSION_TTL_MS=604800000` (7 days) added to `/opt/receipt-analyser/.env` on the Premala VPS (was unset → defaulting to `lib/auth.js`'s 12h fallback). Backed up first (`.env.bak.<epoch>` on the box), then `pm2 restart receipt-analyser --update-env`. Verified: `/health` + `/ready` both 200 post-restart, clean boot log (webhook re-registered, cred key loaded, no errors), `.env` line confirmed present after restart.
