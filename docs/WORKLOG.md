@@ -1,5 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-17 · Claude (orchestrator) · jeevan-claude/cross-project-playbook — New: docs/CLAUDE_CODE_PLAYBOOK.md (cross-project, reusable-anywhere lessons)
+
+- **Files:** `docs/CLAUDE_CODE_PLAYBOOK.md` (new), `CLAUDE.md` (added it as reading-list item #8), `MEMORY_LEDGER.md` (pointer in Truth sources).
+- **Why:** Owner: *"make a thorough documentation… on how u solved problems, and what kind of problems occurred… write everything that is useful, usually can't be found easily, so the next time another project comes in, we will be ready… make a general file for all projects, all the claude code can have access."*
+- **What it is:** the distilled, project-agnostic version of everything hard-won across this whole build (both my orchestration sessions AND Barat's) — env/config drift (local `.env` ≠ prod, both directions burned us; `.env` move-aside silent no-op; dotenv last-wins append trick; a running process holds its config snapshot), deploy/shared-nginx traps (green deploy ≠ working; diagnose the network path first; transient SSH-step failures; the deploy concurrency lock), the **HSTS + self-signed-cert permanent-lockout** incident + fix + client-side clear, LLM/OCR realities (exact-match over extracted text is a false-negative; reasoning-model `<think>` truncation looks like "no JSON"; don't trust a stale "model X doesn't work" comment; model IDs are vendor-decommissioned on dates → keep them in config), the auto-mode classifier blocking merges/live-writes (a feature; work with it, hand exact commands to the Owner), the safe destructive-DB-write sequence, and the working discipline (never self-merge, verify at the layer of the claim, TDD, grep-before-shipping-a-shared-constant, expect concurrent sessions + WORKLOG conflicts, verify YOUR own capabilities). Ends with a symptom→section incident index.
+- **Folds in** Barat's project-specific postmortem (`docs/qa/2026-07-17-lessons-learned-…md`, merged #266) by reference and generalises its reusable lessons rather than duplicating them.
+- **Tests:** none — pure documentation, no code touched (full suite already 2106/2106 on `main` as of #267).
+
+---
+
 ## 2026-07-17 · Claude (orchestrator) · LIVE VPS CONFIG (no PR, code unchanged) — reverted VISION_MODEL/VISION_MODEL_HEAVY off the just-decommissioned Llama 4 Scout, back to ADR-007's qwen
 
 - **Trigger:** Owner forwarded a Groq deprecation email — `meta-llama/llama-4-scout-17b-16e-instruct` decommissioned **2026-07-17 (today)**, no more requests served after. Owner: *"just incase if we are using this model, change it before it gets deprecated and ruin our production."*

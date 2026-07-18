@@ -20,6 +20,11 @@
 >    — 4 real bugs + root causes + reusable lessons (stale-state guards, shared-constant call sites,
 >    local `.env` vs. production drift, exact-match logic over OCR text). Read it first; it will
 >    save you from re-deriving the same root causes from scratch.
+> 8. **`docs/CLAUDE_CODE_PLAYBOOK.md` — the cross-project playbook.** The distilled, "you only learn it
+>    by getting burned" knowledge from this whole project (env/config drift, deploy & shared-nginx
+>    traps, the HSTS+self-signed-cert permanent lockout, LLM/OCR realities, model-decommission drill,
+>    when the harness blocks a merge/live-write, and the working discipline that prevents most of it).
+>    Written to be reusable on **any** project — read it before you start guessing on ops/infra/live work.
 >
 > Then follow the pre-work ritual (SOP §4.2). **Edit only the files your role owns** (collision rule §4.6).
 > Precedence: Repo Owner (Jeevan) → SOP → this file → defaults. If a request conflicts with the SOP, STOP and ask.
