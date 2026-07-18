@@ -196,22 +196,31 @@ strings + the score, so a recurrence has evidence instead of a screenshot.
 ### 4.2 Reasoning models burn output tokens on thinking — "returns no JSON" is often just truncation
 
 A reasoning vision model (e.g. `qwen/qwen3.6-27b`) emits a `<think>…</think>` block before its answer.
-With a small `max_tokens`, the entire budget is consumed by reasoning and the JSON is cut off — which
-looks exactly like "the model doesn't work / returns no parseable JSON." The fix is not to abandon the
-model; it's: **generous `max_tokens`** (e.g. 2500 for OCR) **+ strip the `<think>` block before parsing**
-**+ reject an unterminated `<think>` outright** (an unclosed think block means the answer never came —
+On an ambiguous detail (a smudged digit, an odd date) the reasoning can **spiral into an indecisive
+loop** — re-litigating the same "is it a 4 or a 6?" question dozens of times — and exhaust the token
+budget before ever reaching an answer. This isn't rare: a real test against **2500** `max_tokens` (which
+felt generous, and passed a clean synthetic test) still failed on **33% of a 6-receipt real-world sample**.
+Raising it to **6000** let the same reasoning loops run to completion, confirmed by retesting the exact
+failing cases individually. Don't pick a token budget from a synthetic/clean test and assume it holds —
+**test against real, messy samples**, and size the budget generously enough to survive a worst-case
+reasoning spiral, not just a typical one. Pair this with: **strip the `<think>` block before parsing** +
+**reject an unterminated `<think>` outright** (an unclosed think block means the answer never came —
 anything JSON-shaped inside it is reasoning, not output, and must not be trusted; SOP §7.3 untrusted
 output).
 
-### 4.3 Don't trust a stale comment claiming a model "doesn't work" — re-verify against current code
+### 4.3 Don't trust a stale comment claiming a model "doesn't work" — re-verify against current code, with REAL data
 
 We found a config comment (`VISION_MODEL=…scout… # qwen returns no parseable JSON on real receipts`)
 that had **no corroborating log entry** and predated the `<think>`-stripping hardening in §4.2. Acting on
-it blindly would have kept us on a model that was being **decommissioned that very day**. Instead:
-re-verified live with a **real, non-mocked** call — built a receipt-shaped image, ran it through the
-app's actual extraction pipeline against the live model — and got perfect JSON. The stale comment was
-simply out of date. **A claim that "X doesn't work" is a hypothesis, not a finding; test it against
-current code before you let it drive a decision**, especially a production one.
+it blindly would have kept us on a model that was being **decommissioned that very day**. First pass:
+re-verified with a real, non-mocked call — built a clean receipt-shaped image, ran it through the app's
+actual extraction pipeline, got perfect JSON — and that felt like enough. **It wasn't.** A follow-up
+question ("is it as good as before?") prompted testing against **actual production receipts** instead of
+one synthetic image, which is what surfaced the real 33% failure rate in §4.2. **The lesson stacks:** a
+claim that "X doesn't work" is a hypothesis, not a finding, test it against current code — but ALSO, one
+clean synthetic pass is not the same as real-world verification. Pull real samples before declaring a
+model swap safe, especially for anything OCR/vision-shaped where real inputs are messy in ways a
+synthetic test won't reproduce (blur, glare, stains, odd fonts, ambiguous handwriting).
 
 ### 4.4 Model IDs are vendor-controlled and get decommissioned on dates — keep them in config
 
