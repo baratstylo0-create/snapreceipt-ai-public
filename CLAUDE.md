@@ -57,7 +57,7 @@ Dashboard (public/index.html) ──fetch──▶ /api/expenses   (never touche
 | File | What to edit it for |
 |------|---------------------|
 | `server.js` | Bot behaviour, OCR prompt/parsing, API, webhook. All backend logic lives here. |
-| `public/index.html` | Dashboard UI (vanilla JS, no framework, no build). |
+| `public/` (the **frontend** — see `/FRONTEND.md`) | Dashboard UI (vanilla JS, no framework, no build). Modular: `public/js/components/*.js` = one screen each. Mugi's lane; self-merge workflow in `docs/roles/MUGI.md`. |
 | `schema.sql` | Database shape. Apply changes via Supabase SQL editor or MCP `apply_migration`. |
 | `.env` | All secrets/config (never commit). |
 

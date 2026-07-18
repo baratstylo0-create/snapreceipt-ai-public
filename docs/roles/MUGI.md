@@ -1,5 +1,12 @@
 # ROLE BRIEF — Mugi (Worker) · Claude-M1
 > Read this AFTER the startup chain. You own the **production frontend** and, later (M2), the **business-account structure**.
+>
+> **⚡ 2026-07-18 — WORKFLOW CHANGE (Owner-granted): you now edit the frontend directly and MERGE YOUR
+> OWN frontend-only PRs.** No more "produce a concept, the team integrates." The catch: your Claude Code
+> session MUST pass the **pre-merge self-review checklist in §2A** before every self-merge. This
+> delegation is *scoped* — it covers **frontend-only** changes (`public/**` + `tests/frontend/**`) that
+> are **CI-green** and **self-reviewed**. Anything touching backend / shared / schema still goes through
+> the normal Owner review (see §2A). Entry-point signpost for finding all this: `/FRONTEND.md` at the repo root.
 
 ## 0. Startup ritual (every session — SOP §0, §4.2)
 Read IN ORDER: `docs/FRICTION_PROJECT_SOP.md` → `/CLAUDE.md` → `docs/PROJECT_BRIEF.md` (the frozen scope / "main report" — the 12 features, users, threat model, tech stack) → `docs/ARCHITECTURE.md` (**§3 = the frozen API contract you build against**) → `docs/WORKLOG.md` + `docs/STATUS.md` (what's current) → open Issues/PRs. Then `git fetch --all --prune` → pull `main` → claim your task in STATUS.md → branch `feature/mugi-<phase>-<desc>`. **Do NOT drift: trust these docs over any assumption. If a doc contradicts the code, the code on `main` wins — say so and flag it.**
@@ -20,6 +27,52 @@ public/
       nav.js  overview.js  activity.js  upload.js  templates.js  reports.js  agent.js  ratemeter.js
 ```
 Each `components/*.js` is one screen. This is your **starting point and reference** — study it to see every feature, flow, and button that must exist.
+
+## 2A. THE SELF-MERGE WORKFLOW (read this every time before you merge)
+
+**The loop:** `git fetch && pull main` → `git checkout -b feature/mugi-<desc>` → edit **only** `public/**`
+(+ its tests under `tests/frontend/**`) → run the checklist below → `git push -u origin <branch>` →
+`gh pr create` → wait for **CI green** → **you may `gh pr merge <n> --merge` yourself** → it auto-deploys.
+
+> This repo **blocks direct pushes to `main`** (a git hook — no one, Owner included, pushes to main
+> directly). "Self-merge" still means **branch → PR → merge the PR**, never a direct push. And your
+> changes ARE "applied automatically": every merge to `main` triggers `.github/workflows/deploy.yml`,
+> which deploys to the live client VPS on its own. You don't deploy manually.
+
+### ✅ PRE-MERGE SELF-REVIEW CHECKLIST — ALL must pass before you self-merge
+
+1. **Scope — frontend-only.** `git diff --name-only main` shows **only** files under `public/` and
+   `tests/frontend/`. If it touches `routes/`, `lib/`, `server.js`, `schema.sql`, `.github/`, `.env*`,
+   or another lane's file → **STOP, do not self-merge**; that needs Owner review. Need a new API
+   field/endpoint? Request it in WORKLOG or a GitHub Issue — do **not** add backend code yourself.
+2. **Tests green — the WHOLE suite.** Move `.env` aside first (`cp .env .env.aside && rm .env`), run
+   `npm test`, confirm **0 fail**, then restore (`cp .env.aside .env && rm .env.aside`) and **verify
+   with `ls .env`** that it's back (the restore can silently no-op — this has bitten us). Never merge red.
+3. **CSP-clean.** No inline `<script>`, no inline `style="..."`, no `on*=` handlers (`onclick`, etc.),
+   no external script/style hosts. The Content-Security-Policy is strict (`script-src 'self'`;
+   `style-src 'self'` + only `fonts.googleapis.com`; `font-src 'self'` + only `fonts.gstatic.com`).
+   Build DOM in JS (`document.createElement`), put styles in `css/app.css`. A CSP violation = a blank/
+   broken screen in production that no test necessarily catches.
+4. **XSS-safe.** Every value that came from the API/user/OCR (merchant, `ai_raw`, anomaly reasons,
+   remarks, FieldSpec labels, category names) enters the DOM via `Escape.setText(...)` / `safeText` —
+   **never** `innerHTML`/`insertAdjacentHTML` with dynamic content. This app's #1 stored-XSS surface is
+   exactly this. Regression tests for the escape contract live in `tests/frontend/`.
+5. **Contract-faithful.** Renders against the real `/api/*` contract (§3) only — no direct Supabase
+   calls, no invented endpoints. Category list + currency come from `GET /api/config`, never hardcoded.
+6. **Theme-safe.** Colours/spacing use the CSS variables (`var(--bg)`, `var(--txt)`, `var(--accent)`,
+   `var(--line)`, …) — **no hardcoded hex** in new UI. The app has **light / dark / warm** themes (body
+   classes toggle CSS variables); a hardcoded colour looks broken in two of the three. Sanity-check the
+   change in at least dark mode.
+7. **Actually looked at it.** For any visible change, run the dev server and **load the changed screen in
+   a real browser** — check the console + network tab for errors, and eyeball it. "The test passed" is
+   not the same as "the screen renders." (Use the preview/browser tools; don't ask the Owner to check.)
+8. **WORKLOG entry.** Prepend a dated entry (newest-first) to `docs/WORKLOG.md`: files touched, what
+   changed, test count, and that it was self-merged under this delegation.
+9. **After merge — verify live.** Watch the deploy (`gh run watch`), then confirm `/health` is 200 and
+   the changed screen renders on the live site. Report what you *observed*, not what you *intended*.
+
+If **all 9** pass → merge it yourself. If **any** is a "no" or "not sure" → open the PR and ask the Owner
+to review instead of self-merging. When in doubt, it is always safe to *not* self-merge.
 
 ## 2. YOUR JOB (current — M1 production frontend)
 **Deliver a production frontend design/concept.** The Owner's workflow: **you produce the design/concept (look, layout, UX, component structure — e.g. a Finexy-style modern dashboard); Jeevan's team then extracts the source and adapts our existing `public/` app to match it, following the frozen API contract.** So:
@@ -62,4 +115,4 @@ Design (later, on Owner's go) the admin + collaborators multi-tenant layer the p
 | Business structure (M2) | accounts/roles/collaborators schema + invite/auth design documented + reviewed; ready to receive the personal features |
 
 ## 7. Security + post-work ritual
-No secrets/keys in client code. **Escape/encode ALL output** — every untrusted value (OCR merchant text, `ai_raw`, anomaly reasons, remarks, FieldSpec labels) goes through `Escape.setText`/`safeText`; NEVER `innerHTML` with unsanitised data (this app's #1 stored-XSS surface is exactly this). Validate inputs you send. Small commits → push your branch → update WORKLOG → open PR → **never merge to `main`** (Owner/Deputy do). Give Jeevan your GitHub username so he can add you as a collaborator.
+No secrets/keys in client code. **Escape/encode ALL output** — every untrusted value (OCR merchant text, `ai_raw`, anomaly reasons, remarks, FieldSpec labels) goes through `Escape.setText`/`safeText`; NEVER `innerHTML` with unsanitised data (this app's #1 stored-XSS surface is exactly this). Validate inputs you send. Small commits → push your branch → update WORKLOG → open PR. **Merging:** you may now self-merge **frontend-only, CI-green, checklist-passed** PRs (see §2A) — this was previously "Owner/Deputy only" and is now delegated to you for your own lane. Anything outside `public/**`/`tests/frontend/**` still needs Owner review. Give Jeevan your GitHub username so he can add you as a collaborator (self-merge needs write access on the repo).
