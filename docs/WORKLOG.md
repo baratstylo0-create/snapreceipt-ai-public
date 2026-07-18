@@ -1,5 +1,16 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-18 · Claude (orchestrator) · jeevan-claude/mugi-frontend-selfmerge-setup — Enable Mugi to find, edit & self-merge the frontend (Owner-granted, scoped, with a self-review checklist)
+
+- **Files:** `FRONTEND.md` (new, repo root — discoverability signpost), `docs/roles/MUGI.md` (new §2A self-merge workflow + 9-point pre-merge checklist; updated the old "never merge to main" line to the new scoped delegation), `CLAUDE.md` (key-files table now points `public/` → `/FRONTEND.md`). Docs-only. Full suite 2106/2106 (`.env` aside/restored, confirmed with `ls`).
+- **Context:** Owner relayed Mugi's asks — (1) "my claude couldnt find" the frontend, (2) "change the name to frontend", (3) "changes should apply automatically", (4) Owner: let Mugi edit + self-merge, "just make sure the claude code knows what to review and self check before merging."
+- **What I did NOT do, and why:** did **not** physically rename `public/` → `frontend/`. It's the live production static-serving root (`routes/misc.js:84-85` `express.static`), ~30 `tests/frontend/*` files `require('../../public/js/...')`, and a directory rename is the single most merge-conflict-prone change possible while other Claude sessions have open branches touching `public/**` (several were active this week). It also wouldn't deliver the actual ask (safe self-merge). Solved "couldn't find" the robust way instead: a root-level `FRONTEND.md` (so a search for "frontend" always lands), a clear file map, and a `CLAUDE.md` pointer. **Flagged the rename to the Owner as a separate, coordinated change if they still want it** — not slipped in silently mid-demo.
+- **Self-merge delegation is SCOPED (documented in MUGI.md §2A):** frontend-only (`public/**` + `tests/frontend/**`), CI-green, 9-point checklist passed (scope / full-suite-green / CSP-clean / XSS-safe via Escape.setText / contract-faithful / theme-safe / actually-viewed-in-browser / WORKLOG / post-merge live-verify). Anything touching backend/shared/schema still needs Owner review. "Auto-apply" already exists — merge to main triggers deploy.yml.
+- **Governance note:** this relaxes the standing "Owner names every merge" rule for ONE person in ONE lane, on the Owner's explicit instruction. The classifier still guards MY merges; this doc governs Mugi's. Mugi needs repo write access (collaborator) for the self-merge to be possible at all — flagged in MUGI.md §7.
+- **What's next:** PR opened; Owner to name THIS merge (it's my change, normal rule applies to me).
+
+---
+
 ## 2026-07-17 · Claude (orchestrator) · jeevan-claude/cross-project-playbook — New: docs/CLAUDE_CODE_PLAYBOOK.md (cross-project, reusable-anywhere lessons)
 
 - **Files:** `docs/CLAUDE_CODE_PLAYBOOK.md` (new), `CLAUDE.md` (added it as reading-list item #8), `MEMORY_LEDGER.md` (pointer in Truth sources).
