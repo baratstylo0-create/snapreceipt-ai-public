@@ -208,6 +208,18 @@ reasoning spiral, not just a typical one. Pair this with: **strip the `<think>` 
 anything JSON-shaped inside it is reasoning, not output, and must not be trusted; SOP §7.3 untrusted
 output).
 
+**⚠️ The tempting shortcut — "just turn thinking off" (`reasoning_effort: "none"`) — is a TRAP for a
+money/accuracy pipeline. TESTED and REJECTED here.** It does eliminate the empty-output failure class and
+cuts tokens (real wins). But with thinking off, qwen **reliably misread amounts on degraded receipts** —
+read a real `97.20` total as `7.20`, reproducibly — because the thinking pass is exactly what lets it
+self-correct (subtotal + tax = total). For financial data a **silently-wrong-but-plausible number is worse
+than an empty**: an empty gets flagged for human review; a wrong `7.20` sails straight into the books.
+**The correct reliability fix keeps thinking ON and adds a retry-on-empty:** the empty failure is
+*non-deterministic* (the same image usually succeeds on a second call), so one cheap retry recovers most
+of the residual ~14% empties **without** the accuracy cost. Rule: when a "reliability" change also
+changes *accuracy*, A/B the accuracy on real samples before shipping — a faster pipeline that quietly
+gets amounts wrong is a worse product, not a better one.
+
 ### 4.3 Don't trust a stale comment claiming a model "doesn't work" — re-verify against current code, with REAL data
 
 We found a config comment (`VISION_MODEL=…scout… # qwen returns no parseable JSON on real receipts`)

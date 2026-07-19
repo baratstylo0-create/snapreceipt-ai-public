@@ -235,3 +235,79 @@ test('extractReceipts throws without a valid FieldSpec', async () => {
   await assert.rejects(() => extractReceipts('img', null), /FieldSpec/);
   await assert.rejects(() => extractReceipts('img', { columns: [] }), /FieldSpec/);
 });
+
+// --- 2026-07-18: reasoning_effort passthrough + retry-on-empty ---
+// A sequence stub: returns each `contents[i]` in order (last one sticks), counts calls,
+// and records every request body so we can assert what was actually sent to Groq.
+function stubGroqSeq(contents) {
+  const realFetch = global.fetch;
+  const bodies = [];
+  let i = 0;
+  global.fetch = async (_url, opt) => {
+    bodies.push(JSON.parse(opt.body));
+    const content = contents[Math.min(i, contents.length - 1)];
+    i++;
+    return { text: async () => JSON.stringify({ choices: [{ message: { content } }] }) };
+  };
+  return { restore: () => { global.fetch = realFetch; }, calls: () => i, bodies: () => bodies };
+}
+
+test('reasoning_effort is sent ONLY when a non-empty value is given (default omits it)', async () => {
+  // default (no reasoningEffort) -> param absent, so provider default (thinking) is preserved
+  let s = stubGroqSeq(['{"merchant":"A","amount":1}']);
+  try { await extractReceipt('img', SPEC); assert.strictEqual('reasoning_effort' in s.bodies()[0], false); }
+  finally { s.restore(); }
+  // explicit 'none' -> passed through to the request body
+  s = stubGroqSeq(['{"merchant":"A","amount":1}']);
+  try { await extractReceipt('img', SPEC, { reasoningEffort: 'none' }); assert.strictEqual(s.bodies()[0].reasoning_effort, 'none'); }
+  finally { s.restore(); }
+});
+
+test('retry-on-empty: a totally empty first result is retried and the good second result wins', async () => {
+  // 1st call: unterminated <think> => parseModelJson -> {} (empty). 2nd call: real JSON.
+  const s = stubGroqSeq(['<think>is it a 4 or a 6... let me reconsider', '{"merchant":"Shell","amount":97.2}']);
+  try {
+    const out = await extractReceipt('img', SPEC);
+    assert.strictEqual(s.calls(), 2, 'should have retried exactly once');
+    assert.strictEqual(out.fields.merchant, 'Shell');
+    assert.strictEqual(out.fields.amount, 97.2);
+  } finally { s.restore(); }
+});
+
+test('retry-on-empty: a good first result is NOT retried (one call only)', async () => {
+  const s = stubGroqSeq(['{"merchant":"KFC","amount":12}', '{"merchant":"SHOULD_NOT_BE_USED","amount":0}']);
+  try {
+    const out = await extractReceipt('img', SPEC);
+    assert.strictEqual(s.calls(), 1, 'a usable first parse must not trigger a retry');
+    assert.strictEqual(out.fields.merchant, 'KFC');
+  } finally { s.restore(); }
+});
+
+test('retry-on-empty: retries:0 disables the retry (stays empty)', async () => {
+  const s = stubGroqSeq(['<think>never closes', '{"merchant":"Shell","amount":97.2}']);
+  try {
+    const out = await extractReceipt('img', SPEC, { retries: 0 });
+    assert.strictEqual(s.calls(), 1);
+    assert.strictEqual(out.fields.merchant, ''); // empty parse -> text coerces to '', no retry
+  } finally { s.restore(); }
+});
+
+test('retry-on-empty: still empty after the retry -> returns empty (never throws)', async () => {
+  const s = stubGroqSeq(['<think>a', '<think>b']); // both attempts empty
+  try {
+    const out = await extractReceipt('img', SPEC);
+    assert.strictEqual(s.calls(), 2);
+    assert.strictEqual(out.fields.merchant, ''); // text -> ''
+    assert.strictEqual(out.fields.amount, 0);    // currency -> 0
+  } finally { s.restore(); }
+});
+
+test('retry-on-empty (multi): an empty array is retried; the good second result wins', async () => {
+  const s = stubGroqSeq(['<think>never closes', '[{"merchant":"A","amount":1},{"merchant":"B","amount":2}]']);
+  try {
+    const out = await extractReceipts('img', SPEC);
+    assert.strictEqual(s.calls(), 2, 'multi path should retry on an empty array');
+    assert.strictEqual(out.receipts.length, 2);
+    assert.strictEqual(out.receipts[0].fields.merchant, 'A');
+  } finally { s.restore(); }
+});
