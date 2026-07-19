@@ -83,6 +83,20 @@ test('autoMode:false explicitly + proposeEditExpense -> pending, no write (same 
   assert.equal(writes.update.length, 0);
 });
 
+// 2026-07-19: the pending-proposal "forced final" answer is a SEPARATE construction site in
+// lib/agent.js from the no-tool-call path (tests/agent.test.js covers that one) — both must
+// strip <think>, since both can go straight to the client.
+test('pending-proposal forced-final answer also strips a <think> block (second answer-construction site)', async () => {
+  const chat = fakeChat([
+    proposeCall('c1', 'proposeEditExpense', { id: 'e1', changes: { category: 'Groceries' } }),
+    { role: 'assistant', content: '<think>the user wants to edit, I should confirm</think>Confirm this edit?' },
+  ]);
+  const { deps } = makeDeps({ e1: { ...ROW } });
+  const out = await runAgent([{ role: 'user', content: 'edit' }], { ...deps, chat, autoMode: false });
+  assert.equal(out.answer, 'Confirm this edit?');
+  assert.ok(!/<think>/i.test(out.answer));
+});
+
 // --- auto-confirm path: autoMode:true + auto-confirmable kinds execute, no stop ----------------
 
 test('autoMode:true + proposeEditExpense (edit) -> auto-confirms, no stop, no surfaced proposal', async () => {
