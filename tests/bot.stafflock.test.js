@@ -187,6 +187,7 @@ test('single photo while locked: staff_user_id injected into meta, sendStaffPick
   for (const fn of pending.splice(0)) await fn();
 
   assert.strictEqual(capturedMeta.staff_user_id, 's-ali');
+  assert.strictEqual(capturedMeta.silent, true, '2026-07-20: expenseFromPhoto must stay quiet — sendLockedReceipt is the ONLY confirmation, no double message');
   assert.strictEqual(staffPickerCalled, false, 'staff picker must NOT be called when locked');
   assert.strictEqual(lockedReceiptCalled, true, 'locked receipt summary must be shown');
   cleanup(chatId);

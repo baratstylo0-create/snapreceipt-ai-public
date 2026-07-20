@@ -261,7 +261,7 @@ test('bound photo: the receipt is tagged with the binding\'s branch, then the st
   await handleUpdate(photoMsg(40), deps);
   await timers.runPending();
   assert.strictEqual(photoCalls[0].fileId, 'big'); // largest photo size, same as personal
-  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', file_unique_id: 'fu-big' });
+  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', file_unique_id: 'fu-big', silent: false });
   assert.deepStrictEqual(pickerCalls, [{ chatId: 40, expense: savedExpense, branchId: 'br-A' }]);
 });
 
@@ -280,7 +280,7 @@ test('bound photo (multi-company): the receipt meta carries BOTH branch_id and c
   });
   await handleUpdate(photoMsg(44), deps);
   await timers.runPending();
-  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', company_id: 'co-1', file_unique_id: 'fu-big' });
+  assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', company_id: 'co-1', file_unique_id: 'fu-big', silent: false });
 });
 
 test('bound photo: a failed/skipped read sends NO staff picker (nothing was saved to tag)', async () => {
@@ -311,7 +311,7 @@ test('personal photo: no branch meta, no staff picker — the old path byte-for-
   await timers.runPending();
   // Issue #152: file_unique_id is now always passed (personal or business) — exact-resend
   // detection applies to both; branch/company/staff attribution stays absent for personal.
-  assert.deepStrictEqual(photoCalls[0].meta, { file_unique_id: 'fu-big' });
+  assert.deepStrictEqual(photoCalls[0].meta, { file_unique_id: 'fu-big', silent: false });
   assert.strictEqual(pickerCalls.length, 0);
 });
 
@@ -327,7 +327,7 @@ test('bound image-document (photo sent as file): same branch tag + picker as a p
   });
   await handleUpdate({ message: { chat: { id: 43 }, from: { first_name: 'A' }, document: { file_id: 'doc9', file_unique_id: 'fu-doc9', mime_type: 'image/jpeg' } } }, deps);
   await timers.runPending();
-  assert.deepStrictEqual(photoCalls[0], { fileId: 'doc9', meta: { branch_id: 'br-A', file_unique_id: 'fu-doc9' } });
+  assert.deepStrictEqual(photoCalls[0], { fileId: 'doc9', meta: { branch_id: 'br-A', file_unique_id: 'fu-doc9', silent: false } });
   assert.strictEqual(pickerCalls.length, 1);
 });
 
