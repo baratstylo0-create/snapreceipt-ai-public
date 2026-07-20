@@ -1,5 +1,14 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-20 · Codex (explicit Barat-lane assistance) · codex/ocr-single-rate-retry — Retry one rate-limited single-photo OCR call
+
+- **Files:** `lib/ocr.js`, `tests/ocr.expense-photo.test.js`.
+- **What changed:** `expenseFromPhoto` now retries only its single-image `extractReceipt` call once after an injected 15-second backoff when `isRateLimitError(e)` is true. The existing final rate-limit message is unchanged when the retry also fails. The batch/album path, `OCR_MAX_TOKENS`, and reasoning settings are untouched. Optional dependency injection keeps production callers unchanged and makes tests deterministic.
+- **Tests:** Full serial suite **2135/2135** passing; focused retry tests cover retry-success, retry-exhausted fallback, and non-rate errors without real waiting.
+- **What's next:** Open the PR from this branch; Owner/Claude review and merge (Codex does not self-merge).
+
+---
+
 ## 2026-07-19 · Claude (orchestrator, own lane: lib/agent.js #9 + routes/agent.js; one-line additive export added to Barat's lib/ocr.js) · jeevan-claude/falc-think-leak-fix — Fix: Falc chat could leak raw `<think>` reasoning text to the user (same root cause as the OCR fix, PR #272)
 
 - **Files:** `lib/ocr.js` (exported the existing, already-tested `stripThink` — one line added to `module.exports`, no behavior change), `lib/agent.js` (new `cleanAnswer()` wrapping `stripThink`, with a safe fallback string for the truncated case; applied at BOTH answer-construction sites — the normal no-tool-call return and the pending-proposal forced-final return), `tests/agent.test.js` (+3), `tests/agent.automode.test.js` (+1, covering the second site specifically). Full suite **2116/2116** (`.env` aside/restored, confirmed `ls`).
