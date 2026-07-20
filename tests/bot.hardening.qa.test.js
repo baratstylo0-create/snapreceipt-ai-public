@@ -88,14 +88,16 @@ test('untrusted media_group_id: a numeric value behaves identically to the equiv
 // cap independently protects an attacker-forged payload with e.g. 1000 photos) ----
 test('an attacker-forged media group with 1000 photos is still clamped to MAX_GROUP_IMAGES, no unbounded growth', async () => {
   const timers = fakeTimers();
-  const { deps, runBatchCalls } = baseDeps({ setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
+  const { deps, sent, runBatchCalls } = baseDeps({ setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
   for (let i = 0; i < 1000; i++) {
     await handleUpdate(photoUpdate('bigattack', 'f' + i), deps);
   }
   await timers.runPending();
-  // 2026-07-20 (owner request): MAX_GROUP_IMAGES default lowered 10->2 to keep every batch
-  // comfortably under the per-key rate limit.
-  assert.strictEqual(runBatchCalls[0].images.length, 2, 'default MAX_GROUP_IMAGES cap must hold regardless of how many updates arrive');
+  // 2026-07-20 (owner request, revised): MAX_GROUP_IMAGES default lowered 10->2, AND
+  // over-cap now rejects the WHOLE batch unread (not just clamps to the first 2) — so 1000
+  // photos must never reach runBatch at all, and must get the plain reject message instead.
+  assert.strictEqual(runBatchCalls.length, 0, 'an over-cap batch must never reach runBatch — no unbounded (or even clamped) processing');
+  assert.match(sent[sent.length - 1].text, /Max 2 receipts per batch/i);
 });
 
 // ---- (3) file_id that is not a string (number, object) must not crash the buffer/flush path ----
