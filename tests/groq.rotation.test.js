@@ -5,7 +5,7 @@
 // exhaustion falls to the existing backoff; a single-key pool is unchanged.
 const test = require('node:test');
 const assert = require('node:assert');
-const { groqChat } = require('../lib/groq');
+const { groqChat, isRateLimitError } = require('../lib/groq');
 
 // Stub global.fetch and capture the Bearer key used on each call. `respond(key, n)`
 // returns the parsed JSON body Groq would send for the given key / call number.
@@ -98,6 +98,35 @@ test('single-key pool (GROQ_KEYS unset) is unchanged: no rotation, only the one 
       assert.deepStrictEqual([...new Set(stub.keysUsed)], ['solo-key'], 'only the single configured key is ever used');
     } finally { stub.restore(); }
   });
+});
+
+// 2026-07-20 incident: callGroq's own 'throw new Error(\'429\')' (every key, every round,
+// still rate-limited) was landing in the SAME generic catch as a genuinely unreadable photo
+// in both lib/ocr.js and lib/massupload.js, telling the user their photo was too blurry when
+// the account was just temporarily out of quota. isRateLimitError() is what those callers use
+// to tell the two apart — proven here against the REAL throw callGroq produces, not a fake.
+test('total exhaustion (every key, every backoff round) throws Error("429"), classified true by isRateLimitError', async () => {
+  await withEnv({ GROQ_KEYS: 'p,q' }, async () => {
+    const stub = stubGroq(() => RATE); // every call, every round, always rate-limited
+    try {
+      await assert.rejects(() => groqChat([{ role: 'user', content: 'hi' }]), (e) => {
+        assert.strictEqual(isRateLimitError(e), true, 'the real callGroq throw must classify as rate-limited');
+        return true;
+      });
+    } finally { stub.restore(); }
+  });
+});
+
+test('isRateLimitError: a network/timeout error (NOT the 429 throw) is correctly NOT classified as rate-limited', () => {
+  assert.strictEqual(isRateLimitError(new Error('fetch failed: ECONNRESET')), false);
+  assert.strictEqual(isRateLimitError(new Error('The operation was aborted due to timeout')), false);
+});
+
+test('isRateLimitError: tolerates null/undefined/non-Error input, never throws', () => {
+  assert.strictEqual(isRateLimitError(null), false);
+  assert.strictEqual(isRateLimitError(undefined), false);
+  assert.strictEqual(isRateLimitError('429'), false); // a bare string, not an Error with .message
+  assert.strictEqual(isRateLimitError({}), false);
 });
 
 test('success on the FIRST try never rotates and never sleeps (happy path, multi-key)', async () => {
