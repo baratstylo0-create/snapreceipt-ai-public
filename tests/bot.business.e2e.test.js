@@ -49,15 +49,30 @@ function makeDb(seed = {}) {
   };
 }
 
+// 2026-07-20: a single photo now buffers through the same debounce as an album (bulk-spam
+// fix), so a fake timer is needed to deterministically flush it — same pattern as
+// tests/bot.batch*.test.js. Exposed as h.runPending() below.
+function fakeTimers() {
+  let seq = 0;
+  const pending = new Map();
+  return {
+    setTimeout: (fn) => { const id = ++seq; pending.set(id, fn); return id; },
+    clearTimeout: (id) => { pending.delete(id); },
+    runPending: async () => { for (const fn of [...pending.values()]) { pending.clear(); await fn(); } },
+  };
+}
+
 // A shared deps object bound to one db, plus a transcript of everything the bot "sent".
 function harness({ multiUser = true, staffByBranch = {}, db = makeDb() } = {}) {
   const sent = [];   // { chatId, text, replyMarkup }
   const answered = [];
   let expenseSeq = 0;
+  const timers = fakeTimers();
 
   const deps = {
     // capability flag — the ONLY thing that turns business mode on
     getCapabilities: () => ({ multiUser }),
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     // real DB
     sbSelect: db.sbSelect, sbUpdate: db.sbUpdate, sbInsert: db.sbInsert,
     // Telegram sink
@@ -83,7 +98,7 @@ function harness({ multiUser = true, staffByBranch = {}, db = makeDb() } = {}) {
     dayBounds: () => ({ startUTC: '1970-01-01T00:00:00.000Z', endUTC: '2999-01-01T00:00:00.000Z' }),
     todayISO: () => '2026-07-07',
   };
-  return { deps, db, sent, answered, last: () => sent[sent.length - 1] };
+  return { deps, db, sent, answered, last: () => sent[sent.length - 1], runPending: timers.runPending };
 }
 
 const msg = (chatId, text) => ({ message: { chat: { id: chatId }, from: { first_name: 'U' + chatId }, text } });
@@ -133,6 +148,7 @@ test('E2E: unbound chat is refused everything; binding works once; branch isolat
 
   // --- CAPTURE + STAFF TAG: clerk A sends a receipt ------------------------------------
   await bot.handleUpdate(photo(2), h.deps);            // chat 2 = clerk A @ BR-A
+  await h.runPending();
   const aRow = db.tables.expenses.find(e => e.rep_chat_id === '2');
   assert.strictEqual(aRow.branch_id, 'BR-A', 'clerk A\'s receipt is stamped with BR-A automatically');
   assert.match(h.last().text, /Who is this receipt for/i, 'the staff picker followed the save');
@@ -144,6 +160,7 @@ test('E2E: unbound chat is refused everything; binding works once; branch isolat
 
   // --- clerk B sends a receipt (different branch) --------------------------------------
   await bot.handleUpdate(photo(3), h.deps);            // chat 3 = clerk B @ BR-B
+  await h.runPending();
   const bRow = db.tables.expenses.find(e => e.rep_chat_id === '3');
   assert.strictEqual(bRow.branch_id, 'BR-B');
 
@@ -174,6 +191,7 @@ test('E2E (regression): with the business flag OFF, the personal bot never binds
   // A plain chat with NO binding sends a photo -> it just works, no "access link" wall,
   // and the receipt is saved with NO branch stamp (personal path, byte-for-byte).
   await bot.handleUpdate(photo(500), h.deps);
+  await h.runPending();
   const row = db.tables.expenses.find(e => e.rep_chat_id === '500');
   assert.ok(row, 'personal photo saved without any binding');
   assert.ok(!('branch_id' in row), 'personal receipts carry no branch_id');

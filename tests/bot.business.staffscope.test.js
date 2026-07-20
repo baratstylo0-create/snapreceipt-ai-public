@@ -244,16 +244,22 @@ test('Weekly Record: a bound business chat counts the week from SUNDAY; personal
 const photoMsg = (chatId) => ({ message: { chat: { id: chatId }, from: { first_name: 'A' }, photo: [{ file_id: 'small', file_unique_id: 'fu-small' }, { file_id: 'big', file_unique_id: 'fu-big' }] } });
 const CLERK_BINDING = { id: 'b1', chat_id: '40', branch_id: 'br-A', role: 'clerk', active: true };
 
+// 2026-07-20: a single photo now buffers through the same debounce as an album (bulk-spam
+// fix), so a fake timer is needed to deterministically flush it (fakeTimers is declared
+// further down this file but hoisted — a plain function declaration is available module-wide).
 test('bound photo: the receipt is tagged with the binding\'s branch, then the staff picker follows', async () => {
+  const timers = fakeTimers();
   const photoCalls = [];
   const pickerCalls = [];
   const savedExpense = { id: 'e-photo1', merchant: 'Cafe', amount: 9, currency: 'MYR' };
   const { deps } = baseDeps({
     resolveBinding: async () => CLERK_BINDING,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     expenseFromPhoto: async (chatId, repName, fileId, meta) => { photoCalls.push({ chatId, fileId, meta }); return { ok: true, expense: savedExpense }; },
     sendStaffPicker: async (chatId, expense, branchId) => { pickerCalls.push({ chatId, expense, branchId }); },
   });
   await handleUpdate(photoMsg(40), deps);
+  await timers.runPending();
   assert.strictEqual(photoCalls[0].fileId, 'big'); // largest photo size, same as personal
   assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', file_unique_id: 'fu-big' });
   assert.deepStrictEqual(pickerCalls, [{ chatId: 40, expense: savedExpense, branchId: 'br-A' }]);
@@ -264,36 +270,45 @@ test('bound photo: the receipt is tagged with the binding\'s branch, then the st
 const CLERK_BINDING_CO = { id: 'b7', chat_id: '44', branch_id: 'br-A', company_id: 'co-1', role: 'clerk', active: true };
 
 test('bound photo (multi-company): the receipt meta carries BOTH branch_id and company_id', async () => {
+  const timers = fakeTimers();
   const photoCalls = [];
   const { deps } = baseDeps({
     resolveBinding: async () => CLERK_BINDING_CO,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     expenseFromPhoto: async (chatId, repName, fileId, meta) => { photoCalls.push({ meta }); return { ok: true, expense: { id: 'e-co1' } }; },
     sendStaffPicker: async () => {},
   });
   await handleUpdate(photoMsg(44), deps);
+  await timers.runPending();
   assert.deepStrictEqual(photoCalls[0].meta, { branch_id: 'br-A', company_id: 'co-1', file_unique_id: 'fu-big' });
 });
 
 test('bound photo: a failed/skipped read sends NO staff picker (nothing was saved to tag)', async () => {
+  const timers = fakeTimers();
   const pickerCalls = [];
   const { deps } = baseDeps({
     resolveBinding: async () => CLERK_BINDING,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     expenseFromPhoto: async () => false, // skip/error path
     sendStaffPicker: async (...a) => { pickerCalls.push(a); },
   });
   await handleUpdate(photoMsg(41), deps);
+  await timers.runPending();
   assert.strictEqual(pickerCalls.length, 0);
 });
 
 test('personal photo: no branch meta, no staff picker — the old path byte-for-byte', async () => {
+  const timers = fakeTimers();
   const photoCalls = [];
   const pickerCalls = [];
   const { deps } = baseDeps({
     getCapabilities: () => ({ multiUser: false }),
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     expenseFromPhoto: async (chatId, repName, fileId, meta) => { photoCalls.push({ meta }); return { ok: true, expense: { id: 'x' } }; },
     sendStaffPicker: async (...a) => { pickerCalls.push(a); },
   });
   await handleUpdate(photoMsg(42), deps);
+  await timers.runPending();
   // Issue #152: file_unique_id is now always passed (personal or business) — exact-resend
   // detection applies to both; branch/company/staff attribution stays absent for personal.
   assert.deepStrictEqual(photoCalls[0].meta, { file_unique_id: 'fu-big' });
@@ -301,14 +316,17 @@ test('personal photo: no branch meta, no staff picker — the old path byte-for-
 });
 
 test('bound image-document (photo sent as file): same branch tag + picker as a photo', async () => {
+  const timers = fakeTimers();
   const photoCalls = [];
   const pickerCalls = [];
   const { deps } = baseDeps({
     resolveBinding: async () => CLERK_BINDING,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     expenseFromPhoto: async (chatId, repName, fileId, meta) => { photoCalls.push({ fileId, meta }); return { ok: true, expense: { id: 'e-doc1' } }; },
     sendStaffPicker: async (...a) => { pickerCalls.push(a); },
   });
   await handleUpdate({ message: { chat: { id: 43 }, from: { first_name: 'A' }, document: { file_id: 'doc9', file_unique_id: 'fu-doc9', mime_type: 'image/jpeg' } } }, deps);
+  await timers.runPending();
   assert.deepStrictEqual(photoCalls[0], { fileId: 'doc9', meta: { branch_id: 'br-A', file_unique_id: 'fu-doc9' } });
   assert.strictEqual(pickerCalls.length, 1);
 });

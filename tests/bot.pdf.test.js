@@ -167,12 +167,17 @@ test('rasterizePdf throwing PdfError -> one safe reply, no throw, runBatch NOT c
   assert.ok(!sent.some(s => /ENCRYPTED/.test(s.text)), 'raw PdfError code never reaches the user');
 });
 
+// 2026-07-20: a single photo now buffers through the same debounce as an album (bulk-spam
+// fix) — a fake timer deterministically flushes it instead of relying on a real setTimeout.
 test('a normal single photo still goes through expenseFromPhoto — rasterizePdf/runBatch NOT called', async () => {
   let ranPhoto = null;
+  const pending = [];
   const { deps, runBatchCalls, rasterizeCalls } = baseDeps({
+    setTimeout: (fn) => { pending.push(fn); return pending.length; }, clearTimeout: () => {}, debounceMs: 1,
     expenseFromPhoto: async (chatId, repName, fileId) => { ranPhoto = { chatId, repName, fileId }; },
   });
   await handleUpdate({ message: { chat: { id: 9 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'solo' }] } }, deps);
+  for (const fn of pending.splice(0)) await fn();
   assert.deepStrictEqual(ranPhoto, { chatId: 9, repName: 'Bo', fileId: 'solo' });
   assert.strictEqual(runBatchCalls.length, 0);
   assert.strictEqual(rasterizeCalls.length, 0);

@@ -6,22 +6,38 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { handleUpdate } = require('../lib/bot');
 
+// 2026-07-20: a single photo now buffers through the same debounce as an album (bulk-spam
+// fix), so these tests need a fake timer to deterministically flush it instead of relying on
+// a real setTimeout — same pattern already used throughout tests/bot.batch*.test.js.
+function fakeTimers() {
+  let seq = 0;
+  const pending = new Map();
+  return {
+    setTimeout: (fn) => { const id = ++seq; pending.set(id, fn); return id; },
+    clearTimeout: (id) => { pending.delete(id); },
+    runPending: async () => { for (const fn of [...pending.values()]) { pending.clear(); await fn(); } },
+  };
+}
+
 function baseDeps(over = {}) {
   const sent = [];
   const ran = [];
+  const timers = fakeTimers();
   const deps = {
     tgSend: async (chatId, text) => { sent.push({ chatId, text }); },
     expenseFromPhoto: async (chatId) => { ran.push('photo:' + chatId); },
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     ...over,
   };
-  return { deps, sent, ran };
+  return { deps, sent, ran, runPending: timers.runPending };
 }
 const photo = (chatId) => ({ message: { chat: { id: chatId }, from: { first_name: 'U' }, photo: [{ file_id: 'f' }] } });
 const textMsg = (chatId, text) => ({ message: { chat: { id: chatId }, from: { first_name: 'U' }, text } });
 
 test('allowlist set: an ALLOWED chat id is served normally', async () => {
-  const { deps, ran } = baseDeps({ allowedChatIds: ['1376793145', '1979799104'] });
+  const { deps, ran, runPending } = baseDeps({ allowedChatIds: ['1376793145', '1979799104'] });
   await handleUpdate(photo(1979799104), deps); // Jeevan
+  await runPending();
   assert.deepStrictEqual(ran, ['photo:1979799104'], 'allowed user reaches the normal photo flow');
 });
 
@@ -42,15 +58,17 @@ test('allowlist set: even /start and text commands are blocked for a stranger', 
 });
 
 test('allowlist EMPTY (unset): open to anyone — back-compat, unchanged behavior', async () => {
-  const { deps, ran, sent } = baseDeps({ allowedChatIds: [] });
+  const { deps, ran, sent, runPending } = baseDeps({ allowedChatIds: [] });
   await handleUpdate(photo(12345), deps);
+  await runPending();
   assert.deepStrictEqual(ran, ['photo:12345'], 'with no allowlist configured, any user is served');
   assert.ok(!sent.some(s => /private bot/i.test(s.text)));
 });
 
 test('chat id type-agnostic: numeric chat id matches its string form in the allowlist', async () => {
-  const { deps, ran } = baseDeps({ allowedChatIds: ['1979799104'] });
+  const { deps, ran, runPending } = baseDeps({ allowedChatIds: ['1979799104'] });
   await handleUpdate(photo(1979799104), deps); // numeric id, string allowlist entry
+  await runPending();
   assert.deepStrictEqual(ran, ['photo:1979799104']);
 });
 

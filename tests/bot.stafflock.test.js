@@ -162,9 +162,13 @@ test('single photo while locked: staff_user_id injected into meta, sendStaffPick
   let staffPickerCalled = false;
   let lockedReceiptCalled = false;
 
+  // 2026-07-20: a single photo now buffers through the same debounce as an album (bulk-spam
+  // fix) — a fake timer deterministically flushes it instead of relying on a real setTimeout.
+  const pending = [];
   const { deps } = baseDeps({
     getCapabilities: () => ({ multiUser: true }),
     resolveBinding: async () => ({ branch_id: 'br-A', company_id: 'co-1', account_id: 'acc-1' }),
+    setTimeout: (fn) => { pending.push(fn); return pending.length; }, clearTimeout: () => {}, debounceMs: 1,
     expenseFromPhoto: async (cid, name, fid, meta) => {
       capturedMeta = meta;
       return { ok: true, expense: { id: 'exp-1', merchant: 'Test', amount: 10, currency: 'MYR', status: 'saved' } };
@@ -180,6 +184,7 @@ test('single photo while locked: staff_user_id injected into meta, sendStaffPick
       photo: [{ file_id: 'photo-1', file_unique_id: 'u1' }],
     },
   }, deps);
+  for (const fn of pending.splice(0)) await fn();
 
   assert.strictEqual(capturedMeta.staff_user_id, 's-ali');
   assert.strictEqual(staffPickerCalled, false, 'staff picker must NOT be called when locked');
@@ -194,9 +199,11 @@ test('single photo NOT locked: sendStaffPicker called normally', async () => {
   let staffPickerCalled = false;
   let lockedReceiptCalled = false;
 
+  const pending = [];
   const { deps } = baseDeps({
     getCapabilities: () => ({ multiUser: true }),
     resolveBinding: async () => ({ branch_id: 'br-A', company_id: 'co-1', account_id: 'acc-1' }),
+    setTimeout: (fn) => { pending.push(fn); return pending.length; }, clearTimeout: () => {}, debounceMs: 1,
     expenseFromPhoto: async () => ({ ok: true, expense: { id: 'exp-2', merchant: 'Test', amount: 5, currency: 'MYR', status: 'saved' } }),
     sendStaffPicker: async () => { staffPickerCalled = true; },
     sendLockedReceipt: async () => { lockedReceiptCalled = true; },
@@ -209,6 +216,7 @@ test('single photo NOT locked: sendStaffPicker called normally', async () => {
       photo: [{ file_id: 'photo-2', file_unique_id: 'u2' }],
     },
   }, deps);
+  for (const fn of pending.splice(0)) await fn();
 
   assert.strictEqual(staffPickerCalled, true, 'staff picker must be called when NOT locked');
   assert.strictEqual(lockedReceiptCalled, false);

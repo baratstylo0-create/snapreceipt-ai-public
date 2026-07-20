@@ -139,13 +139,61 @@ test('a media group summary lists each saved receipt (details captured via the i
   assert.match(summaryMsg, /Food/, 'with its category');
 });
 
+// 2026-07-20: a solo photo now buffers through the same debounce as an album (bulk-spam
+// fix) so several individually-sent photos can still coalesce into one batch — a genuine
+// single send still ends up at expenseFromPhoto (never runBatch), just after the debounce.
 test('a single photo (no media_group_id) uses expenseFromPhoto — runBatch NOT called', async (t) => {
+  const timers = fakeTimers();
   let ranPhoto = null;
   const { deps, runBatchCalls } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     expenseFromPhoto: async (chatId, repName, fileId) => { ranPhoto = { chatId, repName, fileId }; },
   });
   await handleUpdate({ message: { chat: { id: 7 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'solo' }] } }, deps);
+  await timers.runPending();
   assert.deepStrictEqual(ranPhoto, { chatId: 7, repName: 'Bo', fileId: 'solo' });
+  assert.strictEqual(runBatchCalls.length, 0);
+});
+
+test('a genuinely solo photo gets the singular "Reading your receipt…" ack, not the album wording', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    expenseFromPhoto: async () => ({ ok: true, expense: { id: 'e1', merchant: 'X', amount: 1, currency: 'MYR' } }),
+  });
+  await handleUpdate({ message: { chat: { id: 71 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'solo' }] } }, deps);
+  await timers.runPending();
+  assert.strictEqual(sent.length, 1, 'exactly one message: the ack (the fake expenseFromPhoto never replies itself)');
+  assert.match(sent[0].text, /Reading your receipt…/);
+  assert.doesNotMatch(sent[0].text, /Got your receipts/);
+});
+
+// Live incident (2026-07-20): a clerk sending several receipts as SEPARATE individual
+// messages (not a true multi-select Telegram album) got one "Reading your receipt…" spam
+// message PER photo, and all of them fired at the AI service with zero pacing — because
+// nothing coalesced them (only a real media_group_id did). These lock in the fix: several
+// individually-sent photos from the SAME chat within one debounce window now coalesce into
+// ONE batch, exactly like a real album.
+test('bulk-spam fix: several individually-sent photos (no media_group_id) from the SAME chat coalesce into ONE batch', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5 });
+  await handleUpdate({ message: { chat: { id: 72 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'p1' }] } }, deps);
+  await handleUpdate({ message: { chat: { id: 72 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'p2' }] } }, deps);
+  await handleUpdate({ message: { chat: { id: 72 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'p3' }] } }, deps);
+  await timers.runPending();
+  assert.strictEqual(runBatchCalls.length, 1, 'one coalesced batch call, not three separate expenseFromPhoto calls');
+  assert.strictEqual(runBatchCalls[0].images.length, 3);
+  const acks = sent.filter((s) => /Reading your receipt|Got your receipts/.test(s.text));
+  assert.strictEqual(acks.length, 1, 'exactly ONE ack for the whole burst — this is the reported spam fix');
+});
+
+test('bulk-spam fix: individually-sent photos from DIFFERENT chats never coalesce together', async (t) => {
+  const timers = fakeTimers();
+  const { deps, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5 });
+  await handleUpdate({ message: { chat: { id: 73 }, from: { first_name: 'A' }, photo: [{ file_id: 'a1' }] } }, deps);
+  await handleUpdate({ message: { chat: { id: 74 }, from: { first_name: 'B' }, photo: [{ file_id: 'b1' }] } }, deps);
+  await timers.runPending();
+  // Two chats, each with exactly one photo -> two solo (single-receipt) flushes, no batch call.
   assert.strictEqual(runBatchCalls.length, 0);
 });
 
