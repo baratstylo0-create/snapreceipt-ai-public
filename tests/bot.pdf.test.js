@@ -60,7 +60,7 @@ test('handlePdfDocument passes the default pacingMs (MASS_IMAGE_PACING_MS) into 
   });
   await handleUpdate(pdfUpdate('fileA'), deps);
   assert.strictEqual(runBatchDeps.length, 1);
-  assert.strictEqual(runBatchDeps[0].pacingMs, 3000, 'the production default (MASS_IMAGE_PACING_MS) must reach runBatch for PDFs too');
+  assert.strictEqual(runBatchDeps[0].pacingMs, 6000, 'the production default (MASS_IMAGE_PACING_MS) must reach runBatch for PDFs too');
 });
 
 test('handlePdfDocument: deps.batchPacingMs overrides the default, and deps.sleep is passed through', async () => {

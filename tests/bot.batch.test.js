@@ -82,7 +82,7 @@ test('flushGroup passes the default pacingMs (MASS_IMAGE_PACING_MS) into runBatc
   await handleUpdate(photoUpdate('grpPace1', 'f1'), deps);
   await timers.runPending();
   assert.strictEqual(runBatchDeps.length, 1);
-  assert.strictEqual(runBatchDeps[0].pacingMs, 3000, 'the production default (MASS_IMAGE_PACING_MS) must reach runBatch');
+  assert.strictEqual(runBatchDeps[0].pacingMs, 6000, 'the production default (MASS_IMAGE_PACING_MS) must reach runBatch');
 });
 
 test('flushGroup: deps.batchPacingMs overrides the default, and deps.sleep is passed through', async (t) => {
