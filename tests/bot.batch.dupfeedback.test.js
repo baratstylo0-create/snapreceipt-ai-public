@@ -77,8 +77,10 @@ test('flushGroup: metaForImage resolves the per-image file_unique_id, index-alig
 test('flushGroup: a PARTIAL download failure keeps index alignment (null, not dropped) instead of silently shrinking the array', async () => {
   const timers = fakeTimers();
   let capturedImages;
+  // 2026-07-20: MAX_GROUP_IMAGES default lowered 10->2 (owner request) — raises the cap so
+  // this test can still exercise 3 photos; it's testing index alignment, not the cap.
   const { deps } = baseDeps({
-    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 10,
     tgFileUrl: async (fid) => (fid === 'bad' ? null : { url: 'https://tg/' + fid }),
     runBatch: async (images) => {
       capturedImages = images;
@@ -116,8 +118,9 @@ test('flushGroup: per-photo failure feedback — resends the SPECIFIC offending 
 
 test('flushGroup: multiple skips each get their OWN correctly-mapped photo + caption', async () => {
   const timers = fakeTimers();
+  // 2026-07-20: raises the cap (default now 2) so this test can still exercise 3 photos.
   const { deps, sentPhotos } = baseDeps({
-    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 10,
     runBatch: async (images) => ({
       images: images.length, receipts: 3, saved: 0, skipped: 2,
       skippedDetails: [

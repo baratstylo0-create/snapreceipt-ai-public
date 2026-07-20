@@ -93,7 +93,9 @@ test('an attacker-forged media group with 1000 photos is still clamped to MAX_GR
     await handleUpdate(photoUpdate('bigattack', 'f' + i), deps);
   }
   await timers.runPending();
-  assert.strictEqual(runBatchCalls[0].images.length, 10, 'default MAX_GROUP_IMAGES cap must hold regardless of how many updates arrive');
+  // 2026-07-20 (owner request): MAX_GROUP_IMAGES default lowered 10->2 to keep every batch
+  // comfortably under the per-key rate limit.
+  assert.strictEqual(runBatchCalls[0].images.length, 2, 'default MAX_GROUP_IMAGES cap must hold regardless of how many updates arrive');
 });
 
 // ---- (3) file_id that is not a string (number, object) must not crash the buffer/flush path ----
