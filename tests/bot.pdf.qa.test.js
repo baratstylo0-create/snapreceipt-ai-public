@@ -68,9 +68,16 @@ test('QA: truncated pages surface a user-facing note (counts-only, no reasons)',
 });
 
 test('QA: path isolation — a plain image DOCUMENT (image/jpeg) is NOT taken by the PDF branch', async () => {
+  // 2026-07-20: a single photo now buffers through the same debounce as an album
+  // (bulk-spam fix) — a fake timer is needed to deterministically flush it.
   let pdf = false, photo = false;
-  const deps = { tgSend: async () => {}, handlePdfDocument: async () => { pdf = true; }, expenseFromPhoto: async () => { photo = true; } };
+  const pending = [];
+  const deps = {
+    tgSend: async () => {}, handlePdfDocument: async () => { pdf = true; }, expenseFromPhoto: async () => { photo = true; },
+    setTimeout: (fn) => { pending.push(fn); return pending.length; }, clearTimeout: () => {}, debounceMs: 1,
+  };
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, document: { file_id: 'd', mime_type: 'image/jpeg', file_name: 'x.jpg' } } }, deps);
+  for (const fn of pending.splice(0)) await fn();
   assert.strictEqual(pdf, false, 'an image document must not hit the PDF branch');
   assert.strictEqual(photo, true);
 });
