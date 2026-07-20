@@ -179,6 +179,47 @@ test('formatBatchSummary renders counts and NEVER surfaces failed[].reason (SOP 
   assert.ok(!text.includes('SECRET_STACK_TRACE'), 'raw failure reason must never reach the user');
 });
 
+// 2026-07-20 incident: a burst of receipts exhausted the Groq key pool's per-minute token
+// budget; callGroq's own Error('429') landed in the generic "couldn't read" bucket and told
+// the user their PHOTO was too blurry — false, and unhelpful (the honest fix is "wait and
+// resend", not "take a clearer photo"). These lock in the fix at the batch-summary layer.
+test('formatBatchSummary: a rate-limited failure gets an honest "high demand" message, not "couldn\'t read"', () => {
+  const text = formatBatchSummary({
+    images: 1, receipts: 0, saved: 0,
+    failed: [{ image_index: 0, reason: '429', rateLimited: true }],
+    flagged: [], truncated_images: [],
+  });
+  assert.match(text, /1 receipt delayed by high demand/);
+  assert.doesNotMatch(text, /couldn't read/);
+  assert.match(text, /temporary limit from sending too many at once/);
+  assert.match(text, /wait about a minute/);
+});
+
+test('formatBatchSummary: a genuine unreadable failure keeps the original "couldn\'t read" wording, no rate-limit note', () => {
+  const text = formatBatchSummary({
+    images: 1, receipts: 0, saved: 0,
+    failed: [{ image_index: 0, reason: 'some real OCR error' }], // rateLimited omitted, same as an older runBatch
+    flagged: [], truncated_images: [],
+  });
+  assert.match(text, /1 couldn't read/);
+  assert.doesNotMatch(text, /high demand/);
+  assert.doesNotMatch(text, /temporary limit/);
+});
+
+test('formatBatchSummary: a mix of rate-limited and genuinely-unreadable failures reports both counts honestly', () => {
+  const text = formatBatchSummary({
+    images: 3, receipts: 1, saved: 0,
+    failed: [
+      { image_index: 0, reason: '429', rateLimited: true },
+      { image_index: 1, reason: '429', rateLimited: true },
+      { image_index: 2, reason: 'garbled OCR output' },
+    ],
+    flagged: [], truncated_images: [],
+  });
+  assert.match(text, /1 couldn't read/);
+  assert.match(text, /2 receipts delayed by high demand/);
+});
+
 test('formatBatchSummary lists each saved receipt (merchant · amount · category) when given the saved list', () => {
   const summary = { images: 2, receipts: 2, saved: 2, failed: [], flagged: [], truncated_images: [] };
   const saved = [
