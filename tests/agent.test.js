@@ -160,6 +160,33 @@ test('runAgent returns a direct answer when the model makes no tool call', async
   assert.equal(chat.calls[0].messages[0].role, 'system');
 });
 
+// --- 2026-07-19 finding: AGENT_MODEL is the SAME reasoning model as OCR (qwen3.6-27b) and was
+// confirmed LIVE to emit a raw <think>...</think> block via groqChatTools. runAgent previously
+// had NO handling for this at all — the raw reasoning text would go straight into `answer` and
+// render verbatim in the Falc chat widget. These lock in the fix (reused lib/ocr.js's stripThink).
+test('runAgent strips a completed <think> block from the answer before returning it', async () => {
+  const chat = fakeChat([{ role: 'assistant', content: '<think>let me consider the question</think>The total is $70.' }]);
+  const out = await runAgent([{ role: 'user', content: 'total?' }], { ...deps(), chat });
+  assert.equal(out.answer, 'The total is $70.');
+  assert.ok(!/<think>/i.test(out.answer), 'no raw reasoning may reach the client');
+});
+
+test('runAgent falls back to a safe message (never leaks partial reasoning) when <think> is unterminated', async () => {
+  // The model was cut off mid-reasoning (token budget exhausted) — exactly the failure mode
+  // measured on the OCR side. Must never show the raw in-progress reasoning as the "answer".
+  const chat = fakeChat([{ role: 'assistant', content: '<think>hmm is it 4 or 6, let me reconsider... ' }]);
+  const out = await runAgent([{ role: 'user', content: 'total?' }], { ...deps(), chat });
+  assert.ok(!/<think>/i.test(out.answer));
+  assert.ok(!/reconsider/i.test(out.answer), 'must not leak any of the raw reasoning text');
+  assert.match(out.answer, /couldn't finish|ask again/i);
+});
+
+test('runAgent leaves a normal (no <think>) answer completely unchanged', async () => {
+  const chat = fakeChat([{ role: 'assistant', content: 'Plain answer, no reasoning block.' }]);
+  const out = await runAgent([{ role: 'user', content: 'hi' }], { ...deps(), chat });
+  assert.equal(out.answer, 'Plain answer, no reasoning block.');
+});
+
 // --- ADR-019 SYSTEM_PROMPT hardening (regression lock) ------------------------------------
 // These assert the safety framing survives verbatim; they'd fail if someone later deleted or
 // diluted it. Prompt-level only — see the honesty-caveat comment above SYSTEM_PROMPT in
