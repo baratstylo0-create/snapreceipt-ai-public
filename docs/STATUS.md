@@ -1,4 +1,5 @@
 # STATUS — Receipt Analyser SaaS
+> 2026-07-20 Codex (explicit Barat-lane assistance): `codex/ocr-single-rate-retry` adds one deterministic 15-second retry for Groq rate limits on the single-photo OCR path only. Full suite 2135/2135; PR pending Owner/Claude review. Batch pacing and OCR accuracy settings unchanged; no self-merge.
 > 2026-07-13 Codex: C4-UI automation-impact band is implemented on `codex/c4-ui-metrics`; full suite 1979/1979. PR push/review pending; no merge by Codex.
 > 2026-07-13 Codex: C6 admin Activity clarity is implemented on `codex/c6-admin-activity`; full suite 1980/1980. PR push/review pending; no merge by Codex.
 > Current phase, sprint goal, blockers, who's on what. **Every Claude updates this.**
