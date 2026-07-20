@@ -45,7 +45,10 @@ function baseDeps(t, over = {}) {
 
 test('a media group (N updates, same media_group_id) → ONE runBatch call with N images + one summary', async (t) => {
   const timers = fakeTimers();
-  const { deps, sent, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5 });
+  // 2026-07-20: MAX_GROUP_IMAGES default lowered 10->2 (owner request) — this test is about
+  // coalescing N updates into one batch call, not the cap itself, so it raises the cap to
+  // keep testing 3 images. The cap's own behavior is covered by its own dedicated test below.
+  const { deps, sent, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5, maxGroupImages: 10 });
 
   await handleUpdate(photoUpdate('grp1', 'fileA'), deps);
   await handleUpdate(photoUpdate('grp1', 'fileB'), deps);
@@ -176,7 +179,9 @@ test('a genuinely solo photo gets the singular "Reading your receipt…" ack, no
 // ONE batch, exactly like a real album.
 test('bulk-spam fix: several individually-sent photos (no media_group_id) from the SAME chat coalesce into ONE batch', async (t) => {
   const timers = fakeTimers();
-  const { deps, sent, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5 });
+  // 2026-07-20: raises the cap (default now 2) so this test can still exercise 3 photos —
+  // it's testing coalescing, not the cap itself.
+  const { deps, sent, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5, maxGroupImages: 10 });
   await handleUpdate({ message: { chat: { id: 72 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'p1' }] } }, deps);
   await handleUpdate({ message: { chat: { id: 72 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'p2' }] } }, deps);
   await handleUpdate({ message: { chat: { id: 72 }, from: { first_name: 'Bo' }, photo: [{ file_id: 'p3' }] } }, deps);
@@ -218,6 +223,34 @@ test('MAX_GROUP_IMAGES clamp: an over-cap photo is dropped, not sent to runBatch
   await handleUpdate(photoUpdate('grpCap', 'f3'), deps); // dropped (cap 2)
   await timers.runPending();
   assert.strictEqual(runBatchCalls[0].images.length, 2);
+});
+
+// 2026-07-20 (owner request): a dropped-over-cap photo used to vanish with NO trace at all —
+// now the final summary tells the user explicitly, so nothing looks silently lost.
+test('MAX_GROUP_IMAGES clamp: dropped extras are announced in the final summary, not silently lost', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 2,
+  });
+  await handleUpdate(photoUpdate('grpCapNotice', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpCapNotice', 'f2'), deps);
+  await handleUpdate(photoUpdate('grpCapNotice', 'f3'), deps); // dropped
+  await handleUpdate(photoUpdate('grpCapNotice', 'f4'), deps); // dropped
+  await timers.runPending();
+  const summaryMsg = sent[sent.length - 1].text;
+  assert.match(summaryMsg, /2 extra photos NOT processed/i);
+  assert.match(summaryMsg, /only 2 at a time/i);
+  assert.match(summaryMsg, /resend the rest/i);
+});
+
+test('MAX_GROUP_IMAGES clamp: NO drop notice when the batch is within the cap', async (t) => {
+  const timers = fakeTimers();
+  const { deps, sent } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
+  await handleUpdate(photoUpdate('grpNoDrop', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpNoDrop', 'f2'), deps);
+  await timers.runPending();
+  const summaryMsg = sent[sent.length - 1].text;
+  assert.ok(!/NOT processed/i.test(summaryMsg), 'no drop notice when nothing was dropped');
 });
 
 test('all photos fail to resolve → a "couldn\'t download" message, runBatch skipped', async (t) => {
@@ -439,8 +472,9 @@ test('formatBatchSummary: an "unclear" reason in the mix falls back to generic w
 
 test('a media group with blurry AND not-a-receipt skips: the summary breaks them down by reason, real receipt untouched', async (t) => {
   const timers = fakeTimers();
+  // 2026-07-20: raises the cap (default now 2) so this test can still exercise 3 photos.
   const { deps, sent } = baseDeps(t, {
-    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 10,
     runBatch: async (images, fieldSpec, d) => {
       let saved = 0, skipped = 0;
       for (let i = 0; i < images.length; i++) {
@@ -484,8 +518,10 @@ test('two different media groups do not mix', async (t) => {
 // choose category". ---
 test('batch of 5: 3 confident + 2 uncertain -> ONE main summary (covers the 3), then TWO separate category-picker messages', async (t) => {
   const timers = fakeTimers();
+  // 2026-07-20: raises the cap (default now 2) so this test can still exercise 5 photos —
+  // it's testing the confident/uncertain split, not the cap.
   const { deps, sent } = baseDeps(t, {
-    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 10,
     tgSend: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { ok: true }; },
     // A runBatch fake that behaves like the real one: calls the injected assembleExpense
     // once per image, in order, so flushGroup's captureAssemble wrapper sees each result.
