@@ -213,44 +213,44 @@ test('flush never throws and sends a safe message when runBatch throws', async (
   assert.match(sent[sent.length - 1].text, /Couldn't process that batch/i);
 });
 
-test('MAX_GROUP_IMAGES clamp: an over-cap photo is dropped, not sent to runBatch', async (t) => {
+// 2026-07-20 (owner request, revised): over-cap no longer processes the first `cap` photos
+// and drops the rest — it rejects the WHOLE batch, unread. Nothing gets scanned at all.
+test('MAX_GROUP_IMAGES clamp: over-cap batch is rejected WHOLESALE — runBatch is never called', async (t) => {
   const timers = fakeTimers();
   const { deps, runBatchCalls } = baseDeps(t, {
     setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 2,
   });
   await handleUpdate(photoUpdate('grpCap', 'f1'), deps);
   await handleUpdate(photoUpdate('grpCap', 'f2'), deps);
-  await handleUpdate(photoUpdate('grpCap', 'f3'), deps); // dropped (cap 2)
+  await handleUpdate(photoUpdate('grpCap', 'f3'), deps); // pushes the group over-cap
   await timers.runPending();
-  assert.strictEqual(runBatchCalls[0].images.length, 2);
+  assert.strictEqual(runBatchCalls.length, 0, 'nothing gets scanned once a batch goes over-cap — not even the first 2');
 });
 
-// 2026-07-20 (owner request): a dropped-over-cap photo used to vanish with NO trace at all —
-// now the final summary tells the user explicitly, so nothing looks silently lost.
-test('MAX_GROUP_IMAGES clamp: dropped extras are announced in the final summary, not silently lost', async (t) => {
+test('MAX_GROUP_IMAGES clamp: over-cap batch gets a plain "max N per batch" reject message', async (t) => {
   const timers = fakeTimers();
   const { deps, sent } = baseDeps(t, {
     setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1, maxGroupImages: 2,
   });
-  await handleUpdate(photoUpdate('grpCapNotice', 'f1'), deps);
-  await handleUpdate(photoUpdate('grpCapNotice', 'f2'), deps);
-  await handleUpdate(photoUpdate('grpCapNotice', 'f3'), deps); // dropped
-  await handleUpdate(photoUpdate('grpCapNotice', 'f4'), deps); // dropped
+  await handleUpdate(photoUpdate('grpCapMsg', 'f1'), deps);
+  await handleUpdate(photoUpdate('grpCapMsg', 'f2'), deps);
+  await handleUpdate(photoUpdate('grpCapMsg', 'f3'), deps);
+  await handleUpdate(photoUpdate('grpCapMsg', 'f4'), deps);
   await timers.runPending();
-  const summaryMsg = sent[sent.length - 1].text;
-  assert.match(summaryMsg, /2 extra photos NOT processed/i);
-  assert.match(summaryMsg, /only 2 at a time/i);
-  assert.match(summaryMsg, /resend the rest/i);
+  const rejectMsg = sent[sent.length - 1].text;
+  assert.match(rejectMsg, /Max 2 receipts per batch/i);
+  assert.match(rejectMsg, /1 or 2 receipts/i);
+  assert.ok(!/Batch processed/.test(rejectMsg), 'must NOT be the normal batch-processed summary');
 });
 
-test('MAX_GROUP_IMAGES clamp: NO drop notice when the batch is within the cap', async (t) => {
+test('MAX_GROUP_IMAGES clamp: a batch WITHIN the cap processes normally, no reject message', async (t) => {
   const timers = fakeTimers();
-  const { deps, sent } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
+  const { deps, sent, runBatchCalls } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1 });
   await handleUpdate(photoUpdate('grpNoDrop', 'f1'), deps);
   await handleUpdate(photoUpdate('grpNoDrop', 'f2'), deps);
   await timers.runPending();
-  const summaryMsg = sent[sent.length - 1].text;
-  assert.ok(!/NOT processed/i.test(summaryMsg), 'no drop notice when nothing was dropped');
+  assert.strictEqual(runBatchCalls.length, 1, 'a within-cap batch still gets scanned normally');
+  assert.match(sent[sent.length - 1].text, /Batch processed/);
 });
 
 test('all photos fail to resolve → a "couldn\'t download" message, runBatch skipped', async (t) => {
