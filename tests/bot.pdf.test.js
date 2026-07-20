@@ -48,6 +48,36 @@ test('a PDF document -> rasterizePdf once -> runBatch once with the pages -> one
   assert.match(sent[0].text, /Batch processed/);
 });
 
+// 2026-07-20: a multi-page PDF is exactly as exposed to the batch rate-limit issue as a photo
+// album — handlePdfDocument must pace its runBatch call the same way flushGroup does.
+test('handlePdfDocument passes the default pacingMs (MASS_IMAGE_PACING_MS) into runBatch', async () => {
+  const runBatchDeps = [];
+  const { deps } = baseDeps({
+    runBatch: async (images, fieldSpec, d) => {
+      runBatchDeps.push(d);
+      return { images: images.length, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  await handleUpdate(pdfUpdate('fileA'), deps);
+  assert.strictEqual(runBatchDeps.length, 1);
+  assert.strictEqual(runBatchDeps[0].pacingMs, 3000, 'the production default (MASS_IMAGE_PACING_MS) must reach runBatch for PDFs too');
+});
+
+test('handlePdfDocument: deps.batchPacingMs overrides the default, and deps.sleep is passed through', async () => {
+  const runBatchDeps = [];
+  const fakeSleep = async () => {};
+  const { deps } = baseDeps({
+    batchPacingMs: 0, sleep: fakeSleep,
+    runBatch: async (images, fieldSpec, d) => {
+      runBatchDeps.push(d);
+      return { images: images.length, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  await handleUpdate(pdfUpdate('fileA'), deps);
+  assert.strictEqual(runBatchDeps[0].pacingMs, 0);
+  assert.strictEqual(runBatchDeps[0].sleep, fakeSleep);
+});
+
 // --- ADR-018 gap fix (2026-07-11): a PDF receipt's pages are now stored durably, so each row
 // gets a receipt_url (before, PDF rows saved with receipt_url=null → no dashboard thumbnail,
 // no photo in exports). Uploads the rasterized page BYTES directly (we already hold them).

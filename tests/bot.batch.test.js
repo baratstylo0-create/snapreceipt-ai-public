@@ -65,6 +65,44 @@ test('a media group (N updates, same media_group_id) → ONE runBatch call with 
   assert.match(sent[1].text, /Batch processed/);
 });
 
+// 2026-07-20: an unpaced batch can now trip the Groq key's per-minute token budget mid-album
+// (OCR_MAX_TOKENS raised 2500->6000 fixed a real empty-output bug but shrank how many receipts
+// fit in a minute). flushGroup must pass MASS_IMAGE_PACING_MS through to runBatch by default,
+// and let a caller override it (deps.batchPacingMs) or supply its own sleep for tests.
+test('flushGroup passes the default pacingMs (MASS_IMAGE_PACING_MS) into runBatch', async (t) => {
+  const timers = fakeTimers();
+  const runBatchDeps = [];
+  const { deps } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5,
+    runBatch: async (images, fieldSpec, d) => {
+      runBatchDeps.push(d);
+      return { images: images.length, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  await handleUpdate(photoUpdate('grpPace1', 'f1'), deps);
+  await timers.runPending();
+  assert.strictEqual(runBatchDeps.length, 1);
+  assert.strictEqual(runBatchDeps[0].pacingMs, 3000, 'the production default (MASS_IMAGE_PACING_MS) must reach runBatch');
+});
+
+test('flushGroup: deps.batchPacingMs overrides the default, and deps.sleep is passed through', async (t) => {
+  const timers = fakeTimers();
+  const runBatchDeps = [];
+  const fakeSleep = async () => {};
+  const { deps } = baseDeps(t, {
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5,
+    batchPacingMs: 0, sleep: fakeSleep,
+    runBatch: async (images, fieldSpec, d) => {
+      runBatchDeps.push(d);
+      return { images: images.length, receipts: 0, saved: 0, failed: [], flagged: [], truncated_images: [] };
+    },
+  });
+  await handleUpdate(photoUpdate('grpPace2', 'f1'), deps);
+  await timers.runPending();
+  assert.strictEqual(runBatchDeps[0].pacingMs, 0, 'an explicit 0 must override the 3000ms default (test/dashboard-style opt-out)');
+  assert.strictEqual(runBatchDeps[0].sleep, fakeSleep, 'a caller-supplied sleep must reach runBatch unchanged');
+});
+
 test('the album ack is sent ONCE per group (on the first photo), not per photo', async (t) => {
   const timers = fakeTimers();
   const { deps, sent } = baseDeps(t, { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 5 });
