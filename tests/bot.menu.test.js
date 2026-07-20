@@ -192,40 +192,42 @@ test('handleUpdate: /start attaches the persistent menu keyboard', async () => {
   assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
 });
 
-// --- QA-reported: Telegram Web sometimes drops the persistent menu keyboard entirely
-// (is_persistent is only a request — the client can still ignore it). None of these replies
-// already carry their own keyboard, so each one re-attaches MAIN_MENU_KEYBOARD as a passive
-// nudge — same buttons, no visible change, just another chance for the client to redraw it. --
+// --- 2026-07-20 (owner-requested reversal): the acc8146 "resend the menu keyboard on every
+// reply" nudge is REMOVED. is_persistent:true (see MAIN_MENU_KEYBOARD) already keeps PC/Web
+// clients from collapsing the bar to an icon; resending it here on every reply was ALSO
+// forcing it back open any time a user manually collapsed it — reported as "the menu keeps
+// appearing on PC and won't stay closed". /start and genuine keyboard-shape changes (Staff
+// Lock on/off) still resend it; these routine replies must NOT. ---
 
-test('handleTodayExpenses: re-attaches the persistent menu keyboard (no other keyboard on this message)', async () => {
+test('handleTodayExpenses: does NOT re-attach the menu keyboard (must stay collapsible on PC)', async () => {
   const { deps, sent } = baseDeps({
     sbSelect: async () => [{ amount: 10, currency: 'MYR' }],
   });
   await handleTodayExpenses(1, deps);
-  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+  assert.strictEqual(sent[0].replyMarkup, undefined);
 });
 
-test('handleWeeklyRecord: re-attaches the persistent menu keyboard', async () => {
+test('handleWeeklyRecord: does NOT re-attach the menu keyboard', async () => {
   const { deps, sent } = baseDeps({
     sbSelect: async () => [{ amount: 100, currency: 'MYR' }],
   });
   await handleWeeklyRecord(1, deps);
-  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+  assert.strictEqual(sent[0].replyMarkup, undefined);
 });
 
-test('handleUpdate: "🧭 Bot Guide" also re-attaches the persistent menu keyboard', async () => {
+test('handleUpdate: "🧭 Bot Guide" does NOT re-attach the menu keyboard', async () => {
   const sent = [];
   const deps = { sbSelect: async () => [], tgSend: async (chatId, text, replyMarkup) => { sent.push({ text, replyMarkup }); } };
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: '🧭 Bot Guide' } }, deps);
   assert.strictEqual(sent[0].text, BOT_GUIDE_TEXT);
-  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+  assert.strictEqual(sent[0].replyMarkup, undefined);
 });
 
-test('handleUpdate: the "didn\'t catch that" fallback also re-attaches the persistent menu keyboard', async () => {
+test('handleUpdate: the "didn\'t catch that" fallback does NOT re-attach the menu keyboard', async () => {
   const sent = [];
   const deps = { sbSelect: async () => [], tgSend: async (chatId, text, replyMarkup) => { sent.push({ text, replyMarkup }); } };
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: 'blah blah unrecognised' } }, deps);
-  assert.deepStrictEqual(sent[0].replyMarkup, MAIN_MENU_KEYBOARD);
+  assert.strictEqual(sent[0].replyMarkup, undefined);
 });
 
 // Issue #162 D12 (live QA): the menu only showed on mobile, not Telegram Desktop/Web.
