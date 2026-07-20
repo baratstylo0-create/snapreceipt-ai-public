@@ -214,3 +214,43 @@ test('runBatch called with no deps argument: resolves, image lands in failed', a
   assert.equal(s.failed[0].image_index, 0);
   assert.equal(typeof s.failed[0].reason, 'string');
 });
+
+// 2026-07-20: pacingMs paces image reads so a batch stays under the Groq key's per-minute
+// token budget (OCR_MAX_TOKENS was raised 2500->6000, shrinking how many receipts fit in a
+// minute — see lib/bot.js's MASS_IMAGE_PACING_MS doc comment). `sleep` is injectable so these
+// never actually wait in the test suite.
+test('pacingMs: NOT waited before the first image, but IS waited before every image after it', async () => {
+  const f = fakes({
+    img1: { receipts: [{ fields: { merchant: 'A' }, rawParsed: {} }] },
+    img2: { receipts: [{ fields: { merchant: 'B' }, rawParsed: {} }] },
+    img3: { receipts: [{ fields: { merchant: 'C' }, rawParsed: {} }] },
+  });
+  const waits = [];
+  const sleep = async (ms) => { waits.push(ms); };
+  const s = await runBatch(['img1', 'img2', 'img3'], FS, {
+    extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense, meta: {}, pacingMs: 3000, sleep,
+  });
+  assert.equal(s.saved, 3, 'pacing must not affect the actual outcome, only its timing');
+  assert.deepEqual(waits, [3000, 3000], 'waited before image 2 and image 3, NOT before image 1');
+});
+
+test('pacingMs: 0 (or omitted) never calls sleep at all — default behavior is byte-for-byte unchanged', async () => {
+  const f = fakes({
+    img1: { receipts: [{ fields: { merchant: 'A' }, rawParsed: {} }] },
+    img2: { receipts: [{ fields: { merchant: 'B' }, rawParsed: {} }] },
+  });
+  let sleepCalls = 0;
+  const sleep = async () => { sleepCalls += 1; };
+  // pacingMs omitted entirely — must default to 0 inside runBatch itself, not rely on a caller.
+  const s = await runBatch(['img1', 'img2'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense, meta: {}, sleep });
+  assert.equal(s.saved, 2);
+  assert.equal(sleepCalls, 0, 'no caller-supplied pacingMs must mean zero delay, matching every pre-2026-07-20 test/caller');
+});
+
+test('pacingMs: a single-image batch never waits (nothing to pace between)', async () => {
+  const f = fakes({ img1: { receipts: [{ fields: { merchant: 'A' }, rawParsed: {} }] } });
+  let sleepCalls = 0;
+  const s = await runBatch(['img1'], FS, { extractReceipts: f.extractReceipts, assembleExpense: f.assembleExpense, meta: {}, pacingMs: 5000, sleep: async () => { sleepCalls += 1; } });
+  assert.equal(s.saved, 1);
+  assert.equal(sleepCalls, 0);
+});
