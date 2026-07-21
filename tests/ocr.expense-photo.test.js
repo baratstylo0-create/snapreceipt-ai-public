@@ -82,7 +82,7 @@ test('expenseFromPhoto preserves the rate-limit fallback when the retry is also 
   assert.equal(attempts, 2);
   assert.deepEqual(delays, [15000]);
   assert.equal(deps.sent.length, 1);
-  assert.match(deps.sent[0].text, /Too many receipts sent at once/);
+  assert.match(deps.sent[0].text, /receipt reader is briefly busy/);
 });
 
 test('expenseFromPhoto does not retry non-rate-limit OCR errors', async () => {
