@@ -365,6 +365,37 @@
     return ISO_DATE_RE.test(s) ? s.slice(0, 10) : null;
   }
 
+  // 2026-07-21: the date-RANGE filter (This Month / custom range) compares against
+  // created_at (when the receipt was captured), NOT expense_date (the date OCR read off
+  // the paper) — mirrors lib/bot.js's mytDayBoundsUTC fix (2026-07-04) for the identical
+  // bug: a receipt scanned today but misread/backdated to a different month used to
+  // silently vanish from "This Month" even though the bot's own Today Bills/Weekly
+  // Record (already created_at-based) showed it correctly. Shifts +8h to read the
+  // Malaysia-time calendar date, same math the bot uses. Unparseable timestamps return
+  // null (excluded from range filters, never wrongly included) — same safety rule as
+  // isoDatePrefix. expense_date itself is untouched everywhere else (display, sort,
+  // editing) — this only changes what the date RANGE filter looks at.
+  function mytDateOf(v) {
+    var s = str(v).trim();
+    if (!s) return null;
+    var t = Date.parse(s);
+    if (!Number.isFinite(t)) return null;
+    return new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  }
+
+  // mytNow() -> a Date whose LOCAL getters (getFullYear/getMonth/getDate — what
+  // thisMonthRange reads) return the current Malaysia-time calendar date, regardless of
+  // the browser's own timezone. Computes the MYT y/m/d via the same +8h/UTC math as
+  // mytDateOf/lib/bot.js, then rebuilds a plain local Date from those exact components —
+  // constructing via (year, month, day) means the local getters simply hand the same
+  // numbers back, sidestepping the browser's real offset entirely. Used as
+  // thisMonthRange's default clock so "This Month" agrees with the bot's MYT day
+  // boundary instead of wherever the browser happens to be.
+  function mytNow() {
+    var shifted = new Date(Date.now() + 8 * 3600 * 1000);
+    return new Date(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate());
+  }
+
   // ---- Date filter presets (QA 2026-07-14, Untitled document (1).md) -------------
   // Three preset modes for the Activity date filter. All PURE + node-tested; they only
   // compute ISO from/to strings that the EXISTING filterSortPage range filter already
@@ -382,9 +413,12 @@
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
   // thisMonthRange(now) -> { from: 'YYYY-MM-01', to: 'YYYY-MM-DD' (today) }. Uses local
-  // date parts (matches the browser's own calendar, what the user sees as "this month").
+  // date parts of whatever Date it's given (explicit callers, incl. every existing test,
+  // keep exact prior behavior). 2026-07-21: the DEFAULT clock (no `now` passed — the real
+  // live path) is now mytNow() instead of the browser's own `new Date()`, so "This Month"
+  // starts from the same Malaysia-time "today" the bot itself uses.
   function thisMonthRange(now) {
-    var d = now instanceof Date && Number.isFinite(now.getTime()) ? now : new Date();
+    var d = now instanceof Date && Number.isFinite(now.getTime()) ? now : mytNow();
     var y = d.getFullYear();
     var m = d.getMonth() + 1;
     return { from: y + '-' + pad2(m) + '-01', to: y + '-' + pad2(m) + '-' + pad2(d.getDate()) };
@@ -438,15 +472,17 @@
       list = list.filter(function (r) { return sameActivityBranch(r, fb, opts.sessionBranchId); });
     }
 
-    // filter: date range (inclusive). expense_date is TEXT; ISO (YYYY-MM-DD) strings
-    // sort/compare correctly lexically, so plain string comparison is fine. Rows whose
-    // expense_date isn't a recognisable ISO-ish date are excluded once a range is active
-    // (never included by accident, never thrown on).
+    // filter: date range (inclusive). 2026-07-21: compares against created_at (Malaysia-
+    // time calendar date, via mytDateOf — see its comment), NOT expense_date. ISO
+    // (YYYY-MM-DD) strings sort/compare correctly lexically, so plain string comparison
+    // is fine. Rows whose created_at isn't a parseable timestamp are excluded once a
+    // range is active (never included by accident, never thrown on) — expense_date is
+    // untouched everywhere else (display, sort, editing).
     var dateFrom = isoDatePrefix(opts.dateFrom);
     var dateTo = isoDatePrefix(opts.dateTo);
     if (dateFrom || dateTo) {
       list = list.filter(function (r) {
-        var d = isoDatePrefix(r && r.expense_date);
+        var d = mytDateOf(r && r.created_at);
         if (d === null) return false;
         if (dateFrom && d < dateFrom) return false;
         if (dateTo && d > dateTo) return false;
@@ -2033,6 +2069,7 @@
     filterSortPage: filterSortPage,
     normaliseDatePreset: normaliseDatePreset,
     thisMonthRange: thisMonthRange,
+    mytDateOf: mytDateOf,
     monthRange: monthRange,
     displayDate: displayDate,
     badgesFor: badgesFor,
