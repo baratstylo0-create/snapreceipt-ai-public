@@ -3,6 +3,37 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
+## ⚡ SESSION END — Claude (for Barat). READ THIS FIRST. (2026-07-21, LATEST-6 — live-QA'd a real production bug, shipped a fix, then had to revert my own overcorrection; full story documented)
+
+**main = `107d8d7`** (Merge #294), **2148 tests green** (`npm test`, Windows — no `--test-concurrency=1` issue hit this session). No open PRs of mine; **one pre-existing open PR, #286** (moves OCR to OpenRouter — not mine, not reviewed/actioned, still needs the Owner to provision an `OPENROUTER_KEY`). `npm install` first.
+
+### Read this first: `docs/QWEN_MODEL_ERA_CHANGES.md` (new this session)
+Everything below is a compressed version of that doc. It's the full, honest timeline of every change this project made because Groq discontinued the good vision model (`llama-4-scout`) on 2026-07-17 and force-migrated everyone to `qwen/qwen3.6-27b`, which is meaningfully less reliable. Read it before touching `lib/ocr.js` again.
+
+### What happened this session, in order
+1. **Live Telegram QA** (via the Owner's real Chrome/Telegram Web session) found a real bug: a receipt's YEAR got misread (2026→2024). That value parses fine, so nothing caught it, and the wrong year (a) hid the receipt from the dashboard's date-filtered view, (b) corrupted its `RC-<year>-####` ref number, (c) caused false "duplicate" rejections between unrelated misread receipts.
+2. **First fix (PR #289) was too aggressive.** Made the bot REFUSE to save any receipt with an implausible/unreadable date or a photo that self-reported `image_unclear`. **In production this rejected real, readable receipts** — a live receipt the Owner sent during this exact QA session got bounced with "not clear, please resend." Two follow-ups (#290, #291) improved that rejection's wording, but wording wasn't the actual problem.
+3. **The Owner (rightly) called this out hard** and gave explicit standing rules, now the permanent contract:
+   - **Never invent or substitute receipt data.** Save exactly what's on the bill — no silent "corrected" dates.
+   - **Only refuse when genuinely unreadable** (no merchant AND no amount at all). A readable receipt is ALWAYS saved.
+   - **"Blurry/unclear" must mean the amount digits are genuinely illegible** after a careful read — not a lazy blanket flag on any minor tilt/glare.
+4. **PR #293 implements that correction** (the current, standing behavior): `assembleExpense`'s reject gate is `isEmptyReceipt` only; an implausible date or unclear-photo signal is now a **soft, non-blocking review flag**, never a rejection; `CLARITY_KEY` (the prompt) narrowed to only fire on genuinely illegible amounts; the extraction prompt now explicitly tells the model to look carefully and transcribe exactly what's printed, never guess.
+5. Two smaller wording fixes shipped in between: **#292** — the single-photo rate-limit message wrongly said "too many receipts sent at once" for a LONE photo (misleading — it's shared-key cumulative load, not something the sender did); reworded to "the receipt reader is briefly busy."
+6. **Live-verified #293 on real production traffic** — mid-session, a real user (the Owner) sent live receipts through the deployed bot; confirmed the new wording and behavior firing correctly on actual photos, not just synthetic tests.
+7. Wrote up the whole thread as `docs/QWEN_MODEL_ERA_CHANGES.md` (PR #294) so the next person doesn't have to reconstruct this from 6 PR diffs.
+
+### What's still genuinely open (not fixable by more code)
+- **PR #286 (open, not mine)** — moves OCR from Groq/qwen to OpenRouter, restoring the original accurate model (`llama-4-scout`, which Groq no longer offers at any price). This is the only real fix for qwen's occasional misreads. **Blocked on the Owner provisioning an `OPENROUTER_KEY`** (new paid account) — needs his decision, not something Claude can create or fund.
+- **The shared single-Groq-key rate limit.** One key's per-minute budget is shared across every receipt this bot reads, for every user, and any load testing. Surfaces as "please wait about a minute" under load. No wording fix removes this — needs either more Groq keys (a round-robin design across the existing `lib/groqkeys.js` pool has been discussed, not yet built) or the OpenRouter move above.
+- **Model reading accuracy itself.** Even after #293's correction, if qwen misreads a digit, the bot now faithfully saves that (real, imperfect) read rather than inventing a fix — correct per the Owner's rules, but it means an occasional wrong value can still reach the dashboard exactly as misread. Only a better model (#286) or better prompting reduces this further.
+
+### The lesson, if you're the one touching this code next
+A guardrail against a rare bad case must not have a bigger blast radius than the bug it protects against. Rejecting a real receipt to catch an occasional misread is a worse trade than the misread itself. If you're tempted to add a new reject condition to `assembleExpense`, don't — make it a soft review flag instead, and prove on real (not synthetic) receipts that it doesn't over-fire before shipping.
+
+### Merge authority
+No change from prior sessions — worker Claudes don't self-merge without the Owner directing it; this session's 6 PRs (#289-#294) were all Owner-directed live during active QA, not self-authorized.
+
+---
 ## ⚡ SESSION END — Claude-J2 (handoff to J1). READ THIS FIRST. (2026-07-10/11, LATEST-5 — Premala bot LIVE, QA round closed out, auto-deploy shipped, VPS security items deferred by Owner choice)
 
 **main = `3ede83a`** (Merge #180), **1770 tests green** (`node --test --test-concurrency=1` — the `--test-concurrency=1` matters, see GOTCHA below). No open PRs, 8 open issues (routine backlog, nothing blocking). `npm install` first.
