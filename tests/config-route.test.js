@@ -20,7 +20,16 @@ function get(app, path) {
   });
 }
 
-test('GET /api/config returns the real CATEGORIES list from lib/categorize.js', async () => {
+// 2026-07-22 QA finding: this test used to pass by ACCIDENT, not by design — it never
+// stubbed the field_templates Supabase call (unlike every other categories test further
+// below), so it only got the generic default because the dev SB_KEY was misconfigured and
+// the live lookup silently failed. Once the key was fixed, this test started hitting the
+// REAL configured account (a genuine custom chart of accounts) and failed. Not a code
+// regression — the route was always correctly preferring the account's own categories
+// (see the withFieldSpecCategories tests below); the TEST was the non-hermetic one. Now
+// explicitly forced onto the empty/default path with the same stub every other test here
+// uses, so this suite no longer depends on live network reachability to pass.
+test('GET /api/config returns the real CATEGORIES list from lib/categorize.js', () => withFieldSpecCategories([], async () => {
   const app = express();
   mountExpenses(app);
   const { status, json } = await get(app, '/api/config');
@@ -31,7 +40,7 @@ test('GET /api/config returns the real CATEGORIES list from lib/categorize.js', 
   assert.ok(json.categories.includes('Meals & Entertainment'));
   assert.ok(json.categories.includes('Others'));
   assert.ok(json.categories.length > 5);
-});
+}));
 
 test('GET /api/config still returns auth_required + default_currency unchanged', async () => {
   const app = express();
