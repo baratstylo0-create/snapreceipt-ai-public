@@ -295,6 +295,36 @@ test('retry-on-empty: still empty after the retry -> returns empty (never throws
   } finally { s.restore(); }
 });
 
+// 2026-07-22 (Owner-reported live incident): a parse failure used to be TOTALLY silent —
+// a live "NOT saved, I couldn't read this clearly" had nothing to diagnose from, not even
+// server logs. A capped snippet of the model's raw text must now be logged so a repeat is
+// root-causeable instead of guessed at (ADR-002-safe: lib/log.js caps + drops PII already).
+test('a parse failure after all retries is logged with a snippet of the raw model text', async () => {
+  const s = stubGroqSeq(['<think>a', '<think>b']); // both attempts empty, same as the test above
+  const realWarn = console.warn;
+  const warned = [];
+  console.warn = (line) => warned.push(line);
+  try {
+    await extractReceipt('img', SPEC);
+    assert.strictEqual(warned.length, 1, 'exactly one warning for the fully-failed extraction');
+    const rec = JSON.parse(warned[0]);
+    assert.strictEqual(rec.level, 'warn');
+    assert.strictEqual(rec.where, 'ocr.extractReceipt');
+    assert.ok(rec.rawSnippet && rec.rawSnippet.includes('<think>b'), 'carries the LAST attempt\'s raw text, not the first');
+  } finally { console.warn = realWarn; s.restore(); }
+});
+
+test('a successful extraction (no retry needed) never logs a parse-failure warning', async () => {
+  const s = stubGroqSeq(['{"merchant":"KFC","amount":12}']);
+  const realWarn = console.warn;
+  const warned = [];
+  console.warn = (line) => warned.push(line);
+  try {
+    await extractReceipt('img', SPEC);
+    assert.strictEqual(warned.length, 0);
+  } finally { console.warn = realWarn; s.restore(); }
+});
+
 test('retry-on-empty (multi): an empty array is retried; the good second result wins', async () => {
   const s = stubGroqSeq(['<think>never closes', '[{"merchant":"A","amount":1},{"merchant":"B","amount":2}]']);
   try {
