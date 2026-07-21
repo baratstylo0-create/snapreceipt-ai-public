@@ -14,7 +14,7 @@ const Activity = require('../../public/js/components/activity');
 const Escape = require('../../public/js/escape');
 const {
   filterSortPage, badgesFor, categoryColor, patchBody, receiptPath, normaliseViewMode,
-  normaliseDatePreset, thisMonthRange, monthRange, displayDate, mytDateOf,
+  normaliseDatePreset, thisMonthRange, monthRange, displayDate,
   resolveCategories, labelFor, awaitingCategoryRows, receiptByIdPath, hasReceiptImage,
   bulkApprovePath, bulkDeletePath, allSelected, toggleAllSelected, summarizeBulkResult,
   deletedRowsPath, restorePath, isRejected, recategorizeBody, permanentDeletePath, reviewMetaParts,
@@ -31,7 +31,6 @@ function row(over) {
     account_id: 'default',
     merchant: 'Acme',
     expense_date: '2026-06-01',
-    created_at: '2026-06-01T00:00:00.000Z',
     amount: 10,
     currency: 'USD',
     category: 'Food',
@@ -642,11 +641,11 @@ test('receiptPath: null/undefined fileId does not throw, yields a safe empty-ish
 
 // --- filterSortPage: dateFrom / dateTo (Task L) ----------------------------
 
-test('filterSortPage: dateFrom/dateTo applies an inclusive range on created_at (Malaysia time), not expense_date', () => {
+test('filterSortPage: dateFrom/dateTo applies an inclusive range on expense_date', () => {
   const rows = [
-    row({ id: 'a', created_at: '2026-06-01T00:00:00.000Z' }),
-    row({ id: 'b', created_at: '2026-06-15T00:00:00.000Z' }),
-    row({ id: 'c', created_at: '2026-06-30T00:00:00.000Z' }),
+    row({ id: 'a', expense_date: '2026-06-01' }),
+    row({ id: 'b', expense_date: '2026-06-15' }),
+    row({ id: 'c', expense_date: '2026-06-30' }),
   ];
   assert.deepStrictEqual(
     filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-15' }).rows.map((r) => r.id),
@@ -665,9 +664,9 @@ test('filterSortPage: dateFrom/dateTo applies an inclusive range on created_at (
 
 test('filterSortPage: dateFrom only / dateTo only work as open-ended ranges', () => {
   const rows = [
-    row({ id: 'a', created_at: '2026-06-01T00:00:00.000Z' }),
-    row({ id: 'b', created_at: '2026-06-15T00:00:00.000Z' }),
-    row({ id: 'c', created_at: '2026-06-30T00:00:00.000Z' }),
+    row({ id: 'a', expense_date: '2026-06-01' }),
+    row({ id: 'b', expense_date: '2026-06-15' }),
+    row({ id: 'c', expense_date: '2026-06-30' }),
   ];
   assert.deepStrictEqual(
     filterSortPage(rows, { dateFrom: '2026-06-15' }).rows.map((r) => r.id),
@@ -685,13 +684,13 @@ test('filterSortPage: no dateFrom/dateTo set is a no-op (existing behavior uncha
   assert.strictEqual(filterSortPage(rows, { dateFrom: '', dateTo: '' }).rows.length, 2);
 });
 
-test('filterSortPage: malformed/non-ISO created_at is excluded from a range filter, never throws', () => {
+test('filterSortPage: malformed/non-ISO expense_date is excluded from a range filter, never throws', () => {
   const rows = [
-    row({ id: 'a', created_at: '2026-06-10T00:00:00.000Z' }),
-    row({ id: 'b', created_at: 'not-a-date' }),
-    row({ id: 'c', created_at: null }),
-    row({ id: 'd', created_at: undefined }),
-    row({ id: 'e', created_at: '' }),
+    row({ id: 'a', expense_date: '2026-06-10' }),
+    row({ id: 'b', expense_date: 'not-a-date' }),
+    row({ id: 'c', expense_date: null }),
+    row({ id: 'd', expense_date: undefined }),
+    row({ id: 'e', expense_date: '' }),
   ];
   assert.doesNotThrow(() => filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30' }));
   const out = filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30' }).rows.map((r) => r.id);
@@ -708,40 +707,12 @@ test('filterSortPage: dateFrom/dateTo on an empty result set is handled graceful
 
 test('filterSortPage: dateFrom/dateTo composes with search/status/category filters', () => {
   const rows = [
-    row({ id: 'a', created_at: '2026-06-01T00:00:00.000Z', category: 'Food' }),
-    row({ id: 'b', created_at: '2026-06-01T00:00:00.000Z', category: 'Petrol' }),
-    row({ id: 'c', created_at: '2026-07-01T00:00:00.000Z', category: 'Food' }),
+    row({ id: 'a', expense_date: '2026-06-01', category: 'Food' }),
+    row({ id: 'b', expense_date: '2026-06-01', category: 'Petrol' }),
+    row({ id: 'c', expense_date: '2026-07-01', category: 'Food' }),
   ];
   const out = filterSortPage(rows, { dateFrom: '2026-06-01', dateTo: '2026-06-30', filterCategory: 'Food' });
   assert.deepStrictEqual(out.rows.map((r) => r.id), ['a']);
-});
-
-// 2026-07-21 (live bug): a receipt SCANNED today, whose OCR-read expense_date is
-// wildly wrong/backdated to a different month, used to silently vanish from "This
-// Month" — the dashboard filtered by expense_date while the bot's own Today
-// Bills/Weekly Record (already fixed 2026-07-04 for the identical reason) filtered by
-// created_at. This locks in the fix: expense_date must now be completely IGNORED by
-// the date-range filter, only created_at (when it was actually captured) matters.
-test('filterSortPage: a receipt captured today but with a garbage/backdated expense_date still matches "This Month" (the live bug)', () => {
-  const rows = [
-    row({ id: 'good', created_at: '2026-07-21T02:00:00.000Z', expense_date: '2024-08-21' }),
-  ];
-  const range = thisMonthRange(new Date(2026, 6, 21)); // 2026-07-21 (local)
-  const out = filterSortPage(rows, { dateFrom: range.from, dateTo: range.to });
-  assert.deepStrictEqual(out.rows.map((r) => r.id), ['good'],
-    'created_at (today) must win — expense_date being in a totally different year must not hide this row');
-});
-
-test('mytDateOf: shifts a UTC timestamp to its Malaysia-time (UTC+8) calendar date', () => {
-  assert.strictEqual(mytDateOf('2026-07-20T20:00:00.000Z'), '2026-07-21', '20:00 UTC = 04:00 MYT next day');
-  assert.strictEqual(mytDateOf('2026-07-21T02:00:00.000Z'), '2026-07-21', '02:00 UTC = 10:00 MYT same day');
-});
-
-test('mytDateOf: unparseable/empty values return null (excluded from range filters, never thrown)', () => {
-  assert.strictEqual(mytDateOf('not-a-date'), null);
-  assert.strictEqual(mytDateOf(null), null);
-  assert.strictEqual(mytDateOf(undefined), null);
-  assert.strictEqual(mytDateOf(''), null);
 });
 
 // --- Date filter presets (QA 2026-07-14, Untitled document (1).md): This Month /
@@ -819,11 +790,11 @@ test('displayDate: null/undefined/empty never throws, returns empty string', () 
 
 test('monthRange -> filterSortPage: selects exactly one calendar month, nothing outside it', () => {
   const rows = [
-    row({ id: 'prev', created_at: '2026-06-30T00:00:00.000Z' }),
-    row({ id: 'a', created_at: '2026-07-01T00:00:00.000Z' }),
-    row({ id: 'b', created_at: '2026-07-15T00:00:00.000Z' }),
-    row({ id: 'c', created_at: '2026-07-31T00:00:00.000Z' }),
-    row({ id: 'next', created_at: '2026-08-01T00:00:00.000Z' }),
+    row({ id: 'prev', expense_date: '2026-06-30' }),
+    row({ id: 'a', expense_date: '2026-07-01' }),
+    row({ id: 'b', expense_date: '2026-07-15' }),
+    row({ id: 'c', expense_date: '2026-07-31' }),
+    row({ id: 'next', expense_date: '2026-08-01' }),
   ];
   const r = monthRange('2026-07');
   const out = filterSortPage(rows, { dateFrom: r.from, dateTo: r.to });
