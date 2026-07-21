@@ -239,7 +239,7 @@ test('MAX_GROUP_IMAGES clamp: over-cap batch gets a plain "max N per batch" reje
   await timers.runPending();
   const rejectMsg = sent[sent.length - 1].text;
   assert.match(rejectMsg, /Max 2 receipts per batch/i);
-  assert.match(rejectMsg, /1 or 2 receipts/i);
+  assert.match(rejectMsg, /1 to 2 receipts/i);
   assert.ok(!/Batch processed/.test(rejectMsg), 'must NOT be the normal batch-processed summary');
 });
 

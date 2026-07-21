@@ -93,11 +93,12 @@ test('an attacker-forged media group with 1000 photos is still clamped to MAX_GR
     await handleUpdate(photoUpdate('bigattack', 'f' + i), deps);
   }
   await timers.runPending();
-  // 2026-07-20 (owner request, revised): MAX_GROUP_IMAGES default lowered 10->2, AND
-  // over-cap now rejects the WHOLE batch unread (not just clamps to the first 2) — so 1000
+  // 2026-07-21 (post-qwen model switch, PR #296): MAX_GROUP_IMAGES default reverted 2->10
+  // (the 2 was a qwen-only rate-limit workaround, no longer needed on OpenRouter/Scout).
+  // Over-cap still rejects the WHOLE batch unread (not just clamps to the first N) — so 1000
   // photos must never reach runBatch at all, and must get the plain reject message instead.
   assert.strictEqual(runBatchCalls.length, 0, 'an over-cap batch must never reach runBatch — no unbounded (or even clamped) processing');
-  assert.match(sent[sent.length - 1].text, /Max 2 receipts per batch/i);
+  assert.match(sent[sent.length - 1].text, /Max 10 receipts per batch/i);
 });
 
 // ---- (3) file_id that is not a string (number, object) must not crash the buffer/flush path ----
