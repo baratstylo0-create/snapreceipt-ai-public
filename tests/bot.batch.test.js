@@ -470,6 +470,23 @@ test('formatBatchSummary: an "unclear" reason in the mix falls back to generic w
   assert.match(text, /didn't look like a clear receipt, so they were NOT saved — please re-upload them/i);
 });
 
+// 2026-07-21: a 'date_unreadable' skip (the photo was CLEAR, only the date was
+// implausible — e.g. a misread year) must get its own accurate wording, not the generic
+// "didn't look like a clear receipt" line, which would misdescribe a perfectly readable photo.
+test('formatBatchSummary: given a date_unreadable reason, breaks it out with its own accurate wording', () => {
+  const summary = { images: 2, receipts: 2, saved: 1, skipped: 1, failed: [], flagged: [], truncated_images: [] };
+  const text = formatBatchSummary(summary, [], ['date_unreadable']);
+  assert.match(text, /1 photo whose date couldn't be read clearly/);
+  assert.match(text, /NOT saved, please re-upload/i);
+  assert.ok(!text.includes("didn't look like a clear receipt"), 'must not use the generic clear-receipt wording for a date-only issue');
+});
+
+test('formatBatchSummary: mixes blurry + date_unreadable reasons with natural "and" joining', () => {
+  const summary = { images: 3, receipts: 3, saved: 1, skipped: 2, failed: [], flagged: [], truncated_images: [] };
+  const text = formatBatchSummary(summary, [], ['blurry', 'date_unreadable']);
+  assert.match(text, /1 photo too blurry to read and 1 photo whose date couldn't be read clearly/);
+});
+
 test('a media group with blurry AND not-a-receipt skips: the summary breaks them down by reason, real receipt untouched', async (t) => {
   const timers = fakeTimers();
   // 2026-07-20: raises the cap (default now 2) so this test can still exercise 3 photos.
