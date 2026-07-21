@@ -539,3 +539,30 @@ test('#152: a saved row stamps receipt_file_unique_id when supplied, absent when
   await assembleExpense(goodInput(), deps({ insertExpense: async (row) => { inserted2.push(row); } }));
   assert.ok(!('receipt_file_unique_id' in inserted2[0]), 'must not fabricate the column when not supplied');
 });
+
+// Smart date resolver wiring (Owner directive 2026-07-22): assembleExpense must ALWAYS
+// save the receipt with its resolved date (never invent/reject), but a genuinely
+// ambiguous raw date (both parts <=12, e.g. "3/4/26" — could be 3 Apr or 4 Mar) should
+// get a SOFT review flag, same pattern as image_unclear — never block the save.
+test('smart date resolver: an UNAMBIGUOUS odd-format date (7/21/26, the live-incident receipt) saves correctly, no flag', async () => {
+  const input = goodInput({ fields: { expense_date: '2026-07-21' }, rawParsed: { merchant: 'Acme', amount: '100', expense_date: '7/21/26' } });
+  const { expense, flagged } = await assembleExpense(input, deps());
+  assert.strictEqual(expense.expense_date, '2026-07-21', '21 > 12 forces day=21, month=7 — never 2021-07-26');
+  assert.strictEqual(flagged, false, 'unambiguous date must not trigger a review flag');
+});
+
+test('smart date resolver: a genuinely ambiguous raw date (3/4/26) saves with the D/M/Y default and a soft review flag', async () => {
+  const inserted = [];
+  const input = goodInput({ fields: { expense_date: '2026-04-03' }, rawParsed: { merchant: 'Acme', amount: '100', expense_date: '3/4/26' } });
+  const { expense, flagged, skipped } = await assembleExpense(input, deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.strictEqual(skipped, false, 'an ambiguous date must never block the save — flag, never reject');
+  assert.strictEqual(inserted.length, 1);
+  assert.strictEqual(expense.expense_date, '2026-04-03', 'D/M/Y default: 3 April, not 4 March');
+  assert.strictEqual(flagged, true);
+  assert.ok(expense.anomaly && expense.anomaly.reasons.some(r => r.type === 'date_ambiguous'), 'carries a date_ambiguous review reason');
+});
+
+test('smart date resolver: an already-ISO date is never flagged as ambiguous', async () => {
+  const { flagged } = await assembleExpense(goodInput(), deps()); // goodInput's rawParsed.expense_date is '2026-01-02'
+  assert.strictEqual(flagged, false);
+});
