@@ -1,5 +1,15 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-21 · Claude (for Barat, live QA + Owner-directed) · fix/date-plausibility-resend → fix/batch-summary-date-reason → fix/unclear-photo-wording → fix/rate-limit-wording → fix/save-readable-receipts-no-invent — Date-misread bug, an overcorrection, and the correction (PRs #289-#293)
+
+- **Files:** `lib/ocr.js`, `lib/bot.js`, `lib/money.js` (new `isDatePlausible`, unused after #293), `tests/ingest.test.js`, `tests/bot.batch.test.js`, `tests/money.test.js`, `tests/ocr.expense-photo.test.js`. New doc: **`docs/QWEN_MODEL_ERA_CHANGES.md`** — full narrative of this thread plus every qwen-model-related change since Groq's 2026-07-17 model swap; read that first for context.
+- **What happened, short version:** live QA found a real bug — a misread receipt YEAR (2026→2024) silently saved, hiding the receipt from the dashboard and corrupting its ref number (#289). The fix as first shipped was too aggressive: it made the bot REFUSE to save any receipt with an implausible date or an `image_unclear` self-report, which in production **rejected real, readable receipts** (a live receipt the Owner sent got bounced). #290/#291 improved that rejection's wording, but the Owner correctly called out that wording wasn't the problem — rejecting good receipts was. **#293 reverts the reject behavior**: the bot now NEVER rejects a receipt that has a merchant and an amount, NEVER invents/substitutes a value (an odd date saves exactly as read), and `image_unclear` is a soft, non-blocking review flag instead of a rejection. `CLARITY_KEY` narrowed to only fire on genuinely illegible amount digits (not any minor tilt/glare). #292 separately fixed the single-photo rate-limit message wrongly blaming the user ("too many receipts sent at once") for a shared-key capacity issue that can trip on a lone photo.
+- **Tests:** Full serial suite **2148/2148** passing at every step (#289 through #293).
+- **What's next:** Live-verifying #293 against real production traffic (in progress). Two things remain genuinely open, not fixable by more code: the shared single Groq key's per-minute rate limit (needs more keys or the OpenRouter move), and PR #286 (open, unmerged — moves OCR to OpenRouter to restore the pre-qwen accurate model), blocked on the Owner provisioning an `OPENROUTER_KEY`.
+- **Lesson recorded** (also in `docs/QWEN_MODEL_ERA_CHANGES.md` Part 5): a guardrail against a rare bad case must not have a bigger blast radius than the bug it protects against — rejecting real receipts to catch occasional misreads was a worse trade than the original bug.
+
+---
+
 ## 2026-07-20 · Codex (explicit Barat-lane assistance) · codex/ocr-single-rate-retry — Retry one rate-limited single-photo OCR call
 
 - **Files:** `lib/ocr.js`, `tests/ocr.expense-photo.test.js`.
