@@ -3,6 +3,29 @@
 > Read this, then the startup chain in `/CLAUDE.md`. Everything below is current as of 2026-07-01.
 
 ---
+## 🗂️ ORIENTATION — Dashboard file map + clerk/admin model (for a NEW session starting dashboard edits, 2026-07-22)
+> No code changed to produce this entry — it's a map for whoever opens a fresh session to edit the clerk/admin dashboard next. Nothing here was touched this session.
+
+### Where the dashboard lives
+- **Frontend, one file per screen:** `public/js/components/*.js` — `overview.js`, `activity.js`, `reports.js`, `manage.js` (Manage Data / editable grid, wraps `grid.js`), `upload.js`, `team.js` (business Team screen), `payments.js`, `settings.js`, `templates.js`, `login.js`, `agent.js`/`falc.js` (AI chat widget), `nav.js` (top nav + section list), `ratemeter.js` (rate-limit meter). Each is a self-contained UMD module: pure logic (unit-tested in Node, no DOM) + a `mount()` render layer (real DOM, `createElement`/`textContent` — **never `innerHTML` with a dynamic value**, that's a hard SOP rule here). `public/js/app.js` wires them together; `public/js/api.js` is the fetch wrapper.
+- **Backend, one file per resource:** `routes/*.js` — `expenses.js` (the core CRUD + scoping), `branches.js` + `companies.js` (admin-only org management), `settings.js` (currently ONLY the category-colour map, `account_settings` table — not a general settings surface), `templates.js` (FieldSpec/CSV import, admin-only writes), `reports.js`, `review.js` (needs-review queue), `pettyCash.js`, `submissions.js`, `statement.js`/`excel.js`/`manageExport.js` (exports), `auth.js` (login/session).
+- **Tests mirror both 1:1:** `tests/frontend/<name>.test.js` for a component, `tests/<name>.test.js` (or `.route.test.js`) for a route.
+
+### The clerk/admin model — one bouncer, enforced server-side everywhere
+- **`lib/auth.js`'s `scopeForUser(session)`** is the single frozen source of truth for "what can this logged-in user see/do." It returns `{ role: 'admin' | 'clerk' | 'staff', branch_id, company_id, ... }`. Every route checks `req.scope.role` (set once by `checkDash`, never trust anything from the request body).
+- **The rule, everywhere:** `role === 'admin'` → sees/edits everything (all branches, all companies, templates, petty cash). `role === 'clerk'` → scoped to their OWN `branch_id` only — same endpoints, filtered rows, and writes outside their branch are rejected server-side (`403`), not just hidden in the UI. `'staff'` (routes/auth.js) can't even log into the dashboard — staff are name-only records the bot assigns receipts to, no login of their own (see `team.js`'s header comment).
+- **The convention to copy, not invent:** the UI hides admin-only controls for a clerk (keeps the screen honest/uncluttered), but **the server enforces it independently** — every route re-checks `req.scope.role` itself. Never rely on the frontend hiding a button as the actual security boundary. `team.js`'s `isAdmin(session)` / `routes/branches.js`'s `isAdmin(req)` / `routes/companies.js`'s same-named helper are the pattern to reuse, not reinvent per-file.
+- **Business-only nav:** `nav.js`'s `sectionsFor({business, role})` — personal accounts get the classic 6 tabs untouched; business accounts add Team (+ Payments if enabled) for both roles, since the views themselves render role-aware content.
+
+### If the ask is specifically "Settings" — know what's there today
+`settings.js`/`routes/settings.js` today is **narrow**: session (logout), theme, default landing page, read-only account currency, local-data clear, agent auto-mode toggle, and ONE real server-backed setting — custom category colours (`account_settings` table, admin+clerk both can set their own view's colours — check current scoping before assuming). Several rows in the concept mockup (capture/notifications/retention) are **intentionally unwired placeholders**, marked "concept" in the code itself — don't treat those as bugs to fix without asking what's actually wanted first.
+
+### Before editing
+1. `npm install`, then `.env` gotcha: move the repo-root `.env` aside (`mv .env .env.local.bak`) before `npm test`, restore after — live creds in it will falsely fail ~90 tests otherwise.
+2. Read `docs/specs/2026-07-06-business-account-multibranch-design.md` if touching Team/branches — it's the signed-off design doc `team.js` itself points back to.
+3. Same ship pipeline as everything else in this project this session: branch → PR → CI → merge → auto-deploys to the Premala VPS → verify `/health`+`/ready`.
+
+---
 ## ⚡ SESSION END — Claude (for Barat). READ THIS FIRST. (2026-07-21, LATEST-6 — live-QA'd a real production bug, shipped a fix, then had to revert my own overcorrection; full story documented)
 
 **main = `107d8d7`** (Merge #294), **2148 tests green** (`npm test`, Windows — no `--test-concurrency=1` issue hit this session). No open PRs of mine; **one pre-existing open PR, #286** (moves OCR to OpenRouter — not mine, not reviewed/actioned, still needs the Owner to provision an `OPENROUTER_KEY`). `npm install` first.
