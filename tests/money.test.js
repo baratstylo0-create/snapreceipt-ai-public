@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { curSym, fmtMoney, todayISO, normaliseDate, parseDateLoose } = require('../lib/money');
+const { curSym, fmtMoney, todayISO, normaliseDate, parseDateLoose, isDatePlausible } = require('../lib/money');
 
 test('curSym maps known currencies and falls back to CODE+space', () => {
   assert.strictEqual(curSym('USD'), '$');
@@ -45,4 +45,34 @@ test('parseDateLoose: never falls back — null means genuinely unparseable (iss
   // NOTE: unlike normaliseDate, parseDateLoose does NOT cap a future date — that's
   // normaliseDate's job (a future date still IS a parseable date, just capped later).
   assert.strictEqual(parseDateLoose('2999-01-01'), '2999-01-01');
+});
+
+// isDatePlausible (2026-07-21 live incident): a receipt's year was misread (2026 -> 2024) —
+// a value that PARSES fine, so it's not what parseDateLoose/normaliseDate catch. This range-
+// checks the parsed date against a fixed injected `now` so results are deterministic.
+const FIXED_NOW = new Date('2026-07-21T10:00:00Z');
+
+test('isDatePlausible: true for a recent, sane date', () => {
+  assert.strictEqual(isDatePlausible('2026-07-20', { now: FIXED_NOW }), true);
+  assert.strictEqual(isDatePlausible('2026-01-05', { now: FIXED_NOW }), true);
+});
+
+test('isDatePlausible: false for a misread year more than maxAgeDays old (issue: 2026 read as 2024)', () => {
+  assert.strictEqual(isDatePlausible('2024-07-03', { now: FIXED_NOW }), false);
+});
+
+test('isDatePlausible: false for a date beyond the future grace window, true just within it', () => {
+  assert.strictEqual(isDatePlausible('2026-08-01', { now: FIXED_NOW }), false);   // ~11 days out
+  assert.strictEqual(isDatePlausible('2026-07-23', { now: FIXED_NOW }), true);    // +2d grace
+});
+
+test('isDatePlausible: false for unparseable input', () => {
+  assert.strictEqual(isDatePlausible('garbage', { now: FIXED_NOW }), false);
+  assert.strictEqual(isDatePlausible(null, { now: FIXED_NOW }), false);
+  assert.strictEqual(isDatePlausible('', { now: FIXED_NOW }), false);
+});
+
+test('isDatePlausible: maxAgeDays override respected', () => {
+  assert.strictEqual(isDatePlausible('2026-01-01', { now: FIXED_NOW, maxAgeDays: 30 }), false);
+  assert.strictEqual(isDatePlausible('2026-01-01', { now: FIXED_NOW, maxAgeDays: 400 }), true);
 });

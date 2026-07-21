@@ -362,17 +362,19 @@ test('#149: a trailing-timestamp date parses correctly and scores high (the exac
   assert.strictEqual(conf.perField.expense_date, 'high', 'the model DID read this correctly — must not be flagged');
 });
 
-test('#149: a genuinely unreadable date scores low/flagged instead of silently defaulting to today', async () => {
-  const { normaliseDate } = require('../lib/money');
+// 2026-07-21: superseded by the date-plausibility gate above — Owner directive was "avoid
+// force extract data, if cannot get clear data just tell user to resend the clear bill
+// photo" instead of silently defaulting to today and flagging for review/ask. A genuinely
+// unreadable date is now caught by the SAME gate as an implausible one (isDatePlausible
+// returns false for unparseable input too) and rejected BEFORE insert, not saved-and-flagged.
+test('#149: a genuinely unreadable date is rejected (resend-photo) instead of silently defaulting to today', async () => {
   const raw = 'totally illegible';
   const input = goodInput({
-    fields: { expense_date: normaliseDate(raw) },
     rawParsed: { merchant: 'Acme', amount: '100', expense_date: raw },
   });
-  const { expense, conf, flagged } = await assembleExpense(input, deps());
-  assert.strictEqual(expense.expense_date, require('../lib/money').todayISO(), 'storage still falls back to today (unchanged behaviour)');
-  assert.strictEqual(conf.perField.expense_date, 'low', 'but confidence must now catch it');
-  assert.strictEqual(flagged, true, 'expense_date is required -> must flag for review/ask');
+  const { skipped, skipReason } = await assembleExpense(input, deps({ insertExpense: async () => { throw new Error('must not insert'); } }));
+  assert.strictEqual(skipped, true, 'an unreadable date must not force-extract/insert');
+  assert.strictEqual(skipReason, 'date_unreadable');
 });
 
 // Issue #162 D10 (live QA): a receipt dated 7/4/2026 was read as 14/7/2026 because the
@@ -399,6 +401,44 @@ test('#162 D10: image_unclear:false (or absent) does not affect a normal, clear 
 test('#162 D10: a garbled/non-boolean image_unclear value fails open (not treated as unclear)', async () => {
   const { skipped } = await assembleExpense(goodInput({ rawParsed: { merchant: 'Acme', amount: '100', expense_date: '2026-01-02', image_unclear: 'maybe' } }), deps());
   assert.strictEqual(skipped, false);
+});
+
+// 2026-07-21 live incident (Owner report): a receipt's YEAR was misread (2026 -> 2024) — the
+// value PARSES fine, so isPresent()/scoreConfidence() scores it 'high' and the D10 gate above
+// (which only catches image_unclear/blank fields) never fires. That silently-wrong date then
+// hid the receipt from the dashboard's date-filtered view and corrupted its RC-<year>-####
+// voucher number. Owner directive: "avoid force extract data, if cannot get clear data just
+// tell user to resend the clear bill photo" — assembleExpense must reject BEFORE inserting,
+// same as blurry/unclear, rather than silently save under the wrong year.
+test('an implausible (likely misread) year rejects the receipt instead of saving it wrong', async () => {
+  const inserted = [];
+  const input = goodInput({ rawParsed: { merchant: '99 Speed Mart', amount: '21.10', expense_date: '2024-07-03' } });
+  const { skipped, skipReason } = await assembleExpense(input, deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.strictEqual(skipped, true, 'an implausible date must not force-extract/insert');
+  assert.strictEqual(skipReason, 'date_unreadable');
+  assert.strictEqual(inserted.length, 0, 'nothing must be saved when the date is implausible');
+});
+
+test('a normal, recent date is unaffected by the plausibility gate (regression lock)', async () => {
+  const { skipped } = await assembleExpense(goodInput(), deps()); // rawParsed.expense_date: '2026-01-02'
+  assert.strictEqual(skipped, false);
+});
+
+test('a date far in the future (beyond grace) is also rejected as implausible', async () => {
+  const input = goodInput({ rawParsed: { merchant: 'Acme', amount: '100', expense_date: '2099-01-01' } });
+  const { skipped, skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipped, true);
+  assert.strictEqual(skipReason, 'date_unreadable');
+});
+
+// The plausibility gate must not fire ahead of the existing D10 image_unclear / blank-field
+// gates — their own dedicated skipReason ('blurry'/'not_receipt'/'unclear') should win so
+// existing behaviour/tests for those cases are unaffected by this addition.
+test('image_unclear still reports skipReason "blurry" even if the date also looks implausible', async () => {
+  const input = goodInput({ rawParsed: { merchant: 'Acme', amount: '100', expense_date: '2024-07-03', image_unclear: true } });
+  const { skipped, skipReason } = await assembleExpense(input, deps());
+  assert.strictEqual(skipped, true);
+  assert.strictEqual(skipReason, 'blurry');
 });
 
 // Issue #162 D13: "uploading a receipt already in the system saves it again." Opted-in via
