@@ -3,17 +3,19 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { extractReceipt, extractReceipts, parseModelJson, parseModelJsonArray, coerce } = require('../lib/ocr');
 
-// Stub global.fetch so extractReceipt -> groqChat -> hreq -> fetch never hits the
-// network. Returns a Groq chat-completion shaped body whose content is `text`.
-// (Same hermetic pattern as tests/currency.test.js.)
+// Stub global.fetch so extractReceipt -> orChat (lib/openrouter) -> hreq -> fetch
+// never hits the network. Returns an OpenRouter chat-completion shaped body whose
+// content is `text`. (Same hermetic pattern as tests/currency.test.js.)
 function stubGroq(content) {
   const realFetch = global.fetch;
   let lastBody = null;
-  global.fetch = async (_url, opt) => {
+  let lastUrl = null;
+  global.fetch = async (url, opt) => {
+    lastUrl = url;
     lastBody = JSON.parse(opt.body);
     return { text: async () => JSON.stringify({ choices: [{ message: { content } }] }) };
   };
-  return { restore: () => { global.fetch = realFetch; }, sent: () => lastBody };
+  return { restore: () => { global.fetch = realFetch; }, sent: () => lastBody, url: () => lastUrl };
 }
 
 const SPEC = {
@@ -85,12 +87,14 @@ test('extractReceipt ignores extra keys the model volunteers (only FieldSpec key
   } finally { s.restore(); }
 });
 
-test('extractReceipt uses a generous max_tokens (qwen <think>) and isolates system from image', async () => {
+test('extractReceipt calls OpenRouter (not Groq) with the pre-qwen 900 token budget and isolates system from image', async () => {
   const s = stubGroq('{"merchant":"X","amount":1,"expense_date":"2026-01-01"}');
   try {
     await extractReceipt('img', SPEC);
+    assert.strictEqual(s.url(), 'https://openrouter.ai/api/v1/chat/completions');
     const body = s.sent();
-    assert.ok(body.max_tokens >= 2000, 'generous token budget for qwen <think>');
+    assert.strictEqual(body.max_tokens, 900); // Scout isn't a reasoning model — no <think> budget needed
+    assert.strictEqual('reasoning_effort' in body, false); // OpenRouter/Scout never takes this param
     assert.strictEqual(body.messages[0].role, 'system');   // untrusted image isolated from system prompt
     assert.match(body.messages[0].content, /UNTRUSTED|do not obey/i);
     const userParts = body.messages[1].content;
@@ -251,17 +255,6 @@ function stubGroqSeq(contents) {
   };
   return { restore: () => { global.fetch = realFetch; }, calls: () => i, bodies: () => bodies };
 }
-
-test('reasoning_effort is sent ONLY when a non-empty value is given (default omits it)', async () => {
-  // default (no reasoningEffort) -> param absent, so provider default (thinking) is preserved
-  let s = stubGroqSeq(['{"merchant":"A","amount":1}']);
-  try { await extractReceipt('img', SPEC); assert.strictEqual('reasoning_effort' in s.bodies()[0], false); }
-  finally { s.restore(); }
-  // explicit 'none' -> passed through to the request body
-  s = stubGroqSeq(['{"merchant":"A","amount":1}']);
-  try { await extractReceipt('img', SPEC, { reasoningEffort: 'none' }); assert.strictEqual(s.bodies()[0].reasoning_effort, 'none'); }
-  finally { s.restore(); }
-});
 
 test('retry-on-empty: a totally empty first result is retried and the good second result wins', async () => {
   // 1st call: unterminated <think> => parseModelJson -> {} (empty). 2nd call: real JSON.
