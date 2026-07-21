@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { curSym, fmtMoney, todayISO, normaliseDate, parseDateLoose, isDatePlausible } = require('../lib/money');
+const { curSym, fmtMoney, todayISO, normaliseDate, parseDateLoose, isDatePlausible, resolveReceiptDate } = require('../lib/money');
 
 test('curSym maps known currencies and falls back to CODE+space', () => {
   assert.strictEqual(curSym('USD'), '$');
@@ -45,6 +45,94 @@ test('parseDateLoose: never falls back — null means genuinely unparseable (iss
   // NOTE: unlike normaliseDate, parseDateLoose does NOT cap a future date — that's
   // normaliseDate's job (a future date still IS a parseable date, just capped later).
   assert.strictEqual(parseDateLoose('2999-01-01'), '2999-01-01');
+});
+
+// resolveReceiptDate — the smart format resolver (Owner directive 2026-07-22, live
+// incident: a Mesincashier2u receipt printed "7/21/26" [M/D/Y] and the MODEL, asked to
+// convert it itself, produced 2021-07-26 — wrong year AND wrong day. Format logic now
+// lives here instead, deterministically, off the impossible-value rule + current-era
+// year expansion, never left to the AI to guess.
+test('resolveReceiptDate: the exact live-incident receipt (7/21/26 M/D/Y) resolves correctly', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  // 21 > 12 -> 21 MUST be the day -> 7 is the month -> 21 Jul 2026, not 2021-07-26.
+  assert.deepStrictEqual(resolveReceiptDate('7/21/26', { now }), { iso: '2026-07-21', ambiguous: false });
+});
+
+test('resolveReceiptDate: impossible-value rule catches M/D/Y even when D/M/Y is the account default', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  // 24 > 12 -> forced day=24, month=7 -> 24 Jul 2026 (the Owner's own worked example).
+  assert.deepStrictEqual(resolveReceiptDate('7/24/26', { now }), { iso: '2026-07-24', ambiguous: false });
+  // Same logic the other way round: 24/07/26 is unambiguous D/M/Y already (24>12 -> day).
+  assert.deepStrictEqual(resolveReceiptDate('24/07/26', { now }), { iso: '2026-07-24', ambiguous: false });
+});
+
+test('resolveReceiptDate: 2-digit year always expands to the CURRENT era, never the 1900s/2000s-past', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  assert.strictEqual(resolveReceiptDate('21/07/26', { now }).iso, '2026-07-21');
+  assert.strictEqual(resolveReceiptDate('01/01/25', { now }).iso, '2025-01-01');
+});
+
+test('resolveReceiptDate: genuinely ambiguous (both parts <=12) assumes D/M/Y by default and flags ambiguous', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  const r = resolveReceiptDate('3/4/26', { now });               // could be 3 Apr or 4 Mar
+  assert.strictEqual(r.iso, '2026-04-03');                        // D/M/Y default -> 3 April
+  assert.strictEqual(r.ambiguous, true);
+  const r2 = resolveReceiptDate('3/4/26', { now, preferDMY: false });
+  assert.strictEqual(r2.iso, '2026-03-04');                       // M/D/Y opt-out -> 4 March
+  assert.strictEqual(r2.ambiguous, true);
+});
+
+test('resolveReceiptDate: unambiguous dates are never marked ambiguous', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  assert.strictEqual(resolveReceiptDate('7/21/26', { now }).ambiguous, false);
+  assert.strictEqual(resolveReceiptDate('2026-07-21', { now }).ambiguous, false);
+  assert.strictEqual(resolveReceiptDate('21/07/2026', { now }).ambiguous, false);
+});
+
+test('resolveReceiptDate: ISO input passes straight through regardless of year length', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  assert.deepStrictEqual(resolveReceiptDate('2026-07-21', { now }), { iso: '2026-07-21', ambiguous: false });
+});
+
+test('resolveReceiptDate: strips a trailing 12-hour AM/PM timestamp (the exact live receipt, "7/21/26 2:06 PM")', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  assert.deepStrictEqual(resolveReceiptDate('7/21/26 2:06 PM', { now }), { iso: '2026-07-21', ambiguous: false });
+  assert.deepStrictEqual(resolveReceiptDate('7/21/26 2:06 pm', { now }), { iso: '2026-07-21', ambiguous: false });
+  assert.deepStrictEqual(resolveReceiptDate('30/06/2026 12:46:53 AM', { now }), { iso: '2026-06-30', ambiguous: false });
+});
+
+test('resolveReceiptDate: genuinely invalid input returns null, no silent default', () => {
+  const now = new Date('2026-07-22T00:00:00Z');
+  assert.strictEqual(resolveReceiptDate('not a date', { now }), null);
+  assert.strictEqual(resolveReceiptDate('13/13/26', { now }), null);  // both >12 -> impossible
+  assert.strictEqual(resolveReceiptDate('', { now }), null);
+  assert.strictEqual(resolveReceiptDate(null, { now }), null);
+});
+
+// normaliseDate/parseDateLoose now delegate to resolveReceiptDate, so the M/D/Y fix
+// applies through the whole pipeline, not just the new function in isolation. Uses
+// parseDateLoose (pure format resolution, no future-cap) rather than normaliseDate here
+// deliberately — normaliseDate's future-cap runs off the REAL wall clock (untestable with
+// a fixed date without flaking as real time passes); that policy has its own coverage
+// below ('normaliseDate future-cap tolerates the MYT/UTC skew...').
+test('parseDateLoose resolves the live-incident M/D/Y receipt correctly end-to-end', () => {
+  assert.strictEqual(parseDateLoose('7/21/26'), '2026-07-21');
+  assert.strictEqual(parseDateLoose('7/24/26'), '2026-07-24');
+});
+
+// The future-cap fix itself (found while writing the tests above): normaliseDate used to
+// cap ANY date past the UTC instant of "now" — but this server runs in UTC while receipts
+// are dated in Malaysia time (UTC+8), so a receipt legitimately dated "today" in MYT can
+// still read as "tomorrow" in UTC for several hours each night, and got wrongly rolled
+// back a day. Fixed by giving normaliseDate the same RECEIPT_FUTURE_GRACE_DAYS tolerance
+// isDatePlausible already uses for exactly this skew.
+test('normaliseDate future-cap tolerates the MYT/UTC skew (does not roll back a same-day receipt)', () => {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  assert.strictEqual(normaliseDate(tomorrow), tomorrow);   // within the 2-day grace window
+});
+
+test('normaliseDate future-cap still catches a genuinely far-future/misread date', () => {
+  assert.strictEqual(normaliseDate('2999-01-01'), todayISO());
 });
 
 // isDatePlausible (2026-07-21 live incident): a receipt's year was misread (2026 -> 2024) —
