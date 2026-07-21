@@ -450,7 +450,7 @@ test('a media group with a mix of real + non-receipt photos: the breakdown lists
 test('formatBatchSummary: given skippedReasons, breaks the skip count down by WHY (blurry vs not a receipt at all)', () => {
   const summary = { images: 3, receipts: 3, saved: 1, skipped: 2, failed: [], flagged: [], truncated_images: [] };
   const text = formatBatchSummary(summary, [], ['blurry', 'not_receipt']);
-  assert.match(text, /1 photo too blurry to read/);
+  assert.match(text, /1 photo too blurry or unclear to read confidently/);
   assert.match(text, /1 photo that didn't look like a receipt at all/);
   assert.match(text, /NOT saved, please re-upload/i);
 });
@@ -461,7 +461,7 @@ test('formatBatchSummary: skippedReasons missing/incomplete falls back to the sa
   // mis-render a partial breakdown, falls back to the plain "N skipped" line.
   const text = formatBatchSummary(summary, [], ['blurry']);
   assert.match(text, /didn't look like a clear receipt, so they were NOT saved — please re-upload them/i);
-  assert.ok(!text.includes('too blurry to read'), 'must not render a half-populated breakdown');
+  assert.ok(!text.includes('too blurry or unclear to read confidently'), 'must not render a half-populated breakdown');
 });
 
 test('formatBatchSummary: an "unclear" reason in the mix falls back to generic wording rather than mislabeling it', () => {
@@ -484,7 +484,7 @@ test('formatBatchSummary: given a date_unreadable reason, breaks it out with its
 test('formatBatchSummary: mixes blurry + date_unreadable reasons with natural "and" joining', () => {
   const summary = { images: 3, receipts: 3, saved: 1, skipped: 2, failed: [], flagged: [], truncated_images: [] };
   const text = formatBatchSummary(summary, [], ['blurry', 'date_unreadable']);
-  assert.match(text, /1 photo too blurry to read and 1 photo whose date couldn't be read clearly/);
+  assert.match(text, /1 photo too blurry or unclear to read confidently and 1 photo whose date couldn't be read clearly/);
 });
 
 test('a media group with blurry AND not-a-receipt skips: the summary breaks them down by reason, real receipt untouched', async (t) => {
@@ -512,7 +512,7 @@ test('a media group with blurry AND not-a-receipt skips: the summary breaks them
   await timers.runPending();
   const summaryMsg = sent[sent.length - 1].text;
   assert.match(summaryMsg, /Real Shop/);
-  assert.match(summaryMsg, /1 photo too blurry to read/);
+  assert.match(summaryMsg, /1 photo too blurry or unclear to read confidently/);
   assert.match(summaryMsg, /1 photo that didn't look like a receipt at all/);
 });
 
