@@ -5,7 +5,7 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE, filterRows, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, managedExportButtons, statementExportButtons, ledgerTableClass, submissionPeriod, submissionState, readyToCloseRows } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, filterByPeriod, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, managedExportButtons, statementExportButtons, ledgerTableClass, submissionPeriod, submissionState, readyToCloseRows } = require('../../public/js/components/grid');
 
 test('submissionPeriod returns the local YYYY-MM month used by the submit signal', () => {
   assert.strictEqual(submissionPeriod(new Date(2026, 6, 13)), '2026-07');
@@ -94,6 +94,35 @@ test('filterRows: no match -> empty array; garbage input never throws', () => {
   assert.deepStrictEqual(filterRows(ROWS, 'nonexistent-xyz'), []);
   assert.deepStrictEqual(filterRows(null, 'x'), []);
   assert.deepStrictEqual(filterRows([null, undefined], 'x'), []);
+});
+
+// --- filterByPeriod: the Statement month picker doubling as the table's own month filter
+// (2026-07-22 fix — it used to only drive the Statement PDF/submission, so the table below it
+// showed every year's rows regardless of the selected month, which read as broken) ---
+
+const DATED_ROWS = [
+  { id: 'a', expense_date: '2026-07-21', merchant: 'July row' },
+  { id: 'b', expense_date: '2024-08-21', merchant: 'August, different year' },
+  { id: 'c', expense_date: '2011-07-26', merchant: 'July, ancient year' },
+];
+
+test('filterByPeriod: keeps only rows whose expense_date falls in the given YYYY-MM month', () => {
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, '2026-07').map((r) => r.id), ['a']);
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, '2024-08').map((r) => r.id), ['b']);
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, '2011-07').map((r) => r.id), ['c']);
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, '2026-01'), []); // no rows that month
+});
+
+test('filterByPeriod: empty/invalid period returns every row unchanged (no filter applied)', () => {
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, ''), DATED_ROWS);
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, undefined), DATED_ROWS);
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, 'garbage'), DATED_ROWS);
+  assert.deepStrictEqual(filterByPeriod(DATED_ROWS, '2026-7'), DATED_ROWS); // not zero-padded -> treated as invalid, no filter
+});
+
+test('filterByPeriod: garbage rows/list never throw', () => {
+  assert.deepStrictEqual(filterByPeriod(null, '2026-07'), []);
+  assert.deepStrictEqual(filterByPeriod([null, undefined, { id: 'x' }], '2026-07'), []); // no expense_date -> excluded, not thrown
 });
 
 // --- paginate: client-side pagination ---
