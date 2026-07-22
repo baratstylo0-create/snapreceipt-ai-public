@@ -280,6 +280,34 @@ test('Done menu button: clears lock via handleUpdate text match', async () => {
   cleanup(chatId);
 });
 
+// 2026-07-22 (Owner-reported live incident): staffLockByChat is in-memory only, so a
+// server restart between "Staff Lock ON" and tapping the (still visually present) Done
+// button leaves the server with no lock recorded. This used to fall all the way through
+// to the unrelated generic "I didn't quite catch that" fallback -- confusing, since the
+// user tapped a real menu button. Now gives an honest "no active lock" reply instead.
+test('Done menu button with NO active lock: honest reply, not the generic fallback', async () => {
+  const chatId = 501;
+  cleanup(chatId);
+  assert.ok(!staffLockByChat.has(chatId), 'precondition: no lock recorded for this chat');
+
+  const { deps, sent } = baseDeps({
+    getCapabilities: () => ({ multiUser: true }),
+    resolveBinding: async () => ({ branch_id: 'br-A', company_id: 'co-1', account_id: 'acc-1' }),
+  });
+
+  await handleUpdate({
+    message: {
+      chat: { id: chatId },
+      from: { first_name: 'Clerk' },
+      text: '✅ Done',
+    },
+  }, deps);
+
+  assert.ok(sent.some(s => /No active lock/.test(s.text)), 'must give an honest, specific reply');
+  assert.ok(!sent.some(s => /didn.t quite catch that/i.test(s.text)), 'must NOT fall through to the generic fallback');
+  cleanup(chatId);
+});
+
 // ---- Business-only: personal mode ignores Staff Lock ----------------------
 
 test('personal mode: Staff Lock text is ignored (falls through to fallback)', async () => {
