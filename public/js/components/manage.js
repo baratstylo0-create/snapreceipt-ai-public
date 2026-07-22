@@ -144,9 +144,19 @@
     pages.forEach(function (p) { if (panels[p.id]) panels[p.id].hidden = (p.id !== current); });
 
     return {
-      // load() is called by app.js on first show of the Manage view — load whatever
-      // sub-page is currently selected (defaults to the Data editor when present).
-      load: function () { showSub(select.value || current); },
+      // load() is called by app.js EVERY time Manage becomes visible (app.js has no
+      // lazy-once gate of its own — see its `select()`), so this is the right place to force
+      // a fresh reload of whichever sub-page is showing: drop that sub-page's own lazy-load
+      // gate right before re-entering showSub. Fixes a real bug (2026-07-22): the Data editor
+      // previously fetched /api/expenses only on Manage's FIRST-ever show and then never again,
+      // so a bill deleted from Activity in a later visit kept appearing here until a full page
+      // reload. Switching sub-pages WITHIN one Manage visit (e.g. Template <-> Data via the
+      // dropdown) still only loads each once — only re-ENTERING Manage forces a refetch.
+      load: function () {
+        var id = select.value || current;
+        loaded[id] = false;
+        showSub(id);
+      },
     };
   }
 
