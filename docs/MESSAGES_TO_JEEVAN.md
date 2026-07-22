@@ -105,3 +105,29 @@ I can't confirm which from here — I don't have VPS access, and the definitive 
 3. Ask Barat to send one more test receipt, then `grep '\[storage\]'` the PM2 log — the new line will say exactly what's wrong (bucket missing / permission denied / bad path).
 
 1867/1867 tests green on #211.
+
+---
+
+## 2026-07-22 · Claude (for Barat) · Full night's QA summary + handoff — cleanup needed, no code changes required
+
+**Context:** Barat asked for a deep, "senior developer" QA pass across the whole system before considering it deploy-ready — OCR/dates, every Telegram menu button, Telegram↔Dashboard data sync, and the Excel/Statement exports. Full results below, plus what's left for you.
+
+### What was tested tonight (all against the real VPS, `31.97.70.50`, post PR #296–#308)
+
+1. **OCR + date resolver** — 8 synthetic-but-realistic receipts (99 Speed Mart, Mydin, KFC, Watsons, Petronas, Oldtown, Guardian Pharmacy, etc.), spanning 6 different real-world date formats and 8 different months. 7/8 read correctly (merchant + amount + date exact match); the 1 miss was traced to a browser-clipboard image-quality artifact from my own test method, not a code bug — every version sent as a genuine photo/forward was correct.
+2. **Every Telegram menu button** — Today Bills, Today Expenses, Weekly Record, Bot Guide, Staff Lock ON, Staff Lock Done/OFF (with an active lock — confirms #308's fix), Edit category, staff picker, duplicate rejection, 5-photo batch upload. All correct.
+3. **Telegram ↔ Dashboard sync** — sent a real receipt via Telegram, confirmed it appears on the dashboard with byte-identical data (merchant/amount/date/category/line items). Edited its category on the dashboard, confirmed the DB write persisted. Deleted it via the dashboard's real UI, confirmed the delete actually worked (this is #305's fix, verified end-to-end through the real UI, not just API calls) and the row correctly disappeared from Telegram's Today Bills too (shared DB, single source of truth — no separate sync layer to break).
+4. **Export Excel + Statement PDF** — downloaded both for the same data set, cross-checked: 15 rows, RM580.27 total, identical in both files and matching the Activity table exactly. Statement PDF correctly splits multi-category receipts into per-category line items that sum back to the receipt total, and the cash-in/expenditure/balance math has no sign errors.
+
+**One non-bug worth knowing:** Telegram's "Today Bills"/"Today Expenses"/"Weekly Record" filter by `created_at` (when captured), while the Dashboard's date filters use `expense_date` (the date printed on the receipt) — confirmed intentional, from your own 2026-07-04 fix comment in `lib/bot.js`. They will look mismatched whenever a receipt is uploaded well after its printed date (exactly what tonight's backdated test receipts did) — real day-to-day use won't show this gap. No code change needed; flagging so it's not mistaken for a bug later.
+
+### What's left — cleanup only, no code
+
+Tonight's QA left test artifacts in the **live** database (all under Owner-authorized real testing, not accidental). Please have a look and clean up whichever of these aren't wanted:
+
+1. **Leftover test branches** visible in the dashboard's branch filter: `QA Testing`, `QA Admin 1`, `QA Admin 2`, `wefsef`, `vaevdfav`, `sdwf`. I didn't create these (pre-existing, from earlier dev/QA rounds) and didn't touch them — flagging since they clutter the account. Delete via Team page if not needed (standard soft-delete, per ADR-028's known ripple-effect caveat on that action — check who's tied to a branch before removing it).
+2. **Test-era receipts** still in Activity (11 rows, mostly tagged branch "QA Testing" — TGV Cinemas, Vanakam India, Gemilang Petromart, Kaki Kaki Prawning, Penang Kayu x2, 99 Speed Mart x5, Baker's Cottage). These look like earlier QA-round artifacts, not tonight's synthetic tests (which I already soft-deleted myself as I went). Your call whether these are worth keeping as historical QA evidence or clearing out.
+
+### Nothing blocking
+
+All code-side fixes from tonight are merged, deployed, and independently re-verified live. This is purely tidy-up, entirely optional, and not required before considering the system deploy-ready.
