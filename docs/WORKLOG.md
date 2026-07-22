@@ -1,5 +1,12 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-22 · Claude (docs-only, reported via Barat) · Dashboard/Telegram "mismatch" after the QA-receipt cleanup was a stale browser tab, not a sync bug
+
+- **Context:** After the direct hard-delete cleanup of tonight's 11 test receipts (see the incident entry below), Barat noticed the dashboard's Activity page still showing 4 of the deleted rows while Telegram showed the correct, current data.
+- **Root cause:** the cleanup script (`lib/supabase.js`'s `sbHardDelete`, run directly via SSH — see below) deletes straight against Supabase, bypassing the app's normal API layer entirely. That's correct behavior for the delete itself — confirmed via a raw REST query that the rows are genuinely gone from the database, not an app-level bug. The dashboard's browser tab, however, had loaded its data BEFORE the cleanup ran and simply hadn't been reloaded since — client-side in-memory state, not a DB read, so it kept showing what it fetched at page-load time. A refresh fixed it immediately; Telegram was correct throughout (it re-queries live on every command, no persistent client-side cache to go stale).
+- **Process note for any future direct-DB cleanup that bypasses the app** (not just this one): give a heads-up to whoever has a dashboard tab open to refresh it afterward — a direct delete has no way to push a live update to an already-loaded page.
+- **Possible future UX improvement (optional, not scheduled, Owner has NOT asked for this to be built):** the Activity page could periodically re-poll or show a "data changed, refresh?" prompt so a stale tab doesn't read as a phantom sync bug. Flagging only — no code change made or requested.
+
 ## 2026-07-22 · Claude (Owner-authorized live VPS SSH) · Live incident: `OPENROUTER_KEY` was never set on the VPS — root cause of tonight's "NOT saved" reports, FIXED
 
 - **Context:** Barat reported (via `docs/MESSAGES_TO_JEEVAN.md`, PR #306) that the VPS (`31.97.70.50`) was "still running old code" and 5 merged PRs (#296, #298, #299, #300, #305) weren't live, based on live receipts still failing with "NOT saved — I couldn't read this clearly."
