@@ -98,6 +98,21 @@
     });
   }
 
+  // filterByPeriod(rows, period) -> rows whose expense_date falls in the given "YYYY-MM"
+  // period (matches the Statement month picker, reused as the table's own month filter —
+  // 2026-07-22 fix: the picker used to only drive the Statement PDF/submission, so the table
+  // below it showed every year regardless of what month was selected, which read as broken).
+  // An empty/invalid period (or a row with no/garbage expense_date) never throws; invalid
+  // period -> every row unchanged, matching filterRows' own "empty term = no filter" contract.
+  function filterByPeriod(rows, period) {
+    var list = Array.isArray(rows) ? rows : [];
+    var p = String(period || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(p)) return list;
+    return list.filter(function (row) {
+      return !!(row && typeof row.expense_date === 'string' && row.expense_date.slice(0, 7) === p);
+    });
+  }
+
   // paginate(rows, page, pageSize) -> { pageRows, page, totalPages, total }. page is
   // clamped into [1, totalPages] (a stale page number after a filter shrinks the set
   // never produces an out-of-range slice). Empty input -> page 1 of 1, zero rows.
@@ -346,7 +361,11 @@
       }
       wrap.appendChild(submissionWrap);
     }
-    statementMonth.addEventListener('change', function () { refreshSubmissionSignal(); });
+    statementMonth.addEventListener('change', function () {
+      state.page = 1; // a narrower/different month can shrink the set; never leave page stranded
+      render();
+      refreshSubmissionSignal();
+    });
 
     // -- search --
     var searchRow = el('div', 'ledger-search-row');
@@ -374,7 +393,7 @@
     function note(text) { Escape.setText(msg, text || ''); }
 
     function currentFilteredIds() {
-      return filterRows(state.rows, state.search)
+      return filterRows(filterByPeriod(state.rows, statementMonth.value), state.search)
         .map(function (r) { return r && r.id ? String(r.id) : ''; })
         .filter(Boolean);
     }
@@ -668,7 +687,8 @@
       Escape.setText(editBtn, state.editMode ? 'Done editing' : 'Edit cells');
 
       host.textContent = '';
-      var filtered = filterRows(state.rows, state.search);
+      var byPeriod = filterByPeriod(state.rows, statementMonth.value);
+      var filtered = filterRows(byPeriod, state.search);
       var view = paginate(filtered, state.page, PAGE_SIZE);
       renderPager(view);
 
@@ -677,7 +697,7 @@
         return;
       }
       if (!filtered.length) {
-        note('No rows match "' + state.search + '".');
+        note(state.search ? 'No rows match "' + state.search + '".' : 'No expenses for ' + statementMonth.value + '.');
         return;
       }
       note(state.editMode ? 'Click a cell to edit. Enter saves, Esc cancels.' : 'Read-only — tap "Edit cells" to make changes.');
@@ -729,7 +749,7 @@
   return {
     // pure
     mount: mount, buildCellPatch: buildCellPatch, EDITABLE: EDITABLE,
-    filterRows: filterRows, paginate: paginate, escapeCSVValue: escapeCSVValue,
+    filterRows: filterRows, filterByPeriod: filterByPeriod, paginate: paginate, escapeCSVValue: escapeCSVValue,
     rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
     statementExportUrl: statementExportUrl, statementBranchOptions: statementBranchOptions, statementFilename: statementFilename,
     managedExportButtons: managedExportButtons, statementExportButtons: statementExportButtons, ledgerTableClass: ledgerTableClass,
