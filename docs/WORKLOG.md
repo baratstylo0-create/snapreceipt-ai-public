@@ -1,5 +1,12 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-22 · Claude (Owner-authorized live data fix, via Barat's report) · Staff Lock "No staff members found" — staff were added to the wrong QA branch, same root-cause class as the dashboard stale-tab incident
+
+- **Context:** Barat reported Staff Lock in Telegram saying "No staff members found" even after adding staff via the dashboard.
+- **Root cause, confirmed via a read-only live query before touching anything:** Barat's Telegram chat (`bot_bindings.chat_id 1376793145`) is bound to branch `c4ff2e90-e742-4640-8112-249daf4f98ce` ("QA - Barat (temp clerk)"). The dashboard login used to add staff was on a *different* branch, `1f794ceb-0007-4b03-b176-5b0b2582d5e1` ("QA Testing") — so the staff rows landed on a branch Telegram never looks at. Same class of bug as the same-night dashboard/Telegram "mismatch" (stale client state) — this account has several overlapping, similarly-named QA-era branches and nothing in the UI surfaces which branch a given login/Telegram binding is actually on.
+- **Fix (Owner-authorized, backed up first):** dumped all `role=staff` rows to JSON on the VPS before any write. Used the app's own `lib/branches.js` functions (not a raw SQL bypass, learning from the stale-tab incident) — `addStaff({branchId: 'c4ff2e90...', name})` for "barat" and "jeevan" onto the correct branch, then `removeStaff(id)` (soft-deactivate, reversible) on the two misplaced active duplicates on the wrong branch. Verified via `listStaff()` both ways: correct branch now lists both, wrong branch lists neither.
+- **Flagged, not built (Owner has NOT asked for these):** (1) a visible "which branch is this login/chat on" indicator on the dashboard header and/or a Telegram command, so this class of mismatch is caught immediately instead of via a confusing bug report; (2) the leftover QA-era branches (`QA Testing`, `QA Admin 1/2`, `wefsef`, `vaevdfav`, `sdwf`) are exactly what makes this easy to trip over — cleaning them up would reduce recurrence. Both noted for later, not scheduled.
+
 ## 2026-07-22 · Claude (docs-only, reported via Barat) · Dashboard/Telegram "mismatch" after the QA-receipt cleanup was a stale browser tab, not a sync bug
 
 - **Context:** After the direct hard-delete cleanup of tonight's 11 test receipts (see the incident entry below), Barat noticed the dashboard's Activity page still showing 4 of the deleted rows while Telegram showed the correct, current data.
