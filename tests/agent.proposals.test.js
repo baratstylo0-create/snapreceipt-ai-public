@@ -26,7 +26,9 @@ function makeDeps(rowsById, opts = {}) {
       writes.update.push({ table, id, patch });
       return [{ id, ...(rowsById[id] || {}), ...patch }];
     },
-    sbSoftDelete: async (table, { id }) => { writes.softDelete.push({ table, id }); },
+    // Returns the deleted row (array), matching lib/supabase.js's real return=representation
+    // contract — a caller now checks .length to tell "deleted" from "matched nothing".
+    sbSoftDelete: async (table, { id }) => { writes.softDelete.push({ table, id }); return [{ id, ...(rowsById[id] || {}) }]; },
     getFieldSpec: async () => opts.spec || { columns: [{ key: 'merchant', label: 'Merchant', type: 'text', required: true }] },
     saveTemplate: async (csv, o) => { writes.saveTemplate.push({ csv, o }); return { columns: [], csv }; },
     consumeProposal: (id) => proposals.consumeProposal(id),
@@ -284,6 +286,19 @@ test('confirmProposal: a throw in the write fn -> { ok:false }, no internals lea
   const res = await confirmProposal(p.proposal.id, deps);
   assert.equal(res.ok, false);
   assert.doesNotMatch(res.error, /SECRET|10\.0\.0\.5/);
+});
+
+// 2026-07-22 (Owner-reported live incident): sbSoftDelete matching ZERO rows (e.g. a scope
+// filter excluding a legacy row) used to look identical to a real delete — every caller
+// reported success while nothing was touched. Locks the honest-failure contract instead.
+test('confirmProposal DELETE: sbSoftDelete matching zero rows -> { ok:false }, not a false success', async () => {
+  const t = tool('proposeDeleteExpense');
+  const { deps } = makeDeps({ e1: { ...ROW } });
+  const p = await t.run(t.validate({ id: 'e1' }), deps);
+  deps.sbSoftDelete = async () => [];   // real contract: PATCH matched nothing
+  const res = await confirmProposal(p.proposal.id, deps);
+  assert.equal(res.ok, false);
+  assert.match(res.error, /scope/i);
 });
 
 // --- injection flavor ------------------------------------------------------

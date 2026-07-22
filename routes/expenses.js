@@ -241,7 +241,8 @@ module.exports = function mountExpenses(app) {
       try {
         const touch = await canTouchExpense(req, id);
         if (!touch.ok) { results.push({ id, ok: false, error: touch.error }); continue; }
-        await sbSoftDelete('expenses', { id, scope: req.scope });
+        const deleted = await sbSoftDelete('expenses', { id, scope: req.scope });
+        if (!deleted.length) { results.push({ id, ok: false, error: 'not found (or not in your scope)' }); continue; }
         results.push({ id, ok: true });
       } catch (e) {
         results.push({ id, ok: false, error: 'delete failed' });
@@ -389,7 +390,8 @@ module.exports = function mountExpenses(app) {
     try {
       const touch = await canTouchExpense(req, req.params.id);
       if (!touch.ok) return res.status(touch.code).json({ error: touch.error });
-      await sbSoftDelete('expenses', { id: req.params.id, scope: req.scope });
+      const deleted = await sbSoftDelete('expenses', { id: req.params.id, scope: req.scope });
+      if (!deleted.length) return res.status(404).json({ error: 'expense not found (or not in your scope)' });
       res.json({ ok: true });
     } catch (e) { console.error('[delete expense]', e.message); res.status(502).json({ error: 'delete failed' }); }
   });

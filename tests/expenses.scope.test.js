@@ -146,3 +146,29 @@ test('DELETE /api/expenses/:id: clerk deleting another branch\'s row -> 403, not
     } finally { s.restore(); }
   });
 });
+
+// 2026-07-22 (Owner-reported live incident): canTouchExpense's own branch check can pass
+// (e.g. admin scope, or a legacy row with no branch_id at all) while the ACTUAL PATCH's
+// WHERE clause still matches zero rows for some other reason (a stale/deleted-elsewhere row,
+// a scope edge case). sbSoftDelete used to report success either way — now the route checks
+// the PATCH's own affected-rows count and returns an honest 404 instead of a false "ok:true".
+test('DELETE /api/expenses/:id: canTouchExpense passes but the PATCH matches zero rows -> 404, not a false success', async () => {
+  await withEnv({ CAP_MULTI_USER: 'true' }, async () => {
+    const realFetch = global.fetch;
+    global.fetch = async (url, opt = {}) => {
+      const u = String(url);
+      if (!u.includes('/rest/v1/')) return realFetch(url, opt); // pass through the test's own HTTP call
+      if (u.includes('/sessions')) return { text: async () => JSON.stringify([ADMIN]) };
+      if (u.includes('/expenses')) {
+        const method = opt.method || 'GET';
+        if (method === 'PATCH') return { text: async () => JSON.stringify([]) }; // matched nothing
+        return { text: async () => JSON.stringify([{ id: 'e1', branch_id: null }]) };
+      }
+      return { text: async () => JSON.stringify([]) };
+    };
+    try {
+      const { status } = await call('DELETE', '/api/expenses/e1', { token: 't' });
+      assert.strictEqual(status, 404);
+    } finally { global.fetch = realFetch; }
+  });
+});
