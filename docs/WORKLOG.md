@@ -1,5 +1,16 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-07-22 · Claude (for Barat) · docs-only — Residual symptom of the `CAP_MULTI_USER` env-drift fix: one Telegram receipt saved unbranded, found + explained (no code change)
+
+- **Context:** Barat reported a receipt he sent via Telegram ("99 T NAGAR CAFE", RM41.45, captured 2026-07-21 17:52 UTC) wasn't showing on his branch dashboard view, even though `getWebhookInfo`/tunnel/bot-alive checks were all clean (see `receipt-saas-bot` skill's runbook — none of its usual symptoms applied here).
+- **Root cause — a residual effect of the SAME-DAY entry directly below this one:** that entry documents `ACCOUNT_TYPE`/`CAP_MULTI_USER`/etc. being unset in the local `.env` and then fixed. The `node server.js` process serving Telegram at 17:52 UTC was the OLD process — started BEFORE that `.env` fix (confirmed: `Get-Process` showed the current process's start time, 18:37 UTC, is AFTER the receipt's `created_at`). `dotenv` only loads `.env` once at process start (same bug family as the earlier MYR/USD currency incident), so that one receipt was captured while the running process still had `multiUser` effectively off — it saved fine (`status=saved`, real row in Supabase) but with no `branch_id`/`staff_user_id`, since `lib/bot.js`'s business-binding branch was never reached. Confirmed by comparing the row's `expense_date`/`created_at`/`branch_id` against sibling receipts from the same bound chat that DID get `branch_id` set.
+- **No code bug found** — verified `resolveBinding`/`bindingMeta`/`branchEq` in `lib/bot.js` are all correct; this was purely a stale-process timing gap around the `.env` fix + restart, not a logic error.
+- **Fix decided with Barat:** the dashboard has **no "reassign branch" feature, by design** (`routes/expenses.js`'s `sanitizeExpensePatch` deliberately drops `branch_id`/`company_id` from every dashboard edit — a clerk must never be able to move a receipt into a different branch). So the one orphaned row is soft-deleted from Activity (recoverable via "Recently deleted") and the same photo is resent to the bot — now that the process is running with the corrected `.env`, it saves branch-tagged normally.
+- **Documented as a standing GOTCHA** in `docs/STATUS.md` (§ GOTCHAs) for future reference: how to recognise this symptom (compare row `created_at` to server process start time) and the two-step fix (delete + resend).
+- **Prevention noted:** always restart the bot process right after editing any `ACCOUNT_TYPE`/`CAP_*` flag — an `.env` edit alone does not reach an already-running process.
+
+---
+
 ## 2026-07-22 · Claude (for Barat, live QA session) · docs/2026-07-22-env-config-drift-and-session-fixes — Local `.env` config drift diagnosed + fixed (currency, OpenRouter key, Supabase key, business capability flags); one non-hermetic test fixed
 
 - **Context:** a live QA pass on this local dev box surfaced four separate symptoms across one session, all traced to the same root cause — a local `.env` that loads fine (no startup error) but is missing account-specific values `.env.example`/`docs/clients/premala.md` both document as required. Full detail + diagnostic recipe now recorded as a standing GOTCHA in `MEMORY_LEDGER.md` (read that first if any of these symptoms recur on a different box).
