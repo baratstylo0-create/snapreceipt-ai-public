@@ -95,3 +95,42 @@ test('orChat returns empty string on a non-rate error reply (nothing to retry)',
     global.fetch = realFetch;
   }
 });
+
+// 2026-07-22 (Owner-reported live incident): a non-rate API error used to be TOTALLY
+// silent — a live batch failed with zero explanation, not even in server logs. Confirmed
+// live that THIS incident's actual cause was a stale VISION_MODEL env override, not this
+// gap — but the gap is real regardless: any future non-rate API error (bad model id,
+// insufficient balance, access revoked) would vanish the same way. Must be logged.
+test('a non-rate error reply is logged with the model and a snippet of the error, not silently swallowed', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ text: async () => JSON.stringify({ error: { message: 'invalid model ID', code: 400 } }) });
+  const realError = console.error;
+  const errored = [];
+  console.error = (line) => errored.push(line);
+  try {
+    await orChat([{ role: 'user', content: 'hi' }], { model: 'some/bad-model' });
+    assert.strictEqual(errored.length, 1, 'exactly one error log for the unrecovered API error');
+    const rec = JSON.parse(errored[0]);
+    assert.strictEqual(rec.level, 'error');
+    assert.strictEqual(rec.where, 'openrouter.callOpenRouter');
+    assert.strictEqual(rec.model, 'some/bad-model');
+    assert.ok(rec.msg.includes('invalid model ID'), 'carries the actual API error, not a generic message');
+  } finally {
+    console.error = realError;
+    global.fetch = realFetch;
+  }
+});
+
+test('a successful call never logs an error', async () => {
+  const s = stubOpenRouter(() => ({ choices: [{ message: { content: 'ok' } }] }));
+  const realError = console.error;
+  const errored = [];
+  console.error = (line) => errored.push(line);
+  try {
+    await orChat([{ role: 'user', content: 'hi' }], { model: 'meta-llama/llama-4-scout' });
+    assert.strictEqual(errored.length, 0);
+  } finally {
+    console.error = realError;
+    s.restore();
+  }
+});
