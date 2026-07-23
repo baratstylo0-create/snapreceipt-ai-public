@@ -141,23 +141,40 @@ test('handleTodayExpenses: sums today\'s bills into one total', async () => {
   assert.match(sent[0].text, /30/);
 });
 
-test('handleWeeklyRecord: queries created_at from Monday\'s MYT midnight onward (NOT expense_date) and sums the total', async () => {
+// 2026-07-23 (Owner/Barat request): Today Expenses and Weekly Record now filter by
+// `expense_date` (the date PRINTED on the receipt) so their totals match the dashboard's
+// own totals. Today Bills deliberately stays on `created_at` ("what did I capture today")
+// — see its own tests. These two buttons now intentionally answer a different question.
+test('handleTodayExpenses: queries expense_date = today (NOT created_at)', async () => {
+  const eqSeen = [];
+  const { deps } = baseDeps({
+    sbSelect: async (table, opts) => { eqSeen.push(opts); return [{ amount: 10, currency: 'MYR' }]; },
+  });
+  await handleTodayExpenses(1, deps);
+  assert.match(eqSeen[0].extra, /expense_date=eq\./);
+  assert.ok(!/created_at=/.test(eqSeen[0].extra), 'must NOT filter by created_at anymore');
+});
+
+test('handleWeeklyRecord: queries expense_date from the week start onward (NOT created_at) and sums the total', async () => {
   const eqSeen = [];
   const { deps, sent } = baseDeps({
     sbSelect: async (table, opts) => { eqSeen.push(opts); return [{ amount: 100, currency: 'MYR' }]; },
   });
   await handleWeeklyRecord(1, deps);
-  assert.match(eqSeen[0].extra, /created_at=gte\./);
-  assert.ok(!/expense_date=/.test(eqSeen[0].extra), 'must NOT filter by expense_date — a receipt captured this week but dated earlier must still count');
+  assert.match(eqSeen[0].extra, /expense_date=gte\./);
+  assert.ok(!/created_at=/.test(eqSeen[0].extra), 'must NOT filter by created_at anymore');
   assert.match(sent[0].text, /100/);
 });
 
-test('handleWeeklyRecord: a receipt CAPTURED this week but PRINTED-dated months ago still counts (the exact bug scenario)', async () => {
+test('handleWeeklyRecord: the expense_date filter uses the same week-start date shown in the label', async () => {
+  const eqSeen = [];
   const { deps, sent } = baseDeps({
-    sbSelect: async () => [{ amount: 449, currency: 'MYR', expense_date: '2026-05-14' }], // printed date is old; captured this week
+    sbSelect: async (table, opts) => { eqSeen.push(opts); return []; },
+    weekStartISO: () => '2026-07-20',
   });
   await handleWeeklyRecord(1, deps);
-  assert.match(sent[0].text, /449/, 'a receipt with an old printed date must still be counted, since it was captured this week');
+  assert.match(eqSeen[0].extra, /expense_date=gte\.2026-07-20/);
+  assert.match(sent[0].text, /2026-07-20/);
 });
 
 // --- Text-routing priority + /start keyboard ---

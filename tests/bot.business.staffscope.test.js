@@ -219,9 +219,7 @@ test('Weekly Record: a bound business chat counts the week from SUNDAY; personal
   const calls = { sunday: 0, monday: 0 };
   const helpers = {
     weekStartSundayISO: () => { calls.sunday++; return '2026-07-05'; },
-    weekStartSundayBoundUTC: () => '2026-07-04T16:00:00.000Z',
     weekStartISO: () => { calls.monday++; return '2026-07-06'; },
-    weekStartBoundUTC: () => '2026-07-05T16:00:00.000Z',
   };
   const boundProbe = scopeProbe();
   const { deps: boundDeps } = baseDeps({ sbSelect: boundProbe.sbSelect, ...helpers });
@@ -229,7 +227,9 @@ test('Weekly Record: a bound business chat counts the week from SUNDAY; personal
   assert.strictEqual(calls.sunday, 1);
   assert.strictEqual(calls.monday, 0);
   assert.deepStrictEqual(boundProbe.seen[0].opts.eq, { branch_id: 'br-A' });
-  assert.match(boundProbe.seen[0].opts.extra, /2026-07-04T16/); // Sunday boundary in the query
+  // 2026-07-23: filter is now expense_date-based (the date printed on the receipt),
+  // not a created_at UTC boundary — matches the dashboard's own period totals.
+  assert.match(boundProbe.seen[0].opts.extra, /expense_date=gte\.2026-07-05/); // Sunday week-start date in the query
 
   const personalProbe = scopeProbe();
   const { deps: personalDeps } = baseDeps({ sbSelect: personalProbe.sbSelect, ...helpers });
