@@ -3,14 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Receipt Analyser</title>
+  <title>SnapReceipt AI</title>
   <!-- Treehouse typefaces (Mugi's design): Spectral (serif display) + Nunito Sans (body).
        CSP allows fonts.googleapis.com (style-src) + fonts.gstatic.com (font-src). -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,500&family=Nunito+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Inter + JetBrains Mono (2026-07-28): Landing's own typefaces — "The Receipt,
+       Transformed" — distinct from the Treehouse pair above, used only within
+       .landing-root (see landing.css). -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <!-- All styling lives in external CSS; a strict CSP (no inline styles) is enforced. -->
   <link rel="stylesheet" href="css/app.css" />
+  <!-- Personal-mode real-account onboarding (2026-07-25) — kept as its own file during
+       design review; still separate from app.css so it's an easy diff to fold in later. -->
+  <link rel="stylesheet" href="css/onboarding.css" />
+  <!-- Marketing entry screen (2026-07-27), shown before Create account. -->
+  <link rel="stylesheet" href="css/landing.css" />
   <!-- Installable web app (PWA). Lets the client "Install"/"Add to Home screen" so the
        dashboard opens in its own window with an app icon — no APK, no .exe, no store
        (ADR-020 per-client delivery). Deliberately NO service worker: financial data is
@@ -18,13 +27,14 @@
        manifest.webmanifest + swap icons/app-icon.svg. CSP: manifest-src falls back to
        default-src 'self'; the icon is covered by img-src 'self' — no header change. -->
   <link rel="manifest" href="manifest.webmanifest" />
-  <meta name="theme-color" content="#5f7a47" />
-  <meta name="application-name" content="Receipt Analyser" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="application-name" content="SnapReceipt AI" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="Receipts" />
-  <link rel="apple-touch-icon" href="icons/app-icon.svg" />
-  <link rel="icon" type="image/svg+xml" href="icons/app-icon.svg" />
+  <meta name="apple-mobile-web-app-title" content="SnapReceipt" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
 </head>
 <body>
   <!-- App shell only. Empty mount points are populated by later frontend tasks.
@@ -44,6 +54,11 @@
   <script src="js/format.js"></script>
   <script src="js/authgate.js"></script>
   <script src="js/components/nav.js"></script>
+  <!-- Personal-mode real-account onboarding (2026-07-25). Loaded early (like nav.js) since
+       app.js's boot() may mount it before any other view component is needed. -->
+  <script src="js/components/onboarding.js"></script>
+  <!-- Marketing entry screen (2026-07-27) — loaded early alongside onboarding.js. -->
+  <script src="js/components/landing.js"></script>
   <script src="js/components/overview.js"></script>
   <script src="js/components/activity.js"></script>
   <script src="js/components/upload.js"></script>
@@ -55,6 +70,8 @@
   <script src="js/components/falc.js"></script>
   <script src="js/components/ratemeter.js"></script>
   <script src="js/components/login.js"></script>
+  <!-- "Forgot password?" flow (2026-07-27), personal-mode only. -->
+  <script src="js/components/resetpassword.js"></script>
   <!-- Business-only views (ADR-021 Phase 6/8) — only ever mounted when Nav.sectionsFor
        includes them (multiUser business mode); harmless to load in personal mode. -->
   <script src="js/components/team.js"></script>

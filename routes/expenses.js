@@ -9,7 +9,9 @@ const { getFieldSpec } = require('../lib/templates'); // read-only: the account'
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sanitizeExpensePatch } = require('../lib/expenseValidation');
 const { getCapabilities } = require('../lib/account'); // ADR-010 flags (multiUser)
-const { lookupSession, scopeForUser } = require('../lib/auth'); // ADR-021 business identity
+const { lookupSession, scopeForUser, guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // ADR-021 business identity
+const { GUEST_RECEIPT_CAP, countGuestExpenses } = require('../lib/ocr'); // Guest Mode (2026-07-28)
+const googleAuth = require('../lib/googleAuth'); // Google Sign-In (2026-07-30) — isConfigured() for /api/config
 
 // P6 abuse defense (§4.4): checkDash IS the auth gate for every dashboard/API route (they all
 // import it from here) — without a limit it's brute-forceable (guess DASHBOARD_TOKEN). Runs
@@ -99,7 +101,13 @@ function safeTokenEqual(presented, secret) {
 // path below is left byte-for-byte unchanged when the flag is OFF, so all existing
 // (~1104) personal tests are unaffected.
 function checkDash(req, res, next) {
-  if (getCapabilities().multiUser) return checkDashSession(req, res, next);
+  const caps = getCapabilities();
+  // personalAuth (2026-07-25): a personal deployment with real accounts turned on uses the
+  // SAME session mechanics as business (checkDashSession/scopeForUser already handle 'owner'
+  // — see lib/auth.js). Deliberately checked as its own branch, not folded into multiUser's
+  // condition, so it's obvious at a glance this does NOT open the business route surface —
+  // routes/branches.js etc. still gate on `caps.multiUser` alone, untouched.
+  if (caps.multiUser || caps.personalAuth) return checkDashSession(req, res, next);
   if (!cfg.DASHBOARD_TOKEN) {
     if (cfg.AUTH_REQUIRED) {
       return res.status(500).json({ error: 'server misconfigured: DASHBOARD_TOKEN is required in production' });
@@ -178,10 +186,19 @@ async function patchExpenseStaff(id, branchId, staffUserId) {
 // row up and require it to be on their branch BEFORE any write (PATCH/DELETE) happens.
 async function canTouchExpense(req, id) {
   const scope = req.scope;
-  if (!scope || scope.role !== 'clerk') return { ok: true };
+  if (!scope || (scope.role !== 'clerk' && scope.role !== 'guest')) return { ok: true };
   const rows = await sbSelect('expenses', { eq: { id } });
   const row = rows[0];
   if (!row) return { ok: false, code: 404, error: 'expense not found' };
+  if (scope.role === 'guest') {
+    // Guest Mode (2026-07-28): a guest may only touch their OWN tagged rows — never a real
+    // account's expense, never another guest's. The single choke point every write route
+    // below (PATCH/DELETE/restore/permanent-delete) already goes through.
+    if (String(row.owner_user_id || '') !== String(scope.user_id)) {
+      return { ok: false, code: 403, error: 'not your receipt' };
+    }
+    return { ok: true };
+  }
   if (String(row.branch_id == null ? '' : row.branch_id) !== String(scope.branch_id)) {
     return { ok: false, code: 403, error: 'not your branch' };
   }
@@ -194,7 +211,7 @@ module.exports = function mountExpenses(app) {
     try {
       // scope (issue #131): the DB layer hard-filters a clerk to their own branch; clerkVisible
       // stays as the in-memory belt (defense-in-depth). Admin/personal (no scope) = no filter.
-      const rows = await sbSelect('expenses', { extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 2000, scope: req.scope });
+      const rows = await sbSelect('expenses', { extra: mergeExtra('deleted_at=is.null', guestVisibilityExtra(req.scope)), order: 'created_at.desc', limit: 2000, scope: req.scope });
       res.json(clerkVisible(rows, req.scope));
     } catch (e) { console.error('[api/expenses]', e.message); res.status(502).json({ error: 'load failed' }); }
   });
@@ -214,6 +231,22 @@ module.exports = function mountExpenses(app) {
     const body = clean.body;
     if (req.user && req.user.branch_id) body.branch_id = req.user.branch_id;
     if (req.user && req.user.company_id) body.company_id = req.user.company_id;
+    // Guest Mode (2026-07-28): manual entry bypasses assembleExpense entirely (the ONLY
+    // OCR-path choke point that cap-checks/tags — see lib/ocr.js), so it needs its own
+    // identical check. Tag BEFORE the cap check would matter for a race, but a single
+    // request is inherently serial here — count-then-tag is correct.
+    if (req.scope && req.scope.role === 'guest') {
+      try {
+        const used = await countGuestExpenses(req.scope.user_id);
+        if (used >= GUEST_RECEIPT_CAP) {
+          return res.status(403).json({ error: 'guest_cap_reached', message: 'You\'ve used all ' + GUEST_RECEIPT_CAP + ' free trial receipts. Sign up to keep going.' });
+        }
+      } catch (e) {
+        console.error('[create expense guest cap]', e.message);
+        return res.status(502).json({ error: 'create failed' });
+      }
+      body.owner_user_id = req.scope.user_id;
+    }
     try {
       const row = await sbInsertReturning('expenses', body, req.scope);
       if (!row) return res.status(502).json({ error: 'create failed' });
@@ -261,7 +294,7 @@ module.exports = function mountExpenses(app) {
   app.get('/api/expenses/deleted', checkDash, async (req, res) => {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
-      const rows = await sbSelect('expenses', { extra: 'deleted_at=not.is.null', order: 'deleted_at.desc', limit: 500, scope: req.scope });
+      const rows = await sbSelect('expenses', { extra: mergeExtra('deleted_at=not.is.null', guestVisibilityExtra(req.scope)), order: 'deleted_at.desc', limit: 500, scope: req.scope });
       res.json(clerkVisible(rows, req.scope));
     } catch (e) { console.error('[api/expenses/deleted]', e.message); res.status(502).json({ error: 'load failed' }); }
   });
@@ -463,9 +496,44 @@ module.exports = function mountExpenses(app) {
       const spec = await getFieldSpec();
       if (spec && Array.isArray(spec.categories) && spec.categories.length) categories = spec.categories;
     } catch (e) { console.error('[api/config] getFieldSpec failed, using default categories:', e.message); }
+    // plan (2026-07-28): Free/Pro gate for personal accounts (users.plan — see schema.sql).
+    // OPTIONAL auth: this route is called before login exists (boot()'s very first /api/config,
+    // pre-token), so a missing/invalid bearer just means 'free' — never a 401 here, this route
+    // must stay reachable unauthenticated. KNOWN GAP: after login/signup completes within the
+    // SAME page load, app.js reuses the config fetched at boot (pre-token) rather than
+    // refetching — so `plan` can be stale-'free' for one page load even for a real Pro account.
+    // Zero practical impact today (no code path ever sets plan='pro' yet — Curlec isn't wired),
+    // but flagged here so it isn't missed once real billing goes live (a page reload always
+    // gets it right either way, since the token exists before that /api/config call).
+    let plan = 'free';
+    try {
+      const a = req.get('Authorization') || '';
+      const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
+      if (presented) {
+        const sess = await lookupSession(presented);
+        if (sess) {
+          const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
+          if (rows[0] && rows[0].plan === 'pro') plan = 'pro';
+        }
+      }
+    } catch (e) { console.error('[api/config] plan lookup failed, defaulting to free:', e.message); }
     res.json({
       auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories,
       multi_user: !!caps.multiUser,
+      plan,
+      // personal_auth (2026-07-25): tells the frontend to show the real signup/login flow
+      // (Onboarding's Create-account step) instead of the static token gate, for a personal
+      // deployment that has opted into real accounts. Independent of multi_user.
+      personal_auth: !!caps.personalAuth,
+      // guest_mode (2026-07-28): tells Landing whether to show "Continue as Guest". Only
+      // meaningful alongside personal_auth (see routes/guest.js's own gate) — exposed
+      // separately since Landing needs to know per-button, not just "personal deployment."
+      guest_mode: !!(caps.guestMode && caps.personalAuth),
+      // google_auth (2026-07-30): tells Login/Signup whether to wire the real "Continue
+      // with Google" button vs. show the honest "not available yet" fallback. Requires
+      // BOTH personalAuth (Google sign-in is a personal-owner concept, see routes/
+      // googleAuth.js) AND the GOOGLE_CLIENT_ID/SECRET env vars actually being set.
+      google_auth: !!(caps.personalAuth && googleAuth.isConfigured()),
       excel_lite_grid: !!caps.excelLiteGrid,
       branch_submission: !!caps.branchSubmission,
       payments_page: envFlag('CAP_PAYMENTS_PAGE', false),

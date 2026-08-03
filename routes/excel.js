@@ -14,6 +14,7 @@ const { cfg } = require('../lib/config');
 const { getCapabilities } = require('../lib/account'); // business-mode gate (multiUser)
 const storage = require('../lib/storage');         // namespace import so tests can stub fetchReceiptObject
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
+const { guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
 
 // Above this many receipted rows, embed thumbnails is skipped (links-only) to keep the file size
 // and export time sane; every receipted row still gets a full-res hyperlink either way.
@@ -34,7 +35,7 @@ module.exports = function mountExcel(app) {
       const rows = await supabase.sbSelect('expenses', {
         // status=neq.rejected: a rejected expense (#5 admin review queue) must
         // never appear in an exported ledger, matching the rule applied to #8.
-        extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.desc', limit: EXCEL_ROW_LIMIT,
+        extra: mergeExtra('deleted_at=is.null&status=neq.rejected', guestVisibilityExtra(req.scope)), order: 'expense_date.desc', limit: EXCEL_ROW_LIMIT,
         scope: req.scope, // #131: a clerk's export is branch-filtered at the DB layer
       });
       // Truncation reflects the raw DB row cap, NOT the post-date-filter count —

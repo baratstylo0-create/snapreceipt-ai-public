@@ -1,7 +1,7 @@
 {
   "name": "receipt-saas",
   "version": "0.1.0",
-  "description": "Receipt Analyser SaaS — Telegram bot OCR + expenses dashboard. Standalone, extracted from FrictionAI.",
+  "description": "SnapReceipt AI — Telegram bot OCR + expenses dashboard. Standalone, extracted from FrictionAI.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -18,7 +18,8 @@
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
-    "pdfkit": "^0.19.1"
+    "pdfkit": "^0.19.1",
+    "resend": "^6.18.0"
   },
   "overrides": {
     "uuid": "^11.1.1"

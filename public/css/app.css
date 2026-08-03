@@ -124,6 +124,16 @@ h1, h2, h3, h4,
   margin: 0 auto;
 }
 
+/* 2026-07-27 (Barat: "fit fully like how real saas app fit the page") — personal
+   accounts get a wider content column so it uses much more of a large monitor
+   instead of leaving big empty gutters. Scoped to body.personal-mode (set in
+   app.js's enterApp) — the shared business (Premala) dashboard's 1280px layout
+   is completely untouched. */
+body.personal-mode .app-header,
+body.personal-mode .app-main {
+  max-width: 1680px;
+}
+
 .app-modal[hidden] { display: none; }
 
 .app-modal {
@@ -198,6 +208,89 @@ body.theme-warm {
   --shadow: 24px 26px 54px rgba(120, 78, 28, 0.20);
 }
 
+/* Ocean theme (4th option, 2026-07-27 Barat request): a blue/white palette,
+   ADDITIVE like Warm above — only the base UI + ambient tokens are overridden
+   (same reasoning as Warm's comment: a light-luminance background like :root's,
+   so the pie-chart/status colours tuned for :root already have enough contrast
+   here). Completely separate from :root/theme-dark/theme-warm, which stay
+   byte-for-byte unchanged — this carries zero risk to the shared business
+   dashboard's look, since it's an opt-in choice, never a default swap. */
+body.theme-ocean {
+  --bg: #eef4fb;
+  --bg-2: #e4edf9;
+  --panel: #ffffff;
+  --panel-shadow: 0 9px 22px rgba(37, 99, 235, 0.10);
+  --line: rgba(37, 99, 235, 0.14);
+  --line-2: rgba(37, 99, 235, 0.24);
+  --txt: #16283e;
+  --txt-soft: #4a6178;
+  --muted: #8a9bab;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-contrast: #ffffff;
+
+  /* 2026-07-27 (Barat: "make the main UI fully consistent" — the rust/brown
+     --clay danger colour, tuned for the moss-green Treehouse palette, clashed
+     next to blue). A clean modern red instead — still unmistakably "danger"
+     (Log out, delete confirmations, failed uploads), just not earthy-brown.
+     moss/teal/honey/bark/sage/indigo/gold/rust/plum are deliberately UNCHANGED
+     — those encode category identity in Activity/donut pills, not UI chrome,
+     and need to stay visually distinct from each other, not from --accent. */
+  --clay: #dc2626; --clay-bg: rgba(220, 38, 38, 0.12);
+
+  --glow-top: rgba(37, 99, 235, 0.14);
+  --glow-warm: rgba(37, 99, 235, 0.08);
+  --hill: rgba(37, 99, 235, 0.08);
+  --shadow: 24px 26px 54px rgba(22, 40, 62, 0.14);
+}
+
+/* Ocean Dark (2026-07-27, Barat: "dark mode must be based on light theme colour"):
+   personal accounts' "Dark" option — a dark NAVY variant of Ocean above, not the
+   green-based theme-dark block (which stays exactly as-is for business, sharing
+   this file with the live Premala dashboard). Category pill/donut hues (--moss/
+   --teal/etc, --pie0-17) are copied verbatim from theme-dark — those are
+   brightened-for-dark-backgrounds variants that don't depend on the base hue, so
+   reusing them keeps one set of "what looks good on a dark panel" decisions
+   instead of two. */
+body.theme-ocean-dark {
+  --bg: #0d1420;
+  --bg-2: #101a2a;
+  --panel: #16233a;
+  --panel-shadow: 0 9px 24px rgba(0, 0, 0, 0.45);
+  --line: rgba(147, 197, 253, 0.14);
+  --line-2: rgba(147, 197, 253, 0.24);
+  --txt: #e6edf7;
+  --txt-soft: #9fb2c8;
+  --muted: #64758a;
+  --accent: #4f8cff;
+  --accent-strong: #6ea1ff;
+  --accent-contrast: #ffffff;
+
+  --moss: #88a266;  --moss-bg: rgba(136, 162, 102, 0.16);
+  --teal: #61998f;  --teal-bg: rgba(97, 153, 143, 0.16);
+  --honey: #d3ac64; --honey-bg: rgba(211, 172, 100, 0.16);
+  /* Modern red, not theme-dark's rust-brown — same reasoning as theme-ocean above. */
+  --clay: #f87171;  --clay-bg: rgba(248, 113, 113, 0.16);
+  --bark: #a9854f;  --bark-bg: rgba(169, 133, 79, 0.16);
+  --sage:   #a3c78a; --sage-bg:   rgba(163, 199, 138, 0.18);
+  --indigo: #8891c4; --indigo-bg: rgba(136, 145, 196, 0.18);
+  --gold:   #e6c862; --gold-bg:   rgba(230, 200, 98, 0.18);
+  --rust:   #d97e63; --rust-bg:   rgba(217, 126, 99, 0.18);
+  --plum:   #b285b8; --plum-bg:   rgba(178, 133, 184, 0.18);
+
+  --pie0: hsl(176, 70%, 62%); --pie1: hsl(191, 65%, 68%); --pie2: hsl(206, 60%, 70%);
+  --pie3: hsl(221, 55%, 68%); --pie4: hsl(236, 60%, 66%); --pie5: hsl(251, 68%, 66%);
+  --pie6: hsl(266, 70%, 67%); --pie7: hsl(281, 80%, 64%); --pie8: hsl(296, 85%, 60%);
+  --pie9: hsl(311, 70%, 52%); --pie10: hsl(326, 66%, 64%); --pie11: hsl(341, 62%, 67%);
+  --pie12: hsl(356, 58%, 69%); --pie13: hsl(11, 72%, 65%); --pie14: hsl(26, 78%, 62%);
+  --pie15: hsl(41, 84%, 59%); --pie16: hsl(56, 68%, 66%); --pie17: hsl(71, 74%, 63%);
+
+  --glow-top: rgba(79, 140, 255, 0.12);
+  --glow-warm: rgba(79, 140, 255, 0.06);
+  --hill: rgba(79, 140, 255, 0.08);
+  --shadow: 24px 26px 58px rgba(0, 0, 0, 0.55);
+}
+
 /* --- top nav: a floating rounded bar, dark "pill" for the active section --- */
 .app-header { padding: 20px 24px 8px; max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 
@@ -260,6 +353,10 @@ body.theme-warm {
   transition: color 0.15s, border-color 0.15s, transform 0.15s;
 }
 .icon-btn:hover { color: var(--txt); border-color: var(--accent); transform: translateY(-1px); }
+/* 2026-07-27 (Barat: "increase the size") — Settings/Theme/Refresh's text-glyph
+   icons, bumped to match the logout icon's 22px. Its own class (not a change to
+   .icon-btn's base 16px) so every OTHER icon-btn elsewhere in the app is unaffected. */
+.icon-btn--lg { font-size: 22px; }
 
 /* ...sitting above a separate pill-shaped nav bar (links only now — brand/
    theme toggle moved into the block above). */
@@ -427,6 +524,35 @@ body.theme-warm {
   font-size: 22px;
   text-align: center;
 }
+/* Personal-mode only (opts.onRegister — see login.js's render() doc comment). */
+.login-register-row { margin: 4px 0 0; text-align: center; font-size: 13px; color: var(--txt-soft); }
+.login-register-link {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.login-register-link:hover { color: var(--accent-strong); }
+
+/* Personal-mode only (opts.onRegister — see login.js's render() doc comment). */
+.login-forgot-row { margin: 6px 0 0; text-align: right; }
+.login-forgot-link {
+  font: inherit;
+  font-size: 12px;
+  color: var(--txt-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.login-forgot-link:hover { color: var(--accent); }
+
 .session-chip {
   display: inline-flex;
   align-items: center;
@@ -438,6 +564,35 @@ body.theme-warm {
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* Guest Mode (2026-07-28): persistent, non-dismissible reminder across every view — reuses
+   --accent (theme-aware, already correct in every personal theme) rather than --clay (danger)
+   since this is informational, not a warning. */
+.guest-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink);
+}
+.guest-banner-btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 14px;
+  background: var(--accent);
+  color: #fff;
+}
+.guest-banner-btn:hover { opacity: .9; }
 
 .app-error {
   max-width: 480px;
@@ -676,7 +831,8 @@ body.theme-dark .ov-branch-filter {
 }
 .ov-segment-btn:hover { color: var(--txt); }
 .ov-segment-btn.is-active { color: var(--accent-contrast); background: var(--txt); }
-body.theme-dark .ov-segment-btn.is-active { color: var(--bg); }
+body.theme-dark .ov-segment-btn.is-active,
+body.theme-ocean-dark .ov-segment-btn.is-active { color: var(--bg); }
 .ov-segment-panel[hidden] { display: none; }
 
 .ov-cell-spend   { grid-area: spend; }
@@ -1029,7 +1185,8 @@ body.theme-dark .ov-segment-btn.is-active { color: var(--bg); }
   background: var(--txt);
   border-color: var(--txt);
 }
-body.theme-dark .act-view-btn.is-active { color: var(--bg); }
+body.theme-dark .act-view-btn.is-active,
+body.theme-ocean-dark .act-view-btn.is-active { color: var(--bg); }
 
 .act-table {
   width: 100%;
@@ -1630,7 +1787,8 @@ body.theme-dark .act-view-btn.is-active { color: var(--bg); }
   transition: background 0.15s, color 0.15s;
 }
 .up-mode-btn.is-active { background: var(--accent); color: #fff; }
-body.theme-dark .up-mode-btn.is-active { color: var(--bg); }
+body.theme-dark .up-mode-btn.is-active,
+body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
 
 .up-file-section { display: flex; flex-direction: column; gap: 14px; }
 
@@ -2417,6 +2575,17 @@ body.theme-dark .up-mode-btn.is-active { color: var(--bg); }
 }
 .set-privacy-text { font-size: 12.5px; color: var(--txt-soft); line-height: 1.7; margin: 8px 0 0; }
 
+/* Currency reconversion banner + Plan & billing (preview, 2026-07-25 — see plan file) */
+.set-currency-banner { font-size: 12.5px; margin: 0 0 8px; }
+.set-usage { padding: 8px 0 14px; }
+.set-usage-track { width: 100%; height: 8px; border-radius: 999px; background: var(--line-2); overflow: hidden; }
+.set-usage-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.set-usage-label { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.set-upgrade-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 4px; }
+.set-upgrade-panel[hidden] { display: none; }
+.set-upgrade-row { display: flex; align-items: center; gap: 10px; }
+.set-upgrade-status { font-size: 12px; }
+
 .set-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
 .set-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .set-btn--danger { background: var(--clay); color: #fff; border-color: var(--clay); }
@@ -2686,6 +2855,32 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 .ledger-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .ledger-btn--ghost { background: var(--panel); color: var(--muted); }
 .ledger-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+/* Pro-gated export button (2026-07-28) — visually "light"/deemphasized, not truly disabled
+   (still clickable — opens the upgrade prompt, see grid.js's showExportPdfPaywall). */
+.ledger-btn--locked { opacity: 0.55; border-style: dashed; }
+.ledger-btn--locked:hover { opacity: 0.85; }
+
+/* Export PDF paywall (2026-07-28) — same centered-overlay convention as activity.js's
+   receipt drawer / team.js's credential panel: fixed backdrop, auto-margin centered card. */
+.ledger-paywall-host {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(22, 26, 18, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.ledger-paywall-card {
+  width: 100%; max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow, var(--panel-shadow));
+  padding: 28px 24px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
+}
+.ledger-paywall-badge { font-size: 34px; line-height: 1; }
+.ledger-paywall-title { margin: 0; font-family: var(--font-display); font-size: 19px; color: var(--txt); }
+.ledger-paywall-sub { margin: 0; color: var(--txt-soft); font-size: 14px; line-height: 1.5; }
+.ledger-paywall-actions { display: flex; gap: 10px; margin-top: 10px; width: 100%; }
+.ledger-paywall-actions .ledger-btn { flex: 1; }
 
 .ledger-search-row { display: flex; }
 .ledger-search {

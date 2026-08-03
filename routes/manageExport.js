@@ -10,24 +10,38 @@ const supabase = require('../lib/supabase');
 const templates = require('../lib/templates');
 const storage = require('../lib/storage');
 const { cfg } = require('../lib/config');
+const { getCapabilities } = require('../lib/account'); // business-mode gate (multiUser), QA 2026-07-30
 const { CATEGORIES } = require('../lib/categorize');
-const { buildWorkbook } = require('../lib/excel');
+const { buildWorkbook, receiptTypeLabel } = require('../lib/excel');
 const { buildStatementModel } = require('../lib/statement');
 const { statementToPdf } = require('../lib/statementPdf');
 const { checkDash, dashOrigin } = require('./expenses');
+const { guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
 
 const EXPORT_ROW_LIMIT = 10000;
-const EXPORT_COLUMNS = [
-  { key: 'expense_date', label: 'Date' },
-  { key: 'merchant', label: 'Merchant' },
-  { key: 'amount', label: 'Amount' },
-  { key: 'currency', label: 'Currency' },
-  { key: 'category', label: 'Category' },
-  { key: 'branch', label: 'Branch' },
-  { key: 'staff', label: 'Staff' },
-  { key: 'payment_status', label: 'Status' },
-  { key: 'receipt_url', label: 'Receipt URL' },
-];
+const PERSONAL_TITLE = 'EXPENSES RECORD';
+
+// getExportColumns(business) — Branch/Staff only make sense for a business account (QA
+// 2026-07-30: "NO NEED STAFF COLUM FOR PERSONAL DASHBOARD" — Branch has the identical
+// reasoning, both empty/meaningless on a personal export, fixed together). A separate
+// "Receipt Type" column (Photo vs PDF/E-Bill, see lib/excel.js's receiptTypeLabel) sits
+// alongside the existing Receipt URL link rather than replacing it, so the link still works.
+function getExportColumns(business) {
+  const cols = [
+    { key: 'expense_date', label: 'Date' },
+    { key: 'merchant', label: 'Merchant' },
+    { key: 'amount', label: 'Amount' },
+    { key: 'currency', label: 'Currency' },
+    { key: 'category', label: 'Category' },
+  ];
+  if (business) cols.push({ key: 'branch', label: 'Branch' }, { key: 'staff', label: 'Staff' });
+  cols.push(
+    { key: 'payment_status', label: 'Status' },
+    { key: 'receipt_type', label: 'Receipt Type' },
+    { key: 'receipt_url', label: 'Receipt URL' },
+  );
+  return cols;
+}
 
 function receiptLink(row) {
   if (!row || !row.id || (!row.receipt_url && !row.receipt_file_id)) return '';
@@ -51,14 +65,16 @@ function rowValue(row, key, maps) {
     const id = row.staff_user_id;
     return id == null || id === '' ? '' : (maps.staffNames[id] || String(id));
   }
+  if (key === 'receipt_type') return row.receipt_url ? receiptTypeLabel(row.receipt_url) : '';
   if (key === 'receipt_url') return receiptLink(row);
   return row[key];
 }
 
-function rowsToCsv(rows, maps) {
-  const header = EXPORT_COLUMNS.map((c) => csvValue(c.label)).join(',');
+function rowsToCsv(rows, maps, business) {
+  const columns = getExportColumns(!!business);
+  const header = columns.map((c) => csvValue(c.label)).join(',');
   const lines = (Array.isArray(rows) ? rows : []).map((row) => (
-    EXPORT_COLUMNS.map((c) => csvValue(rowValue(row, c.key, maps))).join(',')
+    columns.map((c) => csvValue(rowValue(row, c.key, maps))).join(',')
   ));
   return [header].concat(lines).join('\r\n');
 }
@@ -89,7 +105,7 @@ async function lookupNames() {
 
 async function scopedRowsForIds(ids, scope) {
   const all = await supabase.sbSelect('expenses', {
-    extra: 'deleted_at=is.null&status=neq.rejected',
+    extra: mergeExtra('deleted_at=is.null&status=neq.rejected', guestVisibilityExtra(scope)),
     order: 'created_at.desc',
     limit: EXPORT_ROW_LIMIT,
     scope,
@@ -122,6 +138,10 @@ module.exports = function mountManageExport(app) {
     if (ids.length > EXPORT_ROW_LIMIT) return res.status(413).json({ error: 'too many rows' });
 
     try {
+      // business (QA 2026-07-30): gates Branch/Staff columns + the "Petty Cash" title below —
+      // a personal account gets none of the business-only chrome, same reasoning as the
+      // free-tier cap's own role checks elsewhere in this codebase.
+      const business = getCapabilities().multiUser;
       const rows = await scopedRowsForIds(ids, req.scope);
       if (!rows.length) return res.status(400).json({ error: 'no exportable rows' });
       const [fieldSpec, maps] = await Promise.all([templates.getFieldSpec(), lookupNames()]);
@@ -133,7 +153,7 @@ module.exports = function mountManageExport(app) {
       }
 
       if (format === 'csv') {
-        const csv = rowsToCsv(rows, maps);
+        const csv = rowsToCsv(rows, maps, business);
         res.set('Content-Type', 'text/csv; charset=utf-8');
         res.set('Content-Disposition', 'attachment; filename="ledger-export.csv"');
         return res.send(csv);
@@ -144,7 +164,7 @@ module.exports = function mountManageExport(app) {
           rangeLabel,
           generatedAt: new Date().toISOString(),
           currency: cfg.DEFAULT_CURRENCY,
-          branchStaff: true,
+          branchStaff: business,
           branchNames: maps.branchNames,
           staffNames: maps.staffNames,
           categories: (fieldSpec && Array.isArray(fieldSpec.categories)) ? fieldSpec.categories : undefined,
@@ -161,12 +181,16 @@ module.exports = function mountManageExport(app) {
         ? fieldSpec.categories : CATEGORIES;
       const model = buildStatementModel({
         companyName: process.env.STATEMENT_COMPANY_NAME || 'Expense Evidence Pack',
+        title: business ? undefined : PERSONAL_TITLE,
+        showBranchLabel: business,
         branchLabel: branchLabel(rows, maps),
         preparedBy: '',
         period: rangeLabel,
         categories,
         currency: cfg.DEFAULT_CURRENCY,
-        showStaffColumn: true,
+        showStaffColumn: business,
+        showBranchColumn: business,
+        branchNames: maps.branchNames,
         balanceBf: 0,
         cashIn: [],
         expenses: rows,
@@ -192,5 +216,5 @@ module.exports = function mountManageExport(app) {
 
 module.exports.rowsToCsv = rowsToCsv;
 module.exports.receiptLink = receiptLink;
-module.exports.EXPORT_COLUMNS = EXPORT_COLUMNS;
+module.exports.getExportColumns = getExportColumns;
 module.exports.EXPORT_ROW_LIMIT = EXPORT_ROW_LIMIT;

@@ -53,12 +53,14 @@
   }
 
   // Read the active theme off <body> (matches app.js's applyTheme classes).
-  // 'warm'/'dark' when that class is present, else 'light'. Never throws.
+  // 'warm'/'dark'/'ocean' when that class is present, else 'light'. Never throws.
   function currentTheme() {
     try {
       if (typeof document === 'undefined' || !document.body) return 'light';
       if (document.body.classList.contains('theme-warm')) return 'warm';
+      if (document.body.classList.contains('theme-ocean-dark')) return 'ocean-dark';
       if (document.body.classList.contains('theme-dark')) return 'dark';
+      if (document.body.classList.contains('theme-ocean')) return 'ocean';
       return 'light';
     } catch (e) { return 'light'; }
   }
@@ -178,18 +180,27 @@
     rootEl.appendChild(acc.el);
 
     // --- Appearance (real: theme) ---
+    // 2026-07-27 (Barat: "only dark mode and light mode, remove other modes"):
+    // personal accounts get just two options — the blue/white palette (CSS class
+    // theme-ocean, but presented here simply as "Light" — that IS the personal
+    // brand now, matching Landing/Login/Onboarding) and Dark. Business (multiUser)
+    // is completely unchanged: the original three (Light/Warm/Dark) — this file
+    // is shared with the live Premala dashboard, which never asked for this.
+    var isPersonal = !!(opts.config && opts.config.personal_auth);
     var app = collapsible('Appearance', false);
     var themeSel = pick(
-      [['light', 'Light'], ['warm', 'Warm'], ['dark', 'Dark']],
+      isPersonal
+        ? [['ocean', 'Light'], ['ocean-dark', 'Dark']]
+        : [['light', 'Light'], ['warm', 'Warm'], ['dark', 'Dark']],
       currentTheme(),
       function (v) { if (typeof opts.setTheme === 'function') opts.setTheme(v); }
     );
     // Hook class so app.js can keep this dropdown in sync when the header's
-    // theme icon (a full 3-way cycle, not this dropdown) changes the theme —
+    // theme icon (a full cycle, not this dropdown) changes the theme —
     // this view is built once at boot and never re-rendered, so without this
     // the select would show a stale value after the icon is clicked.
     themeSel.classList.add('set-select--theme');
-    app.body.appendChild(setRow('Theme', 'Light, warm, or dark forest palette. Saved to this browser.', themeSel));
+    app.body.appendChild(setRow('Theme', isPersonal ? 'Light or dark. Saved to this browser.' : 'Light, warm, or dark forest. Saved to this browser.', themeSel));
     // Default page (real, wired to app.js's storedDefaultView/setDefaultView):
     // which view opens on a fresh launch. Options are whatever THIS boot's
     // section list actually is (opts.sections, business vs personal) — never
@@ -215,16 +226,108 @@
     rootEl.appendChild(agent.el);
 
     // --- Currency & display ---
+    // PREVIEW (2026-07-25): "Account currency" is planned to become real-editable
+    // (see plan file — new account_settings key + a background reconversion job
+    // that re-derives every receipt from its ORIGINAL amount using that receipt's
+    // own historical FX rate, never today's rate applied to an old purchase).
+    // Not built yet — this is a UI-only demo of the dropdown + the "in progress"
+    // banner, wired to opts.onCurrencyChange if the host supplies one, otherwise
+    // just simulates the flow locally so the design can be reviewed.
     var cur = collapsible('Currency & display', false);
-    cur.body.appendChild(setRow('Account currency', 'Set on the server; amounts are normalised to this.', valueChip(model.currency)));
+    var currentCurrency = model.currency;
+    var currencyBanner = el('p', 'set-currency-banner muted');
+    currencyBanner.hidden = true;
+    function simulateReconvert(newCur) {
+      currencyBanner.hidden = false;
+      Escape.setText(currencyBanner, 'Updating your numbers to ' + newCur + '… recalculating every receipt using its own historical exchange rate.');
+      var run = function () {
+        Escape.setText(currencyBanner, 'Done — all receipts now shown in ' + newCur + '.');
+        setTimeout(function () { currencyBanner.hidden = true; }, 3000);
+      };
+      if (typeof opts.onCurrencyChange === 'function') {
+        opts.onCurrencyChange(newCur).then(run).catch(function (err) {
+          Escape.setText(currencyBanner, (err && err.message) || 'Could not update currency. Please try again.');
+        });
+      } else {
+        setTimeout(run, 1200); // preview-only simulated delay
+      }
+    }
+    var currencySel = pick(
+      [['MYR', 'MYR — Malaysian Ringgit'], ['USD', 'USD — US Dollar'], ['SGD', 'SGD — Singapore Dollar'], ['EUR', 'EUR — Euro'], ['GBP', 'GBP — British Pound']],
+      currentCurrency,
+      function (v) { if (v !== currentCurrency) { currentCurrency = v; simulateReconvert(v); } }
+    );
+    cur.body.appendChild(setRow('Account currency', 'Every receipt is shown in this currency — changing it re-converts your full history, not just new receipts.', currencySel));
+    cur.body.appendChild(currencyBanner);
     cur.body.appendChild(setRow('Date format', 'How dates display across the dashboard.', pick([['iso', 'YYYY-MM-DD'], ['dmy', 'DD/MM/YYYY'], ['mdy', 'MMM D, YYYY']], 'iso'), true));
     rootEl.appendChild(cur.el);
 
-    // --- Capture & camera (concept) ---
-    var cap = collapsible('Capture & camera', false);
-    cap.body.appendChild(setRow('Camera capture on Upload', 'Let staff snap a receipt straight from the device camera.', toggle(true), true));
-    cap.body.appendChild(setRow('Auto-crop & enhance', 'Straighten and sharpen the photo before OCR.', toggle(true), true));
-    rootEl.appendChild(cap.el);
+    // --- Plan & billing (2026-07-28: `planName` is real — opts.config.plan comes from
+    // users.plan via /api/config, see routes/expenses.js; feeds the real Export PDF gate in
+    // grid.js. 2026-07-30: the Upgrade buttons below are now real too — POST
+    // /api/billing/checkout (routes/billing.js) creates a HitPay recurring-billing
+    // subscription and returns a hosted checkout URL to redirect to. Usage/receipt-count
+    // numbers below are STILL a mock placeholder — no per-month counter UI exists yet;
+    // separate from the real enforcement, which already runs server-side (lib/billing.js).) ---
+    var billing = collapsible('Plan & billing', false);
+    var planName = (opts.config && opts.config.plan === 'pro') ? 'Pro' : 'Free';
+    var used = (opts.plan && opts.plan.receiptsUsed != null) ? opts.plan.receiptsUsed : 14;
+    var limit = (opts.plan && opts.plan.receiptsLimit != null) ? opts.plan.receiptsLimit : 20;
+    billing.body.appendChild(setRow('Current plan', 'Free plan limits: 20 receipts/month, 1 photo at a time.', valueChip(planName)));
+    var usageWrap = el('div', 'set-usage');
+    var usageBar = el('div', 'set-usage-track');
+    var usageFill = el('div', 'set-usage-fill');
+    usageFill.style.width = Math.min(100, Math.round((used / limit) * 100)) + '%';
+    usageBar.appendChild(usageFill);
+    usageWrap.appendChild(usageBar);
+    usageWrap.appendChild(text('span', 'set-usage-label', used + ' / ' + limit + ' receipts used this month'));
+    billing.body.appendChild(usageWrap);
+    var upgradePanel = el('div', 'set-upgrade-panel');
+    upgradePanel.hidden = true;
+    var upgradeBtn = el('button', 'set-btn set-btn--primary');
+    Escape.setText(upgradeBtn, planName === 'Pro' ? 'Manage plan' : 'Upgrade to Pro');
+    upgradeBtn.addEventListener('click', function () { upgradePanel.hidden = !upgradePanel.hidden; });
+    billing.body.appendChild(setRow('Upgrade', 'RM 12.90/month or RM 99/year — unlimited receipts, priority processing.', upgradeBtn));
+    // Billing cycle choice — payment METHOD (FPX/card/etc.) is chosen on HitPay's own hosted
+    // checkout page, not here, so this only needs to ask monthly vs yearly.
+    [['Monthly — RM 12.90', 'monthly'], ['Yearly — RM 99 (save ~36%)', 'yearly']].forEach(function (pair) {
+      var b = el('button', 'set-btn set-btn--ghost');
+      Escape.setText(b, pair[0]);
+      var status = text('span', 'set-upgrade-status muted', '');
+      b.addEventListener('click', function () {
+        if (planName === 'Pro') {
+          Escape.setText(status, 'You\'re already on Pro.');
+          return;
+        }
+        if (!Api || typeof Api.apiFetch !== 'function') {
+          Escape.setText(status, 'Checkout isn\'t available right now.');
+          return;
+        }
+        b.disabled = true;
+        Escape.setText(status, 'Opening checkout…');
+        Api.apiFetch('/api/billing/checkout', { method: 'POST', body: { billingCycle: pair[1] } })
+          .then(function (res) {
+            if (res && res.checkoutUrl) {
+              window.location.href = res.checkoutUrl;
+            } else {
+              b.disabled = false;
+              Escape.setText(status, (res && res.message) || 'Could not start checkout.');
+            }
+          })
+          .catch(function (err) {
+            b.disabled = false;
+            Escape.setText(status, (err && err.body && err.body.message) || 'Could not start checkout. Please try again.');
+          });
+      });
+      var row = el('div', 'set-upgrade-row');
+      row.appendChild(b);
+      row.appendChild(status);
+      upgradePanel.appendChild(row);
+    });
+    billing.body.appendChild(upgradePanel);
+    rootEl.appendChild(billing.el);
+
+    function text(tag, className, value) { var n = el(tag, className); Escape.setText(n, value); return n; }
 
     // --- Notifications (concept) ---
     var noti = collapsible('Notifications', false);

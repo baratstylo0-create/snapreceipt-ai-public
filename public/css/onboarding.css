@@ -1,0 +1,296 @@
+/* onboarding.css — first-time "get connected" flow (Phase 0, design review).
+   Uses the same design tokens as app.css (--bg/--panel/--accent/--font-display
+   etc.) so it matches the Treehouse theme once merged in. Kept as its own file
+   during design review; fold into app.css once the look is approved. */
+
+/* Onboarding now carries the SAME blue/white identity as the Landing screen
+   in front of it (2026-07-27, Barat: "why here still green... theme change
+   overall same theme") — overrides the shared app.css tokens only while body
+   has .onboard-mode, so the dashboard's own Light/Warm/Dark/Ocean theme
+   picker (a separate, later concern for AFTER login) is untouched. */
+body.onboard-mode {
+  --bg: #f4f5f7;
+  --bg-2: #eceef1;
+  --panel: #ffffff;
+  --txt: #12181f;
+  --txt-soft: #5b6673;
+  --muted: #8a94a1;
+  --line: rgba(18, 24, 31, 0.12);
+  --accent: #2f6fed;
+  --accent-strong: #2559c9;
+  --accent-contrast: #ffffff;
+  --moss-bg: #e8f0ff;
+  --rust: #d64545;
+}
+body.onboard-mode::before, body.onboard-mode::after { display: none; }
+
+.onboard-root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.onboard-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow, var(--panel-shadow));
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+}
+
+.onboard-dots { display: flex; gap: 6px; margin-bottom: 18px; }
+.onboard-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--line); }
+.onboard-dot.is-active { background: var(--accent); width: 18px; border-radius: 999px; transition: width .2s ease; }
+
+.onboard-step { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
+/* BUG (2026-07-27, found while testing resetpassword.js's request/done toggle): same class
+   of bug already fixed once in app.css's .up-file-section/.up-manual-section (2026-07-14) —
+   .onboard-step's own `display: flex` has the SAME specificity as the browser's default
+   `[hidden] { display: none }` UA rule, and this stylesheet loads after the UA sheet, so a
+   plain `el.hidden = true` on an .onboard-step silently lost every time (both the request
+   form and the "Check your email" confirmation showed at once). Same fix: a compound
+   selector (class + [hidden]) always wins regardless of declaration order. */
+.onboard-step[hidden] { display: none; }
+
+.onboard-badge { font-size: 40px; line-height: 1; margin-bottom: 4px; }
+
+.onboard-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--txt);
+}
+.onboard-title--sm { font-size: 20px; }
+
+.onboard-sub { margin: 0 0 6px; color: var(--txt-soft); font-size: 14px; line-height: 1.5; max-width: 320px; }
+
+.onboard-steps-list {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.onboard-steps-item { display: flex; align-items: center; gap: 12px; }
+.onboard-steps-num {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: 999px;
+  background: var(--moss-bg);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.onboard-steps-label { font-size: 14px; color: var(--txt); }
+
+.onboard-btn {
+  font: inherit;
+  padding: 12px 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  box-sizing: border-box;
+  text-decoration: none;
+  display: inline-block;
+}
+.onboard-btn--primary { background: var(--accent); color: var(--accent-contrast); font-weight: 700; }
+.onboard-btn--primary:hover { background: var(--accent-strong); }
+
+.onboard-telegram-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+.onboard-btn--google {
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid var(--line);
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.onboard-btn--google:hover { background: #f8f8f8; }
+.onboard-google-icon { display: inline-flex; line-height: 0; }
+
+/* Guest Mode (2026-07-28) — a small, lower-emphasis box directly under Google, distinct in
+   both size and weight from the full-width primary/Google buttons above it. */
+.onboard-btn--guest {
+  width: auto;
+  margin: 8px auto 0;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.onboard-btn--guest:hover { color: var(--txt); border-color: var(--accent); }
+
+.onboard-btn--secondary {
+  background: transparent;
+  color: var(--txt);
+  border: 1px solid var(--line);
+  font-weight: 700;
+}
+.onboard-btn--secondary:hover { border-color: var(--muted); }
+
+/* Guest Mode explainer popup — a small overlay (this app has no shared modal host; every
+   component that needs one builds its own, same as grid.js's Export-PDF paywall). */
+.onboard-guest-explainer-host {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 20, 27, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.onboard-guest-explainer-card {
+  background: var(--panel);
+  border-radius: var(--radius, 14px);
+  padding: 28px 26px;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 24px 60px -20px rgba(15, 20, 27, 0.45);
+  text-align: center;
+}
+.onboard-guest-explainer-badge { font-size: 32px; line-height: 1; margin-bottom: 6px; }
+.onboard-guest-explainer-title { margin: 0 0 14px; font-size: 20px; font-weight: 800; color: var(--txt); }
+.onboard-guest-explainer-list {
+  text-align: left;
+  margin: 0 0 20px;
+  padding-left: 20px;
+  color: var(--txt);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.onboard-guest-explainer-list li { margin-bottom: 8px; }
+.onboard-guest-explainer-list li:last-child { margin-bottom: 0; }
+.onboard-guest-explainer-actions { display: flex; gap: 10px; }
+.onboard-guest-explainer-actions .onboard-btn { width: auto; flex: 1; }
+
+.onboard-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.onboard-divider::before, .onboard-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.onboard-bot-chip {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--txt-soft);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin-top: 14px;
+}
+
+.onboard-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--txt-soft);
+}
+.onboard-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: var(--honey);
+  animation: onboard-pulse 1.2s ease-in-out infinite;
+}
+.onboard-status.is-done { background: var(--moss-bg); color: var(--accent); }
+.onboard-status-dot.is-success { animation: none; background: var(--accent); }
+@keyframes onboard-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(0.7); }
+}
+
+.onboard-result {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg);
+}
+.onboard-result-merchant { font-weight: 700; color: var(--txt); }
+.onboard-result-amount { font-family: var(--font-display); font-size: 20px; color: var(--accent); }
+
+.onboard-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  margin-top: 4px;
+}
+.onboard-label { font-size: 12px; font-weight: 700; color: var(--txt-soft); margin-top: 6px; }
+.onboard-input {
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--txt);
+  width: 100%;
+  box-sizing: border-box;
+}
+.onboard-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.onboard-error { color: var(--rust, #9c4f3a); font-size: 13px; margin: 2px 0; }
+.onboard-form .onboard-btn { margin-top: 10px; }
+
+.onboard-skip {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-top: 4px;
+}
+.onboard-skip:hover { color: var(--txt); }
+
+.onboard-tabs-list { width: 100%; display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px; text-align: left; }
+.onboard-tabs-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.onboard-tabs-name { font-weight: 700; color: var(--txt); font-size: 13px; white-space: nowrap; }
+.onboard-tabs-desc { color: var(--muted); font-size: 12px; text-align: right; }

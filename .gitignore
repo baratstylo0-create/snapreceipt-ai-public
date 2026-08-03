@@ -1,6 +1,7 @@
 # Secrets
 .env
 *.env
+.env.personal
 !.env.example
 # Auto-provisioned credential-encryption key (lib/credCrypto ensureCredKey) — server-only,
 # must never be committed. Survives redeploys on the box; regenerating it makes existing

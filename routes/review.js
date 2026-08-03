@@ -5,6 +5,7 @@ const express = require('express');
 const supabase = require('../lib/supabase');   // namespace so tests can stub sbSelect/sbUpdate
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
 const { resolveDecision, canRoleDecide, buildReviewAudit } = require('../lib/reviewDecision');
+const { guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
 
 // Phase 4 (ADR-021): how long a flagged item waits for its branch clerk before the admin may
 // force-decide it (the safety valve). Business mode only; personal mode never consults it.
@@ -22,7 +23,7 @@ module.exports = function mountReview(app) {
     res.set('Access-Control-Allow-Origin', dashOrigin());
     try {
       const rows = await supabase.sbSelect('expenses', {
-        eq: { status: 'needs_review' }, extra: 'deleted_at=is.null', order: 'created_at.desc', limit: 500,
+        eq: { status: 'needs_review' }, extra: mergeExtra('deleted_at=is.null', guestVisibilityExtra(req.scope)), order: 'created_at.desc', limit: 500,
         scope: req.scope, // #131: clerk queue hard-filtered to their branch at the DB (the in-memory filter below is the belt)
       });
       const scope = req.scope;

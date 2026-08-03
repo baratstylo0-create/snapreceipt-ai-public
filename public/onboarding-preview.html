@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Onboarding preview — Receipt Analyser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,500&family=Nunito+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+  <link rel="stylesheet" href="css/onboarding.css" />
+</head>
+<body>
+  <!-- DESIGN-REVIEW ONLY. Not linked from index.html / app.js yet — mounts
+       Onboarding with a fake bot username and no live Api, so the "waiting for
+       receipt" step just sits idle (no backend needed to look at the screens).
+       A small dev toolbar below lets you jump between steps and simulate the
+       "first receipt arrived" moment without a real Telegram/Supabase setup. -->
+  <div id="onboard-mount"></div>
+
+  <div id="dev-toolbar" style="position:fixed;bottom:0;left:0;right:0;background:#20241d;color:#e6e1ce;font:13px/1.4 system-ui;padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;">
+    <strong style="opacity:.7">Design preview only —</strong>
+    <button id="btn-signup">Create account</button>
+    <button id="btn-welcome">Welcome</button>
+    <button id="btn-connect">Connect</button>
+    <button id="btn-simulate">Simulate receipt arriving</button>
+    <button id="btn-done">You're set</button>
+    <label style="opacity:.7">theme:
+      <select id="theme-pick">
+        <option value="">light</option>
+        <option value="theme-warm">warm</option>
+        <option value="theme-dark">dark</option>
+      </select>
+    </label>
+  </div>
+
+  <script src="js/escape.js"></script>
+  <script src="js/components/onboarding.js"></script>
+  <script>
+    (function () {
+      var mount = document.getElementById('onboard-mount');
+      var instance = null;
+
+      function boot() {
+        if (instance) instance.destroy();
+        instance = Onboarding.mount(mount, {
+          botUsername: 'Receiptreader56bot',
+          // Fake signup so the toolbar's "skip ahead" buttons can get past the
+          // hard gate without a real backend. In the real app this is a POST
+          // /api/signup call that actually creates the account.
+          onSignup: function (email, password) {
+            console.log('onSignup() fired (preview only, not persisted)', email);
+            return Promise.resolve({ bindToken: 'preview-demo-token' });
+          },
+          // No opts.Api -> the "waiting for receipt" poll silently no-ops,
+          // exactly like the real component behaves before wiring is live.
+          // DEMO ONLY: jumps to the mock-data dashboard (same server, "/") so the
+          // whole flow can be clicked through start to finish in one place. The
+          // real app.js would instead store the session and mount the dashboard
+          // in place, no page navigation.
+          onFinished: function () { window.location.href = '/'; },
+          onSkip: function () { console.log('onSkip() fired'); }
+        });
+      }
+      boot();
+
+      function fillAndSubmitSignup() {
+        var email = document.querySelector('.onboard-signup input[type=email]');
+        var pw = document.querySelector('.onboard-signup input[type=password]');
+        if (!email || !pw) return;
+        email.value = 'demo@example.com';
+        pw.value = 'previewpass123';
+        email.closest('form').requestSubmit();
+      }
+
+      document.getElementById('btn-signup').addEventListener('click', boot);
+      document.getElementById('btn-welcome').addEventListener('click', function () {
+        boot();
+        fillAndSubmitSignup();
+      });
+      document.getElementById('btn-connect').addEventListener('click', function () {
+        boot();
+        fillAndSubmitSignup();
+        setTimeout(function () { document.querySelector('.onboard-btn--primary').click(); }, 50);
+      });
+      document.getElementById('btn-done').addEventListener('click', function () {
+        boot();
+        fillAndSubmitSignup();
+        setTimeout(function () {
+          document.querySelector('.onboard-btn--primary').click(); // -> connect
+          setTimeout(function () {
+            var skip = document.querySelector('.onboard-skip');
+            if (skip) skip.click(); // -> done
+          }, 50);
+        }, 50);
+      });
+      document.getElementById('btn-simulate').addEventListener('click', function () {
+        boot();
+        fillAndSubmitSignup();
+        setTimeout(function () {
+        document.querySelector('.onboard-btn--primary').click(); // -> connect
+        setTimeout(function () {
+          // Fake the "first receipt landed" moment directly, bypassing the
+          // (inactive, since no Api is wired) poll — just to preview that state.
+          var status = document.querySelector('.onboard-status');
+          var dot = document.querySelector('.onboard-status-dot');
+          var statusText = document.querySelector('.onboard-status-text');
+          var result = document.querySelector('.onboard-result');
+          if (!status) return;
+          status.classList.add('is-done');
+          dot.classList.add('is-success');
+          statusText.textContent = 'Got it! Here is what came in:';
+          result.hidden = false;
+          result.innerHTML = '';
+          var m = document.createElement('div'); m.className = 'onboard-result-merchant'; m.textContent = 'Starbucks';
+          var a = document.createElement('div'); a.className = 'onboard-result-amount'; a.textContent = 'MYR 14.50';
+          var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'onboard-btn onboard-btn--primary'; btn.textContent = 'Continue';
+          btn.addEventListener('click', function () {
+            boot();
+            document.querySelector('.onboard-btn--primary').click();
+            setTimeout(function () { var s = document.querySelector('.onboard-skip'); if (s) s.click(); }, 50);
+          });
+          result.appendChild(m); result.appendChild(a); result.appendChild(btn);
+        }, 50);
+        }, 50);
+      });
+      document.getElementById('theme-pick').addEventListener('change', function (e) {
+        document.body.className = e.target.value;
+      });
+    })();
+  </script>
+</body>
+</html>

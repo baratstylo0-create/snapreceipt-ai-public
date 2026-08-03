@@ -5,8 +5,13 @@
 // separate top-level tabs. Sub-pages:
 //   1. "Template & Categories" — the field-template + category editors (components/templates.js).
 //   2. "Data editor (spreadsheet)" — the excel-lite editable grid (components/grid.js), formerly
-//      the standalone "Ledger" tab. Only present when the account's excelLiteGrid capability is on
-//      (per-client profile flag, exposed as config.excel_lite_grid).
+//      the standalone "Ledger" tab. Present in BOTH personal and business mode (Barat request,
+//      2026-07-24: personal should get the same spreadsheet editing experience) unless the
+//      account's excelLiteGrid capability is explicitly off (config.excel_lite_grid === false —
+//      the "missing/old config defaults ON" rule). grid.js itself hides the business-only pieces
+//      (Petty Cash Statement export, branch dropdown, submit-for-approval) when there's no
+//      session — those already 403 server-side for a personal account, so hiding them client-side
+//      isn't just cosmetic.
 //
 // This shell owns NONE of the sub-pages' logic — it just mounts each real component into its own
 // panel and toggles which panel is visible, lazy-loading a sub-page's data the first time it's
@@ -24,24 +29,27 @@
   // ---- pure logic (node-tested) ----------------------------------------------
 
   // subPagesFor(config, business) -> the ordered sub-page list for this account. The template
-  // editor is always present. The excel-lite Data editor appears only in BUSINESS mode (it needs
-  // the signed-in branch identity for scoping — same "business-only" positioning it had as the
-  // old Ledger tab) AND unless the excelLiteGrid capability is explicitly off (config
-  // .excel_lite_grid === false — the "missing/old config defaults ON" rule). Pure, never throws.
+  // editor is always present. The excel-lite Data editor is present for BOTH personal and business
+  // (2026-07-24: was business-only; Barat asked for the same spreadsheet editor in personal mode)
+  // unless the excelLiteGrid capability is explicitly off (config.excel_lite_grid === false — the
+  // "missing/old config defaults ON" rule). `business` is kept as a parameter (still used to decide
+  // what grid.js itself renders — the business-only Petty Cash Statement/submission pieces), not to
+  // gate whether the page exists at all. Pure, never throws.
   function subPagesFor(config, business) {
     var templateBuilderOff = !!(config && config.template_builder === false);
     var pages = [templateBuilderOff ? { id: 'category', label: 'Categories' } : { id: 'template', label: 'Template & Categories' }];
     var gridOff = !!(config && config.excel_lite_grid === false);
-    if (business && !gridOff) pages.push({ id: 'data', label: 'Data editor (spreadsheet)' });
+    if (!gridOff) pages.push({ id: 'data', label: 'Data editor (spreadsheet)' });
     return pages;
   }
 
   // defaultSubPage(pages) -> which sub-page Manage OPENS on (2026-07-11, Owner request: the Data
-  // editor spreadsheet should be the landing page for BOTH admin and clerk). Whenever the Data
-  // editor is present (business mode + excel_lite_grid not off — true for both roles), open on it;
-  // otherwise fall back to the first page (the template editor) — personal mode or grid-off, where
-  // no Data editor exists. This changes only the initial selection, NOT the dropdown order
-  // (subPagesFor still lists template first). Pure, never throws.
+  // editor spreadsheet should be the landing page for BOTH admin and clerk; 2026-07-24: now also
+  // personal, since the Data editor exists there too). Whenever the Data editor is present
+  // (excel_lite_grid not off), open on it; otherwise fall back to the first page (the template
+  // editor) — only when grid-off, since personal now always has a Data editor too. This changes
+  // only the initial selection, NOT the dropdown order (subPagesFor still lists template first).
+  // Pure, never throws.
   function defaultSubPage(pages) {
     var list = Array.isArray(pages) ? pages : [];
     for (var i = 0; i < list.length; i++) {
@@ -58,8 +66,10 @@
     var Templates = deps.Templates || (typeof root !== 'undefined' && root.Templates) || null;
     var Grid = deps.Grid || (typeof root !== 'undefined' && root.Grid) || null;
 
-    // Business mode = a signed-in session (deps.session) — same signal app.js uses for the nav.
-    var pages = subPagesFor(deps.config, !!deps.session);
+    // Business mode = a signed-in session that ISN'T a personal 'owner' account (2026-07-25:
+    // personal accounts now carry sessions too, so bare session truthiness is no longer the
+    // right signal — matches app.js's isBusinessSession helper / grid.js's own guard).
+    var pages = subPagesFor(deps.config, !!(deps.session && deps.session.role !== 'owner'));
 
     var shell = document.createElement('div');
     shell.className = 'manage-shell';

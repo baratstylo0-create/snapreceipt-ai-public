@@ -5,6 +5,7 @@ const { tgFileUrl: realTgFileUrl } = require('../lib/telegram');
 const { sbSelect: realSbSelect } = require('../lib/supabase');
 const { fetchReceiptObject: realFetchReceiptObject } = require('../lib/storage');
 const { checkDash, dashOrigin } = require('./expenses');
+const { guestVisibilityExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
 
 // Map a file extension to an image/pdf content-type; default to jpeg (harmless — the
 // browser sniffs anyway). Shared by both serve paths (Storage object + Telegram proxy).
@@ -55,7 +56,8 @@ module.exports = function mountReceipt(app, deps = {}) {
     try {
       const id = String(req.params.id || '').slice(0, 100);
       if (!id) return res.status(400).send('missing id');
-      const rows = await sbSelect('expenses', { eq: { id }, scope: req.scope }); // #131: a clerk can't fetch another branch's receipt
+      const extra = guestVisibilityExtra(req.scope);
+      const rows = await sbSelect('expenses', { eq: { id }, scope: req.scope, ...(extra ? { extra } : {}) }); // #131: a clerk can't fetch another branch's receipt; Guest Mode (2026-07-28): a guest can't fetch another account's receipt image either
       const row = rows && rows[0];
       if (!row) return res.status(404).send('not found');
       if (row.receipt_url) {

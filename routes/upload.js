@@ -7,6 +7,7 @@ const templates = require('../lib/templates');
 const pdf = require('../lib/pdf');
 const storage = require('../lib/storage');
 const { createRateLimiter } = require('../lib/ratelimit');
+const { checkFreeTierCap } = require('../lib/billing');
 
 const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
 
@@ -91,6 +92,21 @@ module.exports = function mountUpload(app, deps = {}) {
       if (images.length > MAX_IMAGES) return res.status(413).json({ error: 'too many images (max ' + MAX_IMAGES + ')' });
       if (typeof extractReceipts !== 'function') return res.status(503).json({ error: 'mass upload not available yet' });
 
+      // Free-tier monthly cap (2026-07-30): mirrors lib/bot.js's check — a real personal
+      // owner account (never business, never guest) on the 'free' plan is capped at 20
+      // receipts/month. Checked here, before any OCR work starts, same reasoning as the
+      // Telegram path: a capped account shouldn't pay for a Groq call it's about to be
+      // refused for. req.scope's 'owner' branch carries no user_id (scopeForUser's frozen
+      // contract only adds that for guest) — req.user.user_id (the session's own id) is
+      // present for every checkDash-authenticated request regardless of role, so that's
+      // the one to use here.
+      if (req.user && req.user.user_id && req.scope && req.scope.role === 'owner') {
+        const capCheck = await checkFreeTierCap(req.user.user_id);
+        if (capCheck.capped) {
+          return res.status(402).json({ error: 'free_tier_cap_reached', message: 'You\'ve used all 20 free receipts this month. Upgrade to Pro for unlimited receipts.' });
+        }
+      }
+
       const buffers = images.map(s => Buffer.from(stripDataUri(s), 'base64'));
 
       // Expand any PDF item into its rendered page images (a PDF page is just another
@@ -133,6 +149,10 @@ module.exports = function mountUpload(app, deps = {}) {
       // ADR-023 Phase 8: stamp the capturer's company beside their branch (multi-company clients),
       // from the same session source. Absent when the session carries no company (additive).
       if (req.user && req.user.company_id) meta.company_id = req.user.company_id;
+      // Guest Mode (2026-07-28): scopeForUser's guest branch is the only one that carries a
+      // user_id (lib/auth.js) — passed through so assembleExpense can tag + cap-check this
+      // upload exactly like the Telegram path (lib/bot.js's bindingMeta does the same).
+      if (req.scope && req.scope.role === 'guest') meta.owner_user_id = req.scope.user_id;
       // ADR-018: upload each image (a PDF is already rasterized to a page image here) to the
       // private `receipts` bucket and carry its object path per-image as `receipt_url`, so
       // assembleExpense stores a durable URL — the dashboard-upload path had NO image before.
@@ -150,8 +170,10 @@ module.exports = function mountUpload(app, deps = {}) {
       // the dashboard can show it too, plus the row id for a "View in Activity" link.
       const savedItems = [];
       const flaggedDetails = [];
+      let guestCappedCount = 0; // Guest Mode (2026-07-28)
       const captureAssemble = async (args) => {
         const result = await assembleExpense(args);
+        if (result && result.guestCapped) guestCappedCount += 1;
         if (result && result.expense && !result.skipped) {
           const e = result.expense;
           savedItems.push({
@@ -174,6 +196,7 @@ module.exports = function mountUpload(app, deps = {}) {
       }
       out.saved_items = savedItems;
       if (pagesTruncated) out.pages_truncated = true;
+      if (guestCappedCount > 0) out.guest_capped = true; // dashboard shows the sign-up prompt
       res.json(out);
     } catch (e) {
       console.error('[api/upload]', e && e.message);

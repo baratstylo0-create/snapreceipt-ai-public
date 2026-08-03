@@ -1,0 +1,200 @@
+/* landing-preview.css — DESIGN-REVIEW ONLY, see landing-preview.html's own comment.
+   External file (not an inline <style> block) because this server's CSP is
+   style-src 'self' (no 'unsafe-inline') — confirmed the hard way: the first version
+   of this preview used an inline <style> block and the CSP silently blocked all of
+   it, rendering as unstyled default HTML. */
+:root {
+  --ink: #101826;
+  --paper: #fbfaf7;
+  --paper-2: #f3f1ea;
+  --thermal: #6b7280;
+  --line: #e4e1d6;
+  --blue: #2563eb;
+  --blue-strong: #1d4ed8;
+  --mint: #10b981;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* --- nav --- */
+.nav {
+  background: var(--ink);
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-brand { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; font-size: 17px; }
+.nav-mark { width: 26px; height: 26px; border-radius: 6px; background: var(--blue); display: grid; place-items: center; font-size: 14px; }
+.nav-actions { display: flex; gap: 10px; }
+.nav-btn { font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; border-radius: 6px; padding: 8px 16px; }
+.nav-btn--login { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.3); }
+.nav-btn--register { background: transparent; color: #b9c2d4; border: none; }
+
+/* --- hero --- */
+.hero {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 88px 32px 64px;
+  display: flex;
+  align-items: center;
+  gap: 64px;
+  flex-wrap: wrap;
+}
+.hero-copy { flex: 1 1 420px; max-width: 480px; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: .06em;
+  color: var(--blue); text-transform: uppercase; margin-bottom: 18px;
+}
+.eyebrow::before { content: ''; width: 16px; height: 1px; background: var(--blue); }
+.hero-title {
+  margin: 0 0 18px;
+  font-size: 46px; line-height: 1.08; font-weight: 800; letter-spacing: -.02em;
+  color: var(--ink);
+}
+.hero-title em { font-style: normal; color: var(--blue); }
+.hero-sub { margin: 0 0 30px; color: var(--thermal); font-size: 16px; line-height: 1.6; }
+.cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn { font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; border-radius: 8px; padding: 13px 24px; }
+.btn--primary { background: var(--blue); color: #fff; border: none; }
+.btn--secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+
+/* --- Telegram chat window (2026-07-28: recreated from Barat's real screenshot of
+   the actual bot — dark header, avatar, bot name/subtitle, a sent receipt photo,
+   bot replies). This IS the signature element now — replaces the earlier abstract
+   bubble+arrow+receipt-card combo (one strong visual, not two competing ones). --- */
+.receipt-wrap { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; }
+.tg-window {
+  width: 320px;
+  background: #0e1621;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 60px -24px rgba(16, 24, 38, .45);
+}
+.tg-header {
+  background: #17212b;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}
+.tg-header-avatar {
+  width: 34px; height: 34px; border-radius: 999px; flex-shrink: 0;
+  background: linear-gradient(135deg, #ff9a52, #ef5d6a);
+  color: #fff; font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.tg-header-info { flex: 1; min-width: 0; }
+.tg-header-name { color: #fff; font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-header-sub { color: #7d8b99; font-size: 11.5px; margin-top: 1px; }
+.tg-header-icons { display: flex; gap: 14px; flex-shrink: 0; }
+
+.tg-body {
+  background: #0e1621;
+  background-image: radial-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px);
+  background-size: 16px 16px;
+  padding: 16px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tg-msg-row { display: flex; }
+.tg-msg-row--sent { justify-content: flex-end; }
+
+/* the "sent receipt photo" — drawn as a stylized receipt, not a real image (keeps
+   this an original illustration, not a copy of any real photographed receipt) */
+.tg-photo-mock {
+  width: 168px;
+  background: #f4f1ea;
+  border-radius: 12px 12px 4px 12px;
+  padding: 14px 12px 24px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, .4);
+}
+.tg-photo-line { height: 6px; background: #c9c2ae; border-radius: 2px; margin-bottom: 7px; }
+.tg-photo-line--total { height: 8px; background: #8a8267; margin-top: 3px; }
+.w-60 { width: 60%; } .w-70 { width: 70%; } .w-75 { width: 75%; }
+.w-80 { width: 80%; } .w-90 { width: 90%; }
+.tg-photo-corner {
+  position: absolute; left: 10px; bottom: 8px; width: 12px; height: 12px;
+  border-left: 2px solid rgba(0, 0, 0, .35); border-bottom: 2px solid rgba(0, 0, 0, .35);
+  border-radius: 0 0 0 3px;
+}
+.tg-photo-meta {
+  position: absolute; right: 10px; bottom: 8px;
+  font-size: 9.5px; color: #7a745f;
+  display: flex; align-items: center; gap: 3px;
+}
+
+/* the "analyze" animation (2026-07-28) — a scan-line sweeping down the sent photo,
+   looping, so the bot visibly "reads" it rather than the process being invisible. */
+.tg-scan-line {
+  position: absolute; left: 0; right: 0; height: 26px; top: -26px; z-index: 2;
+  background: linear-gradient(180deg, transparent, rgba(37, 99, 235, .22) 40%, rgba(37, 99, 235, .4) 50%, rgba(37, 99, 235, .22) 60%, transparent);
+  box-shadow: 0 0 14px 2px rgba(37, 99, 235, .35);
+  animation: tg-scan 3s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tg-scan {
+  0%  { top: -26px; }
+  55% { top: 100%; }
+  100% { top: 100%; }
+}
+
+/* "bot is typing" indicator — pairs with the scan-line so the analysis reads as
+   one continuous action: photo scans -> bot is composing -> reply lands. */
+.tg-typing {
+  background: #182533;
+  border-radius: 4px 14px 14px 14px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.tg-typing-dot { width: 6px; height: 6px; border-radius: 999px; background: #7d8b99; animation: tg-typing-bounce 1.2s ease-in-out infinite; }
+.tg-typing-dot:nth-child(2) { animation-delay: .15s; }
+.tg-typing-dot:nth-child(3) { animation-delay: .3s; }
+@keyframes tg-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* bot reply bubbles — incoming (left-aligned) */
+.tg-msg {
+  max-width: 230px;
+  background: #182533;
+  color: #dfe7ee;
+  border-radius: 4px 14px 14px 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tg-msg--success { border-left: 3px solid var(--mint); padding-left: 9px; }
+.tg-msg-icon { margin-right: 2px; }
+.tg-msg-time { font-size: 10px; color: #5b6b7a; margin-top: 6px; text-align: right; }
+
+.caption { text-align: center; font-size: 12px; color: var(--thermal); margin-top: 16px; }
+
+/* --- how it works --- */
+.steps { background: var(--paper-2); border-top: 1px solid var(--line); padding: 64px 32px; }
+.steps-title { max-width: 1120px; margin: 0 auto 32px; text-align: center; font-size: 22px; font-weight: 800; }
+.steps-list { max-width: 1120px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+.step-card { flex: 1 1 260px; max-width: 320px; background: var(--paper); border: 1px solid var(--line); padding: 20px; }
+.step-num { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--blue); font-size: 13px; margin-bottom: 10px; }
+.step-title { font-weight: 700; font-size: 15px; margin: 0 0 6px; }
+.step-desc { margin: 0; color: var(--thermal); font-size: 13px; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .hero { padding: 56px 20px; gap: 36px; }
+  .hero-title { font-size: 34px; }
+}

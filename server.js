@@ -1,5 +1,5 @@
 /**
- * Receipt Analyser SaaS — server entry (wiring only).
+ * SnapReceipt AI — server entry (wiring only).
  * All logic lives in lib/* and routes/*. See docs/ARCHITECTURE.md.
  */
 'use strict';
@@ -31,6 +31,10 @@ const mountUpload = require('./routes/upload'); // #7 mass upload
 const mountSettings = require('./routes/settings'); // per-account UI settings (category colours)
 const mountManageExport = require('./routes/manageExport'); // QA PR-F Manage/Data-editor exports (csv/xlsx/pdf-with-receipts)
 const mountMetrics = require('./routes/metrics'); // R2/C4 automation-impact metrics (Overview band)
+const mountGuest = require('./routes/guest'); // Guest Mode (2026-07-28) — /api/guest/start + /end (guestMode only)
+const mountBilling = require('./routes/billing'); // HitPay Free/Pro checkout (2026-07-30, personalAuth only)
+const mountHitpayWebhook = require('./routes/hitpayWebhook'); // HitPay payment status sync (2026-07-30, personalAuth only)
+const mountGoogleAuth = require('./routes/googleAuth'); // Google Sign-In (2026-07-30, personalAuth only)
 
 assertConfig();
 
@@ -77,6 +81,10 @@ mountUpload(app);
 mountSettings(app);
 mountManageExport(app);
 mountMetrics(app);
+mountGuest(app);
+mountBilling(app);
+mountHitpayWebhook(app);
+mountGoogleAuth(app);
 
 // Global error handler: body-parser (express.json/text) throws synchronously
 // on malformed input, before any route's own try/catch runs. Without this,

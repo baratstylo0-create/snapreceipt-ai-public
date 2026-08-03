@@ -174,7 +174,7 @@
     var titleWrap = document.createElement('div');
     var h1 = document.createElement('h1');
     h1.className = 'brand-title';
-    h1.textContent = business ? 'AutoReceipt Business' : 'AutoReceipt Dashboard (Personal)';
+    h1.textContent = business ? 'AutoReceipt Business' : 'Main Dashboard';
     var sub = document.createElement('div');
     sub.className = 'brand-sub';
     sub.textContent = business ? 'branches · staff · petty-cash, in one place' : 'snap a receipt · auto-extract · auto-categorize';
@@ -210,25 +210,33 @@
 
     var settingsBtn = document.createElement('button');
     settingsBtn.type = 'button';
-    settingsBtn.className = 'icon-btn';
+    // 2026-07-27 (Barat: "increase the size") — these three are plain text glyphs
+    // (Telegram's own icon above is already a properly-sized SVG); icon-btn--lg
+    // bumps just their font-size to match the logout icon's 22px, without
+    // touching the shared .icon-btn base size used by icon buttons elsewhere
+    // (Team/Templates/etc — business included, unaffected).
+    settingsBtn.className = 'icon-btn icon-btn--lg';
     settingsBtn.title = 'Settings';
     settingsBtn.setAttribute('aria-label', 'Settings');
     settingsBtn.textContent = '⚙';
     settingsBtn.addEventListener('click', function () { onSettings(); });
     actions.appendChild(settingsBtn);
 
+    // 2026-07-27: personal accounts only cycle Light(blue/white)/Dark now — see
+    // app.js's themeCycleFor(). Business keeps the original three-way label.
+    var themeLabel = opts.personalAuth ? 'Cycle theme (Light / Dark)' : 'Cycle theme (Light / Warm / Dark)';
     var themeBtn = document.createElement('button');
     themeBtn.type = 'button';
-    themeBtn.className = 'icon-btn';
-    themeBtn.title = 'Cycle theme (Light / Warm / Dark)';
-    themeBtn.setAttribute('aria-label', 'Cycle theme (Light / Warm / Dark)');
+    themeBtn.className = 'icon-btn icon-btn--lg';
+    themeBtn.title = themeLabel;
+    themeBtn.setAttribute('aria-label', themeLabel);
     themeBtn.textContent = '☾';
     themeBtn.addEventListener('click', function () { onToggleTheme(); });
     actions.appendChild(themeBtn);
 
     var refreshBtn = document.createElement('button');
     refreshBtn.type = 'button';
-    refreshBtn.className = 'icon-btn';
+    refreshBtn.className = 'icon-btn icon-btn--lg';
     refreshBtn.title = 'Refresh';
     refreshBtn.setAttribute('aria-label', 'Refresh');
     refreshBtn.textContent = '↻';

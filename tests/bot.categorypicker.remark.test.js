@@ -19,6 +19,11 @@ function baseDeps(over = {}) {
     sbSelect: async () => [],
     sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
     pendingRemarkMessages: new Map(), // fresh per test — isolates from the real module-level Map
+    // Hermetic (2026-07-29): same fix as bot.dateask.test.js — without this, handleUpdate
+    // falls back to the REAL getCapabilities(), which picks up the live business .env
+    // (ACCOUNT_TYPE=business) sitting in the repo root on this machine and wrongly routes
+    // every call here through the bind-gate instead of the plain personal remark flow.
+    getCapabilities: () => ({ multiUser: false, personalAuth: false, guestMode: false }),
     ...over,
   };
   return { deps, sent, edited, updateCalls };
@@ -107,7 +112,7 @@ test('handleUpdate: CRITICAL — with NO pending remark, /start still works exac
   const { deps, sent } = baseDeps({ sbSelect: async () => [] });
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: '/start' } }, deps);
   assert.strictEqual(sent.length, 1);
-  assert.match(sent[0].text, /Receipt Analyser/);
+  assert.match(sent[0].text, /SnapReceipt AI/);
 });
 
 test('handleUpdate: CRITICAL — with NO pending remark, "show expenses" still routes to sendExpenseSummary (not the generic fallback, not treated as a remark)', async () => {

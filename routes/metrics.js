@@ -3,6 +3,7 @@ const supabase = require('../lib/supabase');            // namespace import so t
 const { cfg } = require('../lib/config');
 const { computeMetrics } = require('../lib/metrics');
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
+const { guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
 
 // Same in-memory ceiling as reports: aggregate up to this many rows, flag if truncated
 // rather than silently undercount. Move to a SQL RPC if an account ever exceeds it.
@@ -31,7 +32,7 @@ module.exports = function mountMetrics(app) {
       // human-attention outcome), which is exactly what the automation-impact figure measures.
       const scope = req.scope;
       const rows = await supabase.sbSelect('expenses', {
-        extra, order: 'created_at.desc', limit: METRICS_ROW_LIMIT, scope,
+        extra: mergeExtra(extra, guestVisibilityExtra(scope)), order: 'created_at.desc', limit: METRICS_ROW_LIMIT, scope,
       });
 
       // category_corrections feeds "most-corrected categories". It has no branch_id column,

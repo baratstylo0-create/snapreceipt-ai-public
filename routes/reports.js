@@ -3,6 +3,7 @@ const supabase = require('../lib/supabase');     // namespace import so tests ca
 const templates = require('../lib/templates');   // current account category allow-list
 const { buildReport } = require('../lib/reports');
 const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
+const { guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
 
 // Max rows pulled into memory for aggregation. If an account exceeds this, the report
 // is TRUNCATED and we say so (never silently undercount a money report). For real scale,
@@ -44,7 +45,7 @@ module.exports = function mountReports(app) {
       const rows = await supabase.sbSelect('expenses', {
         // status=neq.rejected: a rejected expense (#5 admin review queue) must never
         // count toward money totals, even though it isn't soft-deleted.
-        extra: 'deleted_at=is.null&status=neq.rejected', order: 'expense_date.desc', limit: REPORT_ROW_LIMIT,
+        extra: mergeExtra('deleted_at=is.null&status=neq.rejected', guestVisibilityExtra(scope)), order: 'expense_date.desc', limit: REPORT_ROW_LIMIT,
         scope, // #131: clerk hard-filtered to their branch at the DB (buildReport's branch arg is the belt)
       });
       const report = buildReport(rows, period, { from, to, groupBy, branch, staff, company, categories });

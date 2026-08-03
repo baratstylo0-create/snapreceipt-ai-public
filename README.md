@@ -1,6 +1,6 @@
-# Receipt Analyser SaaS
+# SnapReceipt AI
 
-A standalone, self-contained version of the Receipt Analyser: a **Telegram bot** that reads receipt/invoice photos with AI vision OCR and logs them as expenses, plus a **web dashboard** to view, filter, and export them.
+A standalone, self-contained version of SnapReceipt AI: a **Telegram bot** that reads receipt/invoice photos with AI vision OCR and logs them as expenses, plus a **web dashboard** to view, filter, and export them.
 
 Extracted as a clean foundation from the FrictionAI project — no leftover code, ready to extend into a multi-vertical SaaS.
 

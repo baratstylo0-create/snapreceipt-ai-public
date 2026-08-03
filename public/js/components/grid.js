@@ -267,7 +267,19 @@
     var session = deps.session || null;
     var isClerk = !!(session && session.role === 'clerk');
     var isAdmin = !!(session && session.role === 'admin');
+    // 2026-07-25: personal-mode signup means `session` alone no longer implies "business" —
+    // an 'owner' session is a personal account. isBusinessSession is the one true signal for
+    // "show business-only chrome" (Petty Cash Statement export, branch dropdown); every spot
+    // below that used to test bare `session` truthiness for that purpose now uses this instead.
+    var isBusinessSession = !!(session && session.role !== 'owner');
     var submissionOn = !!(deps.config && deps.config.branch_submission);
+    // Export PDF Free/Pro gate (2026-07-28, Barat request) — personal accounts only (this
+    // button is already personal-only, see its own comment below). 'free' is the default for
+    // every account today since no billing is wired up yet (see routes/expenses.js's
+    // /api/config plan comment) — this is genuinely gating a real, growable column, not a
+    // decorative placeholder.
+    var plan = (deps.config && deps.config.plan) || 'free';
+    var isPro = plan === 'pro';
 
     var state = { rows: [], loaded: false, editMode: false, search: '', page: 1, submission: null, submissions: [], branchNames: {} };
 
@@ -298,21 +310,76 @@
     // The export buttons this toolbar keeps (managed + statement). setExportBusy() disables
     // whatever ends up here, so it can never reference a button that no longer exists.
     var exportButtonEls = [];
-    managedExportButtons().forEach(function (cfg) {
-      var b = el('button', 'ledger-btn ledger-btn--ghost');
+    var exportButtons = managedExportButtons().slice();
+    // Personal-only addition (2026-07-25, Barat request): a PDF export using the SAME
+    // /api/manage-export endpoint as "Export Excel" (checkDash only, no session/scope
+    // required — already works for personal accounts today), just format:'pdf'. This is
+    // NOT the business "Statement PDF" button (routes/statement.js, petty-cash floats,
+    // 404s without multiUser+pettyCash) — it's the generic summary+receipt-evidence PDF
+    // that used to also be on business's toolbar before a 2026-07-13 de-clutter pass
+    // removed it there. Business's own button set (managedExportButtons()) is untouched,
+    // so grid.test.js's pinned business export set still holds exactly as before.
+    if (!isBusinessSession) exportButtons.push({ label: 'Export PDF', format: 'pdf', pro: true });
+    exportButtons.forEach(function (cfg) {
+      // Pro-gated button (2026-07-28): still a real, clickable button (never truly disabled —
+      // a dead-looking control invites "is this broken?"), just visually lighter, with a small
+      // lock glyph, and its click shows the upgrade prompt instead of exporting.
+      var locked = !!cfg.pro && !isPro;
+      var b = el('button', 'ledger-btn ledger-btn--ghost' + (locked ? ' ledger-btn--locked' : ''));
       b.type = 'button';
-      Escape.setText(b, cfg.label);
-      b.addEventListener('click', function () { doManagedExport(cfg.format); });
+      Escape.setText(b, (locked ? '🔒 ' : '') + cfg.label);
+      b.title = locked ? cfg.label + ' is a Pro feature' : cfg.label;
+      b.addEventListener('click', function () {
+        if (locked) { showExportPdfPaywall(); return; }
+        doManagedExport(cfg.format);
+      });
       toolbar.appendChild(b);
       exportButtonEls.push(b);
     });
     wrap.appendChild(toolbar);
 
+    // Export PDF paywall (2026-07-28) — a real, dismissible overlay (not a dead-end alert),
+    // matching the app's existing centered-modal convention (activity.js's receipt drawer,
+    // team.js's credential panel: fixed backdrop + centered card). "See plans" navigates to
+    // Settings' already-built Plan & billing section (setttings.js) rather than duplicating
+    // pricing/payment-preview UI here — one place owns that content, not two.
+    function showExportPdfPaywall() {
+      var host = el('div', 'ledger-paywall-host');
+      var card = el('div', 'ledger-paywall-card');
+      var badge = el('div', 'ledger-paywall-badge'); badge.textContent = '🔒';
+      card.appendChild(badge);
+      card.appendChild(textEl('h2', 'ledger-paywall-title', 'Export PDF is a Pro feature'));
+      card.appendChild(textEl('p', 'ledger-paywall-sub', 'Free includes Export Excel. Pro adds Export PDF, unlimited receipts, and priority processing — RM 12.90/month or RM 99/year.'));
+      var actions = el('div', 'ledger-paywall-actions');
+      var seePlans = el('button', 'ledger-btn ledger-btn--primary');
+      Escape.setText(seePlans, 'See plans');
+      seePlans.type = 'button';
+      seePlans.addEventListener('click', function () {
+        document.body.removeChild(host);
+        if (switchView) switchView('settings');
+      });
+      var later = el('button', 'ledger-btn ledger-btn--ghost');
+      Escape.setText(later, 'Maybe later');
+      later.type = 'button';
+      later.addEventListener('click', function () { document.body.removeChild(host); });
+      actions.appendChild(seePlans);
+      actions.appendChild(later);
+      card.appendChild(actions);
+      host.appendChild(card);
+      host.addEventListener('click', function (ev) { if (ev.target === host) document.body.removeChild(host); });
+      document.body.appendChild(host);
+    }
+
+    // statementMonth doubles as the table's own month filter (see currentFilteredIds/
+    // filterByPeriod below), so it stays for personal too. The Petty Cash Statement label,
+    // export button, and branch dropdown are business-only — the server's own /api/statement
+    // route 403s without req.scope (no session), so hiding them for personal isn't just
+    // cosmetic, it avoids offering a control that would just fail.
     var statementTools = el('div', 'ledger-statement-tools');
-    statementTools.appendChild(textEl('span', 'ledger-statement-label', 'Petty Cash Statement'));
+    statementTools.appendChild(textEl('span', 'ledger-statement-label', isBusinessSession ? 'Petty Cash Statement' : 'Month'));
     var statementMonth = el('input', 'ledger-statement-month');
     statementMonth.type = 'month';
-    statementMonth.setAttribute('aria-label', 'Statement month');
+    statementMonth.setAttribute('aria-label', isBusinessSession ? 'Statement month' : 'Filter by month');
     var now = new Date();
     statementMonth.value = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
     statementTools.appendChild(statementMonth);
@@ -324,14 +391,16 @@
       statementTools.appendChild(statementBranch);
     }
 
-    statementExportButtons().forEach(function (cfg) {
-      var b = el('button', 'ledger-btn ledger-btn--ghost');
-      b.type = 'button';
-      Escape.setText(b, cfg.label);
-      b.addEventListener('click', function () { doStatementExport(cfg.format); });
-      statementTools.appendChild(b);
-      exportButtonEls.push(b);
-    });
+    if (isBusinessSession) {
+      statementExportButtons().forEach(function (cfg) {
+        var b = el('button', 'ledger-btn ledger-btn--ghost');
+        b.type = 'button';
+        Escape.setText(b, cfg.label);
+        b.addEventListener('click', function () { doStatementExport(cfg.format); });
+        statementTools.appendChild(b);
+        exportButtonEls.push(b);
+      });
+    }
     wrap.appendChild(statementTools);
 
     // -- Submit-signal (C5): move a month-ready signal into the Data editor --

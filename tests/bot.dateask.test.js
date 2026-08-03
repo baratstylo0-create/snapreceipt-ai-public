@@ -17,6 +17,13 @@ function baseDeps(over = {}) {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
     sbSelect: async () => [],
     sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
+    // Hermetic (2026-07-29): without this, handleUpdate falls back to the REAL
+    // getCapabilities(), which reads whatever .env happens to sit in the repo root — on
+    // this machine that's the live business .env (ACCOUNT_TYPE=business), which wrongly
+    // routes every call in this file through the bind-gate instead of the plain personal
+    // WELCOME/date-ask flow these tests actually exercise. Matches the same stub pattern
+    // already used by bot.business.binding.test.js and friends.
+    getCapabilities: () => ({ multiUser: false, personalAuth: false, guestMode: false }),
     ...over,
   };
   return { deps, sent, updateCalls };
@@ -88,7 +95,7 @@ test('handleUpdate: CRITICAL — with NO pending date-ask, /start still works ex
   const { deps, sent } = baseDeps({ sbSelect: async () => [] });
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: '/start' } }, deps);
   assert.strictEqual(sent.length, 1);
-  assert.match(sent[0].text, /Receipt Analyser/);
+  assert.match(sent[0].text, /SnapReceipt AI/);
 });
 
 test('handleUpdate: CRITICAL — with NO pending date-ask, an unrecognised message still gets the normal generic fallback', async () => {

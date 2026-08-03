@@ -473,3 +473,115 @@ create index if not exists expenses_account_fileuniq_idx on expenses (account_id
 -- Null for every row created before this migration (or if CRED_ENC_KEY isn't configured);
 -- those branches show "no password on file" in the dashboard and offer Reset instead.
 alter table users add column if not exists password_enc text;
+
+-- Personal-mode signup (2026-07-25): a personal (single-user) account gets its own role,
+-- 'owner', instead of reusing 'admin'. Reusing 'admin' would silently light up every
+-- session.role === 'admin' UI check across the frontend (team.js, grid.js, activity.js,
+-- overview.js, payments.js) -- branch pickers, Team management, petty-cash statement
+-- exports -- none of which make sense for a single-user personal account. A distinct role
+-- means every EXISTING role==='admin' check naturally and automatically excludes 'owner'
+-- with zero auditing required. Verified constraint name against the live schema before
+-- writing this (public.users_role_check, a column-level CHECK Postgres auto-named).
+alter table users drop constraint if exists users_role_check;
+alter table users add constraint users_role_check
+  check (role in ('admin', 'clerk', 'staff', 'owner'));
+
+-- ============================================================================
+-- Migration: password_resets (2026-07-27) — "Forgot password" for personal
+-- (personalAuth) owner accounts. Mirrors bot_bindings' one-time-token shape
+-- (token + expiry + a "consumed" timestamp), except the token itself is
+-- stored HASHED (sha-256, same primitive as `sessions.token_hash` in
+-- lib/auth.js) rather than raw — a password-reset token is a bearer
+-- credential that can change a password, so it gets the stricter treatment.
+-- ============================================================================
+create table if not exists password_resets (
+  id           uuid        primary key default gen_random_uuid(),
+  account_id   text        not null default 'default',
+  user_id      uuid        not null references users(id) on delete cascade,
+  token_hash   text        not null,          -- sha-256 hex of the raw token; raw token is never stored
+  expires_at   timestamptz not null,
+  used_at      timestamptz,                    -- non-null once consumed (single-use)
+  created_at   timestamptz not null default now()
+);
+create unique index if not exists password_resets_token_hash_idx on password_resets (token_hash);
+create index if not exists password_resets_user_idx on password_resets (account_id, user_id);
+
+alter table password_resets enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- ============================================================================
+-- Migration: users.plan (2026-07-28) — Free/Pro gate for personal (personalAuth)
+-- owner accounts. Deliberately MINIMAL: a plain column, not the full
+-- `subscriptions` table (curlec_customer_id/status/current_period_end/etc.) the
+-- plan file describes — that full table is worth building once real Curlec
+-- billing is actually wired up; until then every account is 'free' by default
+-- (no code path ever sets 'pro' yet — there is no payment integration), and
+-- this column is the one thing needed to gate a feature (Export PDF) today.
+-- ============================================================================
+alter table users add column if not exists plan text not null default 'free'
+  check (plan in ('free', 'pro'));
+
+-- ============================================================================
+-- Migration: Guest Mode (2026-07-28) — "Continue as Guest" trial accounts.
+-- Two pieces:
+--   1. A new 'guest' role, alongside 'owner' — same reasoning as the owner
+--      migration above (a distinct role means every existing role-based UI/
+--      route check naturally excludes guests without auditing each site).
+--   2. expenses.owner_user_id: this codebase has NO per-user data isolation
+--      today (every query is scoped only by account_id, see lib/auth.js's
+--      scopeForUser) — two real owner accounts already see each other's
+--      expenses. That's a known, separately-tracked gap (see the plan file's
+--      "MAJOR PIVOT" section). Guest Mode can't ship on top of that gap as-is
+--      (a guest's throwaway receipts would leak into the real account's
+--      ledger, and vice versa), so this column is a SMALL, SCOPED fix just
+--      for guest rows: null on every existing/real row and every future
+--      non-real-guest insert (zero behaviour change for real accounts —
+--      "owner_user_id is null" keeps meaning exactly "a real account's own
+--      receipt"), set only when a guest submits a receipt. `on delete cascade`
+--      matches the existing sessions.user_id/bot_bindings.user_id pattern
+--      above, so deleting a guest's `users` row (guest cleanup, lib/guest.js)
+--      cascades through sessions + bot_bindings + expenses in one statement —
+--      no manual multi-table delete ordering needed.
+-- ============================================================================
+alter table users drop constraint if exists users_role_check;
+alter table users add constraint users_role_check
+  check (role in ('admin', 'clerk', 'staff', 'owner', 'guest'));
+
+alter table expenses add column if not exists owner_user_id uuid references users(id) on delete cascade;
+create index if not exists expenses_owner_user_idx on expenses (owner_user_id) where owner_user_id is not null;
+
+-- ============================================================================
+-- Migration: subscriptions (2026-07-30) — HitPay Free/Pro billing for personal
+-- (personalAuth) owner accounts. `users.plan` (2026-07-28 migration above) already
+-- gates Export PDF; this table is the actual billing record behind that flag —
+-- one row per user, created on first checkout, updated by the HitPay webhook.
+-- period_end drives the 20-receipts/month free-tier reset (a receipt sent this
+-- calendar month counts against the cap; no separate counter column — counted
+-- live off `expenses` the same way the guest cap counts off `owner_user_id`).
+-- ============================================================================
+create table if not exists subscriptions (
+  id                      uuid        primary key default gen_random_uuid(),
+  account_id              text        not null default 'default',
+  user_id                 uuid        not null references users(id) on delete cascade,
+  plan                    text        not null default 'free' check (plan in ('free', 'pro')),
+  status                  text        not null default 'inactive'
+    check (status in ('inactive', 'active', 'past_due', 'cancelled')),
+  billing_cycle           text        check (billing_cycle in ('monthly', 'yearly')),
+  current_period_end      timestamptz,
+  hitpay_customer_id      text,
+  hitpay_subscription_id  text,
+  hitpay_plan_id          text,
+  created_at              timestamptz not null default now(),
+  updated_at              timestamptz not null default now()
+);
+-- One subscription record per user (a fresh checkout on an existing free row updates it
+-- in place rather than creating a second row — upsert target for the webhook handler).
+create unique index if not exists subscriptions_user_idx on subscriptions (user_id);
+create index if not exists subscriptions_hitpay_sub_idx on subscriptions (hitpay_subscription_id)
+  where hitpay_subscription_id is not null;
+
+create trigger subscriptions_touch_updated_at before update on subscriptions
+  for each row execute function touch_updated_at();
+
+alter table subscriptions enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
