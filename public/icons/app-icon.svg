@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Receipt Analyser">
+  <!-- Full-bleed brand-green background: fills the whole canvas so a maskable crop
+       (circle/squircle) always shows the brand colour, never a transparent corner. -->
+  <rect width="512" height="512" fill="#5f7a47"/>
+  <!-- All foreground art stays inside the maskable safe zone (centre ~80%, i.e. 51–461). -->
+  <!-- Receipt body with a torn zig-zag bottom edge (paper colour). -->
+  <path fill="#f4efdf" d="M164 128 h184 a18 18 0 0 1 18 18
+    v206 l-25 -15 -25 15 -25 -15 -25 15 -25 -15 -25 15 -25 -15
+    v-206 a18 18 0 0 1 18 -18 z"/>
+  <!-- Receipt text lines. -->
+  <rect x="196" y="172" width="120" height="18" rx="9" fill="#5f7a47"/>
+  <rect x="196" y="210" width="120" height="15" rx="7.5" fill="#9db08c"/>
+  <rect x="196" y="244" width="82"  height="15" rx="7.5" fill="#9db08c"/>
+  <!-- "Analyser" magnifier over the receipt, bottom-right. -->
+  <circle cx="326" cy="330" r="52" fill="#e6e1ce" stroke="#2b332a" stroke-width="16"/>
+  <line x1="366" y1="370" x2="404" y2="408" stroke="#2b332a" stroke-width="22" stroke-linecap="round"/>
+  <!-- Checkmark inside the lens = analysed / captured. -->
+  <path d="M303 330 l16 16 30 -34" fill="none" stroke="#5f7a47" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

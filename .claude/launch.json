@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "receipt-analyser-saas",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 3001
+    },
+    {
+      "name": "receipt-analyser-saas-preview",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set PORT=3006 && node server.js"],
+      "port": 3006
+    },
+    {
+      "name": "receipt-analyser-saas-preview2",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "autoPort": true
+    }
+  ]
+}

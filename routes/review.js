@@ -1,0 +1,114 @@
+'use strict';
+// #5 admin review queue. New route file (kept separate from routes/expenses.js to stay
+// collision-safe with concurrent feature PRs). Mounted in server.js.
+const express = require('express');
+const supabase = require('../lib/supabase');   // namespace so tests can stub sbSelect/sbUpdate
+const { checkDash, dashOrigin } = require('./expenses'); // reuse the same auth gate + CORS policy
+const { resolveDecision, canRoleDecide, buildReviewAudit } = require('../lib/reviewDecision');
+const { guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // Guest Mode (2026-07-28) read isolation
+
+// Phase 4 (ADR-021): how long a flagged item waits for its branch clerk before the admin may
+// force-decide it (the safety valve). Business mode only; personal mode never consults it.
+const ANOMALY_VALVE_DAYS = Number(process.env.ANOMALY_VALVE_DAYS) || 7;
+
+// QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Approve/Delete. Bounds one
+// request's total work (DoS-adjacent), same pattern as routes/expenses.js's BULK_PAY_MAX_IDS.
+const BULK_REVIEW_MAX_IDS = Number(process.env.BULK_REVIEW_MAX_IDS) || 200;
+
+module.exports = function mountReview(app) {
+  // GET /api/review — the review queue: expenses awaiting an accept/reject decision.
+  // Business mode: a clerk sees only their own branch's queue (req.scope, the frozen bouncer);
+  // the admin sees all. Personal mode: unchanged (no scope → no filter).
+  app.get('/api/review', checkDash, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    try {
+      const rows = await supabase.sbSelect('expenses', {
+        eq: { status: 'needs_review' }, extra: mergeExtra('deleted_at=is.null', guestVisibilityExtra(req.scope)), order: 'created_at.desc', limit: 500,
+        scope: req.scope, // #131: clerk queue hard-filtered to their branch at the DB (the in-memory filter below is the belt)
+      });
+      const scope = req.scope;
+      const visible = (scope && scope.role === 'clerk')
+        ? rows.filter((e) => String(e.branch_id == null ? '' : e.branch_id) === String(scope.branch_id))
+        : rows;
+      res.json(visible);
+    } catch (e) {
+      console.error('[api/review]', e.message);
+      res.status(502).json({ error: 'review load failed' });
+    }
+  });
+
+  // POST /api/review/bulk { ids, decision, note? } — QA B4: the Activity list's bulk
+  // Select -> Approve/Delete action. Registered BEFORE /api/review/:id so Express never
+  // swallows 'bulk' as :id (same convention as /api/expenses/payments in routes/expenses.js).
+  // Applies the EXACT same per-row resolveDecision/canRoleDecide/buildReviewAudit path the
+  // single-row route below uses, just looped over a batch — no new business rule, only
+  // orchestration. Each id is judged independently: one clerk-wrong-branch or already-decided
+  // (for a clerk) row failing does NOT abort the rest of the batch — the response carries a
+  // per-id result so the frontend can show exactly which ones landed.
+  app.post('/api/review/bulk', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    const { ids, decision, note: rawNote } = req.body || {};
+    const resolved = resolveDecision(decision);
+    if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => typeof v !== 'string' || !v)) {
+      return res.status(400).json({ error: 'ids must be a non-empty array of expense ids' });
+    }
+    if (ids.length > BULK_REVIEW_MAX_IDS) return res.status(413).json({ error: 'too many ids (max ' + BULK_REVIEW_MAX_IDS + ')' });
+    const status = resolved.status;
+    const note = rawNote ? String(rawNote).slice(0, 500) : null;
+    const results = [];
+    for (const id of ids) {
+      try {
+        const existing = await supabase.sbSelect('expenses', { eq: { id } });
+        const cur = existing[0];
+        const decidable = canRoleDecide(cur, req.scope || null, { valveDays: ANOMALY_VALVE_DAYS });
+        if (!decidable.ok) { results.push({ id, ok: false, error: decidable.error }); continue; }
+        const who = req.scope && req.scope.role ? { role: req.scope.role, override: !!decidable.override } : null;
+        const anomaly = buildReviewAudit(cur.anomaly, decision, note, who);
+        const updatedRows = await supabase.sbUpdate('expenses', {
+          id,
+          scope: req.scope,
+          // Fold the status observed during validation into the write. This keeps the bulk
+          // decision from reporting success if the row changed between read and PATCH.
+          extra: 'status=eq.' + encodeURIComponent(cur.status),
+        }, { status, anomaly });
+        if (!updatedRows.length) { results.push({ id, ok: false, error: 'update failed' }); continue; }
+        results.push({ id, ok: true });
+      } catch (e) {
+        results.push({ id, ok: false, error: 'update failed' });
+      }
+    }
+    const updated = results.filter((r) => r.ok).length;
+    res.json({ ok: true, requested: ids.length, updated, status, results });
+  });
+
+  // POST /api/review/:id { decision: 'approve'|'reject', note? } — a decision.
+  // Records the audit trail into the existing expenses.anomaly jsonb (no schema change needed).
+  // Business mode (Phase 4): staff-first — the branch clerk decides first; the admin may override
+  // an existing decision any time but may originate only after ANOMALY_VALVE_DAYS (Head-Office /
+  // untagged rows are admin-first). Personal mode: the old pending-only rule, unchanged.
+  app.post('/api/review/:id', checkDash, express.json({ limit: '256kb' }), async (req, res) => {
+    res.set('Access-Control-Allow-Origin', dashOrigin());
+    try {
+      const decision = req.body && req.body.decision;
+      const resolved = resolveDecision(decision);
+      if (!resolved.ok) return res.status(400).json({ error: resolved.error });
+      const status = resolved.status;
+      const note = req.body && req.body.note ? String(req.body.note).slice(0, 500) : null;
+
+      const existing = await supabase.sbSelect('expenses', { eq: { id: req.params.id } });
+      const cur = existing[0];
+      const decidable = canRoleDecide(cur, req.scope || null, { valveDays: ANOMALY_VALVE_DAYS });
+      if (!decidable.ok) return res.status(decidable.code).json({ error: decidable.error });
+      const who = req.scope && req.scope.role
+        ? { role: req.scope.role, override: !!decidable.override } : null;
+      const anomaly = buildReviewAudit(cur.anomaly, decision, note, who);
+
+      const rows = await supabase.sbUpdate('expenses', { id: req.params.id, scope: req.scope }, { status, anomaly });
+      res.json(rows[0] || { ok: true, status });
+    } catch (e) {
+      console.error('[api/review decision]', e.message);
+      res.status(502).json({ error: 'review update failed' });
+    }
+  });
+};

@@ -1,0 +1,34 @@
+name: CI
+
+# Runs the test suite on every PR and every push to main (SYSTEM_COMPLETENESS.md
+# gap #8). Fresh checkouts never have a .env file (it's git-ignored, only ever
+# lives locally) - so the suite runs hermetically here by construction, the same
+# way it does locally after `mv .env .env.local.bak` per the project's standing
+# test-isolation convention.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Non-blocking on failure: don't fail the whole check on an unfixable
+      # transitive advisory, but surface it loudly in the job log so it's never
+      # silently missed (mirrors how issue #20's uuid finding was handled).
+      - name: npm audit (informational)
+        run: npm audit --audit-level=moderate || echo "::warning::npm audit found findings - review the log above"

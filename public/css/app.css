@@ -1,0 +1,3026 @@
+/* app.css — "Treehouse" cozy-forest design system (Mugi's frontend concept, ported
+   onto the working modular app). This is a TOKEN + primitive re-theme: every existing
+   className hook is preserved, so no component JS changes and every test stays green.
+   Strict CSP (no inline styles); the Spectral/Nunito Sans faces load via <link> in
+   index.html (CSP style-src/font-src allow the Google Fonts hosts). */
+
+:root {
+  /* Treehouse palette (light) mapped onto the app's existing token names so every
+     component re-skins automatically. */
+  --bg: #e6e1ce;              /* paper */
+  --bg-2: #eee9d6;            /* paper-2 */
+  --panel: #f4efdf;           /* paper-3 (cards/panels) */
+  --panel-shadow: 0 9px 22px rgba(54, 52, 34, 0.12);
+  --line: rgba(43, 51, 42, 0.13);
+  --line-2: rgba(43, 51, 42, 0.23);
+  --txt: #2b332a;             /* ink */
+  --txt-soft: #5d6450;        /* ink-soft */
+  --muted: #8a8d75;           /* ink-faint */
+  --accent: #5f7a47;          /* moss */
+  --accent-strong: #6f8c54;
+  --accent-contrast: #f6f3e6;
+  --radius: 20px;
+  --radius-sm: 13px;
+
+  /* Mugi's category/status palette — consumed by the pill/status/badge rules below. */
+  --moss: #5f7a47;  --moss-bg: rgba(95, 122, 71, 0.14);
+  --teal: #41716b;  --teal-bg: rgba(65, 113, 107, 0.14);
+  --honey: #bb8f46; --honey-bg: rgba(187, 143, 70, 0.16);
+  --clay: #b06746;  --clay-bg: rgba(176, 103, 70, 0.15);
+  --bark: #8a6a44;  --bark-bg: rgba(138, 106, 68, 0.14);
+  /* 5 more hues so the donut/pill palette gives every category its OWN colour
+     (c0-c9) instead of recycling the 5 above across 10 slots. */
+  --sage:   #7fa06a; --sage-bg:   rgba(127, 160, 106, 0.16);
+  --indigo: #52618f; --indigo-bg: rgba(82, 97, 143, 0.15);
+  --gold:   #d6b13a; --gold-bg:   rgba(214, 177, 58, 0.18);
+  --rust:   #9c4f3a; --rust-bg:   rgba(156, 79, 58, 0.16);
+  --plum:   #815a86; --plum-bg:   rgba(129, 90, 134, 0.16);
+
+  /* Owner request 2026-07-05: the donut/pie chart specifically should NOT use
+     the site's green accent colour (too close to the page background) — a
+     separate, deliberately vivid 10-colour palette, used ONLY by the donut
+     slices/swatches (.ov-donut-slice--c*, .ov-donut-swatch--c*). The Activity
+     screen's category pills keep the earthy Treehouse palette above.
+     Follow-up (owner report): the first version had several near-duplicate
+     reds/oranges next to each other, so a 5-category donut still looked like
+     "everything is red". Rebuilt as 10 hues spaced ~26° apart around the
+     wheel (blue -> purple -> pink -> red -> orange -> gold -> mustard),
+     deliberately skipping the 80-170° green band — any subset you actually
+     see (5, 6, 10 slices) stays visually distinct, not just "vivid".
+     Expanded to 18 hues (2026-07-06, ~15° apart, same green-skip rule):
+     the app's 17 built-in categories (see lib/categorize.js CATEGORIES) now
+     each get their OWN reserved, permanently-unique slot (overview.js/
+     activity.js's categoryColor — a fixed lookup, not a hash) instead of
+     being hashed into only 10 slots, which had real collisions (e.g. "Fuel &
+     Auto" and "Office Supplies" both landed on the same colour) — so two
+     different categories could show as the exact same colour, and deleting
+     bills that changed which categories were visible made it look like
+     colours were "changing" when really a collision was just becoming
+     visible/invisible. Only a custom/unrecognised category name still falls
+     back to a hash across all 18 slots. */
+  --pie0: hsl(176, 70%, 50%); --pie1: hsl(191, 65%, 56%); --pie2: hsl(206, 60%, 58%);
+  --pie3: hsl(221, 55%, 56%); --pie4: hsl(236, 60%, 54%); --pie5: hsl(251, 68%, 54%);
+  --pie6: hsl(266, 70%, 55%); --pie7: hsl(281, 80%, 52%); --pie8: hsl(296, 85%, 48%);
+  --pie9: hsl(311, 70%, 40%); --pie10: hsl(326, 66%, 52%); --pie11: hsl(341, 62%, 55%);
+  --pie12: hsl(356, 58%, 57%); --pie13: hsl(11, 72%, 53%); --pie14: hsl(26, 78%, 50%);
+  --pie15: hsl(41, 84%, 47%); --pie16: hsl(56, 68%, 54%); --pie17: hsl(71, 74%, 51%);
+
+  --glow-top: rgba(95, 122, 71, 0.16);
+  --glow-warm: rgba(187, 143, 70, 0.12);
+  --hill: rgba(63, 96, 72, 0.10);
+  --shadow: 24px 26px 54px rgba(54, 52, 34, 0.16);
+
+  --font-display: 'Spectral', Georgia, 'Times New Roman', serif;
+  --font-body: 'Nunito Sans', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+html { color-scheme: light dark; }
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  transition: background 0.5s ease, color 0.5s ease;
+}
+/* Treehouse ambient background: soft canopy glow up top + low hills along the bottom. */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(900px 420px at 50% -12%, var(--glow-top), transparent 70%),
+    radial-gradient(620px 460px at 96% 8%, var(--glow-warm), transparent 72%);
+}
+body::after {
+  content: ''; position: fixed; left: 0; right: 0; bottom: 0; height: 34vh; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(58% 100% at 14% 100%, var(--hill) 0 60%, transparent 62%),
+    radial-gradient(62% 104% at 72% 100%, var(--hill) 0 60%, transparent 62%),
+    radial-gradient(46% 78% at 96% 100%, var(--hill) 0 58%, transparent 60%);
+}
+
+/* Spectral serif for titles/headings — the Treehouse identity. */
+h1, h2, h3, h4,
+.view-title, .ov-kpi-value, .act-card-merchant, .act-drawer-title,
+.rp-categories-title, .act-review-title, .act-await-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.app-header,
+.app-footer {
+  padding: 16px 20px;
+}
+
+.app-main {
+  padding: 12px 24px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.app-modal[hidden] { display: none; }
+
+.app-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 26, 18, 0.45);
+}
+
+/* --- theme (visual only; app.js toggles a body class + persists it) --- */
+body.theme-dark {
+  --bg: #1a201a;
+  --bg-2: #212720;
+  --panel: #283026;
+  --panel-shadow: 0 9px 24px rgba(0, 0, 0, 0.42);
+  --line: rgba(236, 230, 210, 0.10);
+  --line-2: rgba(236, 230, 210, 0.20);
+  --txt: #ece6d2;
+  --txt-soft: #a7a88e;
+  --muted: #70745f;
+  --accent: #88a266;
+  --accent-strong: #9ab37a;
+  --accent-contrast: #14161a;
+
+  --moss: #88a266;  --moss-bg: rgba(136, 162, 102, 0.16);
+  --teal: #61998f;  --teal-bg: rgba(97, 153, 143, 0.16);
+  --honey: #d3ac64; --honey-bg: rgba(211, 172, 100, 0.16);
+  --clay: #cd8059;  --clay-bg: rgba(205, 128, 89, 0.16);
+  --bark: #a9854f;  --bark-bg: rgba(169, 133, 79, 0.16);
+  --sage:   #a3c78a; --sage-bg:   rgba(163, 199, 138, 0.18);
+  --indigo: #8891c4; --indigo-bg: rgba(136, 145, 196, 0.18);
+  --gold:   #e6c862; --gold-bg:   rgba(230, 200, 98, 0.18);
+  --rust:   #d97e63; --rust-bg:   rgba(217, 126, 99, 0.18);
+  --plum:   #b285b8; --plum-bg:   rgba(178, 133, 184, 0.18);
+
+  --pie0: hsl(176, 70%, 62%); --pie1: hsl(191, 65%, 68%); --pie2: hsl(206, 60%, 70%);
+  --pie3: hsl(221, 55%, 68%); --pie4: hsl(236, 60%, 66%); --pie5: hsl(251, 68%, 66%);
+  --pie6: hsl(266, 70%, 67%); --pie7: hsl(281, 80%, 64%); --pie8: hsl(296, 85%, 60%);
+  --pie9: hsl(311, 70%, 52%); --pie10: hsl(326, 66%, 64%); --pie11: hsl(341, 62%, 67%);
+  --pie12: hsl(356, 58%, 69%); --pie13: hsl(11, 72%, 65%); --pie14: hsl(26, 78%, 62%);
+  --pie15: hsl(41, 84%, 59%); --pie16: hsl(56, 68%, 66%); --pie17: hsl(71, 74%, 63%);
+
+  --glow-top: rgba(97, 153, 143, 0.10);
+  --glow-warm: rgba(211, 172, 100, 0.12);
+  --hill: rgba(120, 150, 110, 0.10);
+  --shadow: 24px 26px 58px rgba(0, 0, 0, 0.5);
+}
+
+/* Warm theme (3rd option, owner request 2026-07-07): a soft sepia/parchment
+   LIGHT variant, not a warmer dark mode — cream-tan background, warm brown
+   ink, honey/amber accent (reusing the app's existing earthy --honey family
+   for brand consistency) instead of Light's cooler beige/moss-green. Only the
+   base UI + ambient tokens are overridden: since this is a light-luminance
+   background like :root's, the pie-chart/status colors tuned for :root
+   already have enough contrast here and don't need their own warm variants. */
+body.theme-warm {
+  --bg: #f2e0bb;
+  --bg-2: #f8ecd0;
+  --panel: #fbf4e2;
+  --panel-shadow: 0 9px 22px rgba(120, 78, 28, 0.16);
+  --line: rgba(122, 84, 38, 0.15);
+  --line-2: rgba(122, 84, 38, 0.25);
+  --txt: #3a2a18;
+  --txt-soft: #6b5236;
+  --muted: #9c8465;
+  --accent: #c9822f;
+  --accent-strong: #d99a44;
+  --accent-contrast: #fff8ec;
+
+  --glow-top: rgba(201, 130, 47, 0.16);
+  --glow-warm: rgba(201, 130, 47, 0.16);
+  --hill: rgba(180, 130, 70, 0.12);
+  --shadow: 24px 26px 54px rgba(120, 78, 28, 0.20);
+}
+
+/* Ocean theme (4th option, 2026-07-27 Barat request): a blue/white palette,
+   ADDITIVE like Warm above — only the base UI + ambient tokens are overridden
+   (same reasoning as Warm's comment: a light-luminance background like :root's,
+   so the pie-chart/status colours tuned for :root already have enough contrast
+   here). Completely separate from :root/theme-dark/theme-warm, which stay
+   byte-for-byte unchanged — this carries zero risk to the shared business
+   dashboard's look, since it's an opt-in choice, never a default swap. */
+body.theme-ocean {
+  --bg: #eef4fb;
+  --bg-2: #e4edf9;
+  --panel: #ffffff;
+  --panel-shadow: 0 9px 22px rgba(37, 99, 235, 0.10);
+  --line: rgba(37, 99, 235, 0.14);
+  --line-2: rgba(37, 99, 235, 0.24);
+  --txt: #16283e;
+  --txt-soft: #4a6178;
+  --muted: #8a9bab;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-contrast: #ffffff;
+
+  /* 2026-07-27 (Barat: "make the main UI fully consistent" — the rust/brown
+     --clay danger colour, tuned for the moss-green Treehouse palette, clashed
+     next to blue). A clean modern red instead — still unmistakably "danger"
+     (Log out, delete confirmations, failed uploads), just not earthy-brown.
+     moss/teal/honey/bark/sage/indigo/gold/rust/plum are deliberately UNCHANGED
+     — those encode category identity in Activity/donut pills, not UI chrome,
+     and need to stay visually distinct from each other, not from --accent. */
+  --clay: #dc2626; --clay-bg: rgba(220, 38, 38, 0.12);
+
+  --glow-top: rgba(37, 99, 235, 0.14);
+  --glow-warm: rgba(37, 99, 235, 0.08);
+  --hill: rgba(37, 99, 235, 0.08);
+  --shadow: 24px 26px 54px rgba(22, 40, 62, 0.14);
+}
+
+/* Ocean Dark (2026-07-27, Barat: "dark mode must be based on light theme colour"):
+   personal accounts' "Dark" option — a dark NAVY variant of Ocean above, not the
+   green-based theme-dark block (which stays exactly as-is for business, sharing
+   this file with the live business dashboard). Category pill/donut hues (--moss/
+   --teal/etc, --pie0-17) are copied verbatim from theme-dark — those are
+   brightened-for-dark-backgrounds variants that don't depend on the base hue, so
+   reusing them keeps one set of "what looks good on a dark panel" decisions
+   instead of two. */
+body.theme-ocean-dark {
+  --bg: #0d1420;
+  --bg-2: #101a2a;
+  --panel: #16233a;
+  --panel-shadow: 0 9px 24px rgba(0, 0, 0, 0.45);
+  --line: rgba(147, 197, 253, 0.14);
+  --line-2: rgba(147, 197, 253, 0.24);
+  --txt: #e6edf7;
+  --txt-soft: #9fb2c8;
+  --muted: #64758a;
+  --accent: #4f8cff;
+  --accent-strong: #6ea1ff;
+  --accent-contrast: #ffffff;
+
+  --moss: #88a266;  --moss-bg: rgba(136, 162, 102, 0.16);
+  --teal: #61998f;  --teal-bg: rgba(97, 153, 143, 0.16);
+  --honey: #d3ac64; --honey-bg: rgba(211, 172, 100, 0.16);
+  /* Modern red, not theme-dark's rust-brown — same reasoning as theme-ocean above. */
+  --clay: #f87171;  --clay-bg: rgba(248, 113, 113, 0.16);
+  --bark: #a9854f;  --bark-bg: rgba(169, 133, 79, 0.16);
+  --sage:   #a3c78a; --sage-bg:   rgba(163, 199, 138, 0.18);
+  --indigo: #8891c4; --indigo-bg: rgba(136, 145, 196, 0.18);
+  --gold:   #e6c862; --gold-bg:   rgba(230, 200, 98, 0.18);
+  --rust:   #d97e63; --rust-bg:   rgba(217, 126, 99, 0.18);
+  --plum:   #b285b8; --plum-bg:   rgba(178, 133, 184, 0.18);
+
+  --pie0: hsl(176, 70%, 62%); --pie1: hsl(191, 65%, 68%); --pie2: hsl(206, 60%, 70%);
+  --pie3: hsl(221, 55%, 68%); --pie4: hsl(236, 60%, 66%); --pie5: hsl(251, 68%, 66%);
+  --pie6: hsl(266, 70%, 67%); --pie7: hsl(281, 80%, 64%); --pie8: hsl(296, 85%, 60%);
+  --pie9: hsl(311, 70%, 52%); --pie10: hsl(326, 66%, 64%); --pie11: hsl(341, 62%, 67%);
+  --pie12: hsl(356, 58%, 69%); --pie13: hsl(11, 72%, 65%); --pie14: hsl(26, 78%, 62%);
+  --pie15: hsl(41, 84%, 59%); --pie16: hsl(56, 68%, 66%); --pie17: hsl(71, 74%, 63%);
+
+  --glow-top: rgba(79, 140, 255, 0.12);
+  --glow-warm: rgba(79, 140, 255, 0.06);
+  --hill: rgba(79, 140, 255, 0.08);
+  --shadow: 24px 26px 58px rgba(0, 0, 0, 0.55);
+}
+
+/* --- top nav: a floating rounded bar, dark "pill" for the active section --- */
+.app-header { padding: 20px 24px 8px; max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+/* Two-tier header (Owner request 2026-07-06, matches Mugi's reference mockup):
+   a big brand block (logo badge + title + tagline + icon actions)... */
+.app-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 15px; }
+
+.emblem {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 15px 15px 15px 6px;
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--panel-shadow);
+}
+.emblem svg { width: 28px; height: 28px; display: block; }
+
+.brand-title {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 3.4vw, 34px);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--txt);
+  margin: 0;
+}
+.brand-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-top: 5px;
+  letter-spacing: 0.03em;
+}
+
+.header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  color: var(--txt-soft);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: color 0.15s, border-color 0.15s, transform 0.15s;
+}
+.icon-btn:hover { color: var(--txt); border-color: var(--accent); transform: translateY(-1px); }
+/* 2026-07-27 (Barat: "increase the size") — Settings/Theme/Refresh's text-glyph
+   icons, bumped to match the logout icon's 22px. Its own class (not a change to
+   .icon-btn's base 16px) so every OTHER icon-btn elsewhere in the app is unaffected. */
+.icon-btn--lg { font-size: 22px; }
+
+/* ...sitting above a separate pill-shaped nav bar (links only now — brand/
+   theme toggle moved into the block above). */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--panel-shadow);
+  padding: 10px 18px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.nav-link {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--txt);
+  border-color: var(--line);
+}
+
+.nav-link.is-active {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+/* --- views --- */
+.view {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  padding: 24px;
+  margin-top: 20px;
+}
+
+.view[hidden] { display: none; }
+
+.view-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.view-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* "What is this page for?" — a small round info button next to every page's
+   title, and the popup it opens on click (app.js buildInfoIcon). */
+.view-info-btn {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 700;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.view-info-btn:hover, .view-info-btn[aria-expanded="true"] {
+  color: var(--txt);
+  border-color: var(--accent);
+  background: var(--moss-bg);
+}
+
+.view-info-popup-host { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.view-info-popup {
+  position: fixed;
+  width: 260px;
+  max-width: calc(100vw - 32px);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--txt-soft);
+  pointer-events: auto;
+}
+
+.muted { color: var(--muted); }
+
+/* --- token gate --- */
+.token-gate {
+  max-width: 360px;
+  margin: 40px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  padding: 24px;
+}
+
+.token-gate-input {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--txt);
+  font: inherit;
+}
+
+.token-gate-submit {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.token-gate-cancel {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.token-gate-cancel:hover { color: var(--txt); border-color: var(--txt); }
+
+/* Business login (ADR-021 Phase 6) — reuses the token-gate card; these are the extras. */
+.login-title {
+  margin: 0 0 4px;
+  font-family: var(--font-display, inherit);
+  font-size: 22px;
+  text-align: center;
+}
+/* Personal-mode only (opts.onRegister — see login.js's render() doc comment). */
+.login-register-row { margin: 4px 0 0; text-align: center; font-size: 13px; color: var(--txt-soft); }
+.login-register-link {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.login-register-link:hover { color: var(--accent-strong); }
+
+/* Personal-mode only (opts.onRegister — see login.js's render() doc comment). */
+.login-forgot-row { margin: 6px 0 0; text-align: right; }
+.login-forgot-link {
+  font: inherit;
+  font-size: 12px;
+  color: var(--txt-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.login-forgot-link:hover { color: var(--accent); }
+
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Guest Mode (2026-07-28): persistent, non-dismissible reminder across every view — reuses
+   --accent (theme-aware, already correct in every personal theme) rather than --clay (danger)
+   since this is informational, not a warning. */
+.guest-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink);
+}
+.guest-banner-btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 14px;
+  background: var(--accent);
+  color: #fff;
+}
+.guest-banner-btn:hover { opacity: .9; }
+
+.app-error {
+  max-width: 480px;
+  margin: 40px auto;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* --- Overview: asymmetric dashboard grid (reference-style). A narrow left rail
+   of stacked stat cards, a wide trend chart top-right, the category donut
+   bottom-left, and a category/all-time cluster bottom-right. Named grid areas
+   keep the placement readable; each render* piece is a direct grid child. --- */
+.ov-root {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: minmax(0, auto);
+  /* Owner request 2026-07-06 (final layout): the all-time "Overall spending
+     until now" card (with its year-by-year list) took over the bottom-right
+     LEFT cell that used to hold Top category; Top category moved into the
+     RIGHT cell that used to hold "Months with expenses" (now dropped
+     entirely, Owner said it wasn't needed). No more separate full-width
+     banner row — back to a clean 4-row grid. */
+  grid-template-areas:
+    "spend  chart   chart    chart"
+    "count  chart   chart    chart"
+    "donut  donut   alltime  topcat"
+    "donut  donut   alltime  topcat";
+  gap: 16px;
+  align-items: stretch;
+}
+
+.ov-shell { display: flex; flex-direction: column; gap: 16px; }
+
+/* --- Overview: admin branch-filter dropdown (C6/C7) ----------------------
+   Was completely unstyled — a raw native <select> that rendered as a stray
+   black box against the paper theme (the "is this a bug?" the Owner spotted).
+   Themed to match the metrics-period control below it: paper background, ink
+   text, a "VIEW" caption so it reads as a deliberate filter, and a custom
+   chevron (native arrow removed via appearance:none) that swaps colour in
+   dark mode. Admin-only element, so this never affects the clerk view. */
+.ov-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 2px;
+}
+.ov-filter-toolbar::before {
+  content: "View";
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ov-branch-filter {
+  min-width: 168px;
+  padding: 7px 34px 7px 12px;
+  color: var(--txt);
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%235d6450' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.75 4.5 6 7.75 9.25 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ov-branch-filter:hover { border-color: var(--accent); }
+.ov-branch-filter:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(95, 122, 71, 0.25);
+}
+body.theme-dark .ov-branch-filter {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%23a7a88e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.75 4.5 6 7.75 9.25 4.5'/%3E%3C/svg%3E");
+}
+
+/* --- Overview: Automation impact band (C4) ------------------------------- */
+.ov-metrics-band {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow);
+}
+.ov-metrics-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ov-metrics-title {
+  margin: 0;
+  color: var(--txt);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ov-metrics-period-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ov-metrics-period-caption {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ov-metrics-period {
+  min-width: 132px;
+  padding: 6px 9px;
+  color: var(--txt);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.ov-metrics-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.ov-metric-tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ov-metric-label {
+  order: 1;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.ov-metric-value {
+  order: 2;
+  color: var(--txt);
+  font-size: clamp(22px, 2.5vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.ov-metric-sub {
+  order: 3;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.ov-metrics-details-toggle {
+  align-self: flex-start;
+  padding: 6px 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ov-metrics-details-toggle:hover {
+  color: var(--txt);
+  border-color: var(--accent);
+  background: var(--moss-bg);
+}
+.ov-metrics-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+.ov-metrics-details .ov-metric-tile { height: 100%; }
+.ov-metrics-detail-list {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ov-metrics-detail-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ov-metrics-detail-list ul { margin: 0; padding-left: 18px; color: var(--txt-soft); font-size: 12px; }
+.ov-metrics-detail-list p { margin: 0; font-size: 12px; }
+
+.ov-segments {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
+.ov-segment-btn {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ov-segment-btn:hover { color: var(--txt); }
+.ov-segment-btn.is-active { color: var(--accent-contrast); background: var(--txt); }
+body.theme-dark .ov-segment-btn.is-active,
+body.theme-ocean-dark .ov-segment-btn.is-active { color: var(--bg); }
+.ov-segment-panel[hidden] { display: none; }
+
+.ov-cell-spend   { grid-area: spend; }
+.ov-cell-count   { grid-area: count; }
+.ov-cell-alltime { grid-area: alltime; }
+.ov-cell-topcat  { grid-area: topcat; }
+
+
+/* KPI card: big number centered with its label beneath (reference layout). */
+.ov-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 18px 16px;
+  transition: transform 0.15s;
+}
+.ov-kpi--accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.ov-kpi--accent .ov-kpi-label { color: var(--accent-contrast); opacity: 0.85; }
+
+.ov-kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.ov-kpi-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+.ov-kpi-sub {
+  color: var(--muted);
+  font-size: 10.5px;
+  margin-top: -2px;
+}
+.ov-kpi--accent .ov-kpi-sub { color: var(--accent-contrast); opacity: 0.75; }
+
+/* Total-bills card: per-category bill counts, listed under the big number. */
+.ov-kpi-breakdown {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+.ov-kpi-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--txt);
+}
+.ov-kpi-breakdown-name { overflow-wrap: anywhere; }
+.ov-kpi-breakdown-count { font-weight: 600; color: var(--muted); flex-shrink: 0; }
+
+/* --- Overview: wide horizontal trend chart (top-right), sits in its own card --- */
+.ov-linechart {
+  grid-area: chart;
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+.ov-linechart-svg { width: 100%; height: auto; display: block; flex: 1 1 auto; }
+.ov-chart-grid { stroke: var(--line); stroke-width: 1; }
+.ov-chart-area { fill: var(--moss-bg); }
+.ov-chart-line { stroke: var(--accent); stroke-width: 2.5; }
+.ov-chart-dot { fill: var(--panel); stroke: var(--accent); stroke-width: 2; cursor: pointer; }
+.ov-chart-dot:hover, .ov-chart-dot:focus { fill: var(--accent); outline: none; }
+
+/* always-visible value pill above every point (reference-dashboard style) */
+.ov-chart-callout-bg {
+  fill: var(--panel);
+  stroke: var(--line);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 3px rgba(54, 52, 34, 0.15));
+}
+.ov-chart-callout-text {
+  fill: var(--txt);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ov-chart-callout-text--sm { font-size: 10px; }
+
+.ov-donut-wrap {
+  grid-area: donut;
+  min-width: 0;
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+}
+/* Taller box now that "Total spending until now" is gone (owner request) —
+   the ring + legend sit side by side but both get more room to breathe. */
+.ov-donut-body { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; flex: 1; }
+.ov-donut-svg { width: 200px; height: 200px; flex-shrink: 0; }
+.ov-donut-center-value { font-family: var(--font-display); font-size: 15px; font-weight: 700; fill: var(--txt); }
+.ov-donut-center-caption { font-size: 8px; font-weight: 700; letter-spacing: 0.1em; fill: var(--muted); }
+
+.ov-donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1 1 150px;
+  min-width: 140px;
+}
+.ov-donut-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ov-donut-legend-name { flex: 1; overflow-wrap: anywhere; }
+.ov-donut-legend-pct { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--txt); }
+/* Now a real <button> (Owner request 2026-07-05: click the swatch to pick a
+   custom colour) — reset button chrome, keep the same small colour-square look,
+   add a hover ring so it reads as clickable. */
+.ov-donut-swatch {
+  width: 14px; height: 14px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: box-shadow 0.12s, transform 0.12s;
+}
+.ov-donut-swatch:hover, .ov-donut-swatch:focus-visible {
+  box-shadow: 0 0 0 3px var(--line-2);
+  transform: scale(1.08);
+  outline: none;
+}
+
+/* --- Colour picker popup (Owner request 2026-07-05) ---------------------- */
+.ov-colorpick-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 145;
+  background: transparent;
+}
+.ov-colorpick {
+  width: 216px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  animation: act-drawer-pop 0.15s ease;
+}
+.ov-colorpick-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ov-colorpick-swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ov-colorpick-swatch:hover { transform: scale(1.08); }
+.ov-colorpick-swatch.is-selected { box-shadow: 0 0 0 2px var(--txt); }
+.ov-colorpick-custom {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+}
+.ov-colorpick-custom-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ov-colorpick-input { width: 40px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.ov-colorpick-reset {
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ov-colorpick-reset:hover { color: var(--txt); border-color: var(--muted); }
+
+/* Donut slice + legend swatch fills use a dedicated bright, non-green palette
+   (--pie0..9, see :root) — deliberately DIFFERENT from the Activity screen's
+   earthy .act-pill--c0..c9 palette, per owner request: the pie chart should
+   stand out with vivid colours instead of blending into the green theme. */
+.ov-donut-slice--c0, .ov-donut-swatch--c0 { fill: var(--pie0); background: var(--pie0); }
+.ov-donut-slice--c1, .ov-donut-swatch--c1 { fill: var(--pie1); background: var(--pie1); }
+.ov-donut-slice--c2, .ov-donut-swatch--c2 { fill: var(--pie2); background: var(--pie2); }
+.ov-donut-slice--c3, .ov-donut-swatch--c3 { fill: var(--pie3); background: var(--pie3); }
+.ov-donut-slice--c4, .ov-donut-swatch--c4 { fill: var(--pie4); background: var(--pie4); }
+.ov-donut-slice--c5, .ov-donut-swatch--c5 { fill: var(--pie5); background: var(--pie5); }
+.ov-donut-slice--c6, .ov-donut-swatch--c6 { fill: var(--pie6); background: var(--pie6); }
+.ov-donut-slice--c7, .ov-donut-swatch--c7 { fill: var(--pie7); background: var(--pie7); }
+.ov-donut-slice--c8, .ov-donut-swatch--c8 { fill: var(--pie8); background: var(--pie8); }
+.ov-donut-slice--c9, .ov-donut-swatch--c9 { fill: var(--pie9); background: var(--pie9); }
+.ov-donut-slice--c10, .ov-donut-swatch--c10 { fill: var(--pie10); background: var(--pie10); }
+.ov-donut-slice--c11, .ov-donut-swatch--c11 { fill: var(--pie11); background: var(--pie11); }
+.ov-donut-slice--c12, .ov-donut-swatch--c12 { fill: var(--pie12); background: var(--pie12); }
+.ov-donut-slice--c13, .ov-donut-swatch--c13 { fill: var(--pie13); background: var(--pie13); }
+.ov-donut-slice--c14, .ov-donut-swatch--c14 { fill: var(--pie14); background: var(--pie14); }
+.ov-donut-slice--c15, .ov-donut-swatch--c15 { fill: var(--pie15); background: var(--pie15); }
+.ov-donut-slice--c16, .ov-donut-swatch--c16 { fill: var(--pie16); background: var(--pie16); }
+.ov-donut-slice--c17, .ov-donut-swatch--c17 { fill: var(--pie17); background: var(--pie17); }
+.ov-donut-slice--others, .ov-donut-swatch--others { fill: var(--muted); background: var(--muted); }
+
+/* --- Overview: P&L bar chart --- */
+.ov-chart {
+  margin: 0;
+}
+
+.ov-chart-caption {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ov-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.ov-chart-axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.ov-bar {
+  fill: var(--accent);
+}
+
+.ov-bar-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+/* --- Overview: loading / empty / error states --- */
+.ov-loading,
+.ov-empty,
+.ov-error {
+  padding: 24px 0;
+  text-align: center;
+}
+
+.ov-error {
+  color: var(--muted);
+}
+
+/* --- Activity: expense table --------------------------------------------- */
+.act-root { display: block; }
+
+.act-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.act-search {
+  flex: 1 1 240px;
+  min-width: 180px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+}
+.act-filter {
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+}
+
+/* date-range filter inputs (native <input type="date">) */
+.act-filter--date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+.act-filter-date-label { color: var(--muted); font-size: 12px; }
+.act-date-from,
+.act-date-to {
+  border: 0;
+  background: transparent;
+  color: var(--txt);
+  font: inherit;
+  padding: 2px 0;
+}
+
+/* table/cards view toggle — same pill-button language as .nav-link */
+.act-view-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  margin-bottom: 14px;
+}
+.act-view-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.act-view-btn:hover { color: var(--txt); }
+.act-view-btn.is-active {
+  color: var(--accent-contrast);
+  background: var(--txt);
+  border-color: var(--txt);
+}
+body.theme-dark .act-view-btn.is-active,
+body.theme-ocean-dark .act-view-btn.is-active { color: var(--bg); }
+
+.act-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.act-th,
+.act-td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.act-th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.act-sort {
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.act-row { cursor: pointer; }
+.act-row:hover { background: rgba(91, 157, 255, 0.08); }
+.act-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.act-td--amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.act-merchant { font-weight: 500; }
+/* voucher / reference number (RC-2026-0041) */
+.act-th--ref, .act-td--ref { white-space: nowrap; }
+.act-td--ref { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.85em; }
+.act-card-ref { font-variant-numeric: tabular-nums; }
+.act-drawer-ref { margin: -0.25rem 0 0.5rem; font-variant-numeric: tabular-nums; }
+
+/* category pills */
+.act-pill {
+  display: inline-block;
+  padding: 3px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Deterministic 10-colour palette (dynamic categories, see activity.js
+   categoryColor): any category string hashes to one of c0-c9. Treehouse scheme —
+   a soft tinted background + the matching earthy ink (moss/teal/honey/clay/bark),
+   rotating so adjacent categories stay visually distinct. .act-pill--others is the
+   neutral fallback for empty/unknown/"Others". */
+.act-pill--c0 { background: var(--moss-bg);   color: var(--moss); }
+.act-pill--c1 { background: var(--teal-bg);   color: var(--teal); }
+.act-pill--c2 { background: var(--honey-bg);  color: var(--honey); }
+.act-pill--c3 { background: var(--clay-bg);   color: var(--clay); }
+.act-pill--c4 { background: var(--bark-bg);   color: var(--bark); }
+.act-pill--c5 { background: var(--sage-bg);   color: var(--sage); }
+.act-pill--c6 { background: var(--indigo-bg); color: var(--indigo); }
+.act-pill--c7 { background: var(--gold-bg);   color: var(--gold); }
+.act-pill--c8 { background: var(--rust-bg);   color: var(--rust); }
+.act-pill--c9 { background: var(--plum-bg);   color: var(--plum); }
+.act-pill--others { background: var(--line); color: var(--txt-soft); }
+
+/* badges */
+.act-badges { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.act-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.act-badge--anomaly { background: var(--clay-bg); color: var(--clay); cursor: help; }
+.act-badge--low-confidence { background: var(--honey-bg); color: var(--honey); }
+.act-badge--converted { background: var(--teal-bg); color: var(--teal); cursor: help; }
+
+/* card view — same panel/shadow/radius language as .view/.nav */
+.act-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+.act-card {
+  position: relative; /* anchors .act-card-select (QA B4 bulk-select tickbox) */
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow);
+  padding: 14px;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.act-card:hover { transform: translateY(-2px); }
+.act-card:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.act-card-thumb {
+  width: 100%;
+  height: 120px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.act-card-thumb-image { width: 100%; height: 100%; object-fit: cover; display: block; }
+.act-card-body { display: flex; flex-direction: column; gap: 6px; }
+.act-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.act-card-merchant { font-weight: 600; }
+.act-card-meta { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.act-card-amount { font-variant-numeric: tabular-nums; color: var(--txt); font-weight: 600; }
+.act-card-status { font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.act-card-remark {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* pager */
+.act-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.act-pager button {
+  padding: 6px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+}
+.act-pager button:disabled { opacity: 0.4; cursor: default; }
+.act-page-info { color: var(--muted); font-size: 13px; }
+
+/* states */
+.act-loading, .act-empty, .act-error { padding: 24px 0; text-align: center; }
+.act-error { color: var(--muted); }
+
+/* --- Activity: detail drawer, now a centered modal popup (not inline-below-
+   the-table, which forced a scroll to reach it) ---------------------------- */
+.act-drawer-host {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(22, 26, 18, 0.45);
+  overflow-y: auto;
+}
+/* Collapses to nothing when empty (closeDrawer just clears it) — no leftover
+   full-screen click-blocking layer sitting over the page. */
+.act-drawer-host:empty { display: none; }
+
+.act-drawer {
+  margin: auto;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 20px 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: act-drawer-pop 0.18s ease;
+}
+@keyframes act-drawer-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.act-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.act-drawer-title { margin: 0; font-size: 18px; }
+.act-drawer-close {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.act-drawer-close:hover { color: var(--clay); }
+.act-edit-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.act-field { display: flex; flex-direction: column; gap: 4px; }
+.act-field-label { color: var(--muted); font-size: 12px; }
+.act-field-input {
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+}
+.act-drawer-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.act-save {
+  padding: 8px 16px;
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+.act-delete {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  cursor: pointer;
+}
+.act-delete.is-confirming { background: var(--clay); border-color: var(--clay); color: #fff; }
+.act-drawer-msg { grid-column: 1 / -1; margin: 6px 0 0; font-size: 13px; }
+
+.act-lineitems { margin-top: 16px; }
+.act-lineitems-title { margin: 0 0 6px; font-size: 14px; }
+.act-lineitems-list { margin: 0; padding-left: 18px; }
+.act-lineitem { font-size: 13px; color: var(--txt); display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.act-lineitem-text { flex: 1 1 auto; }
+.act-lineitem-cat { flex: 0 0 auto; font-size: 11px; }
+
+.act-receipt { margin-top: 16px; display: flex; flex-direction: column; gap: 4px; }
+.act-receipt-label { font-size: 12px; }
+.act-receipt-link { color: var(--accent); font-size: 13px; }
+.act-receipt-pdf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--bg);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+.act-card-thumb .act-receipt-pdf { margin: auto; }
+
+/* --- Activity: review queue ---------------------------------------------- */
+/* Awaiting-category picker (dashboard parity of the bot #74 picker) — amber accent to
+   read as "action needed, not an error" (the red review queue is for anomalies). */
+.act-await-title { margin: 28px 0 10px; font-size: 16px; }
+.act-await-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--honey);
+  border-radius: var(--radius);
+}
+.act-await-merchant { font-weight: 600; }
+.act-await-amount { font-variant-numeric: tabular-nums; text-align: right; }
+.act-await-note { grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.act-await-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.act-await-select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--txt); }
+.act-await-save { padding: 6px 14px; background: var(--honey); color: #1c1300; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.act-await-save:disabled { opacity: .6; cursor: default; }
+.act-pill--pending { background: var(--honey); color: #1c1300; }
+
+.act-review-title { margin: 28px 0 10px; font-size: 16px; }
+.act-review-note { margin: -6px 0 12px; font-size: 12.5px; }
+/* Owner 2026-07-10: the review card now carries a receipt thumbnail on the left and the
+   details/actions on the right, so a flagged receipt can be reviewed in place. */
+.act-review-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--clay);
+  border-radius: var(--radius);
+}
+.act-review-thumb {
+  flex: 0 0 auto;
+  width: 96px;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.act-review-thumb-image { width: 100%; height: auto; max-height: 120px; object-fit: cover; display: block; }
+.act-review-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+}
+.act-review-merchant { font-weight: 600; }
+.act-review-amount { font-variant-numeric: tabular-nums; text-align: right; }
+.act-review-meta { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.act-review-remark { grid-column: 1 / -1; margin: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.act-review-reason { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 13px; }
+.act-review-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+.act-review-approve {
+  padding: 6px 14px;
+  background: var(--moss);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+}
+.act-review-reject {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  cursor: pointer;
+}
+.act-review-msg { font-size: 13px; }
+
+/* QA B4 (docs/qa/2026-07-09-qa-round.md PR-B): bulk select -> Approve/Delete. The select bar
+   sits between the toolbar and the table/cards; the confirm dialog reuses .tp-confirm-* (see
+   templates.js's showConfirmDialog) — activity.js's showBulkConfirm mirrors that exact markup. */
+.act-select-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.act-select-toggle {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 13px;
+}
+.act-select-toggle:hover { border-color: var(--accent); }
+.act-select-tickall { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.act-select-approve, .act-select-delete, .act-select-cancel {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.act-select-approve { background: var(--moss); color: #fff; }
+.act-select-delete { background: var(--clay); color: #fff; }
+.act-select-cancel { background: transparent; border: 1px solid var(--line); color: var(--txt); font-weight: 400; }
+.act-select-approve:disabled, .act-select-delete:disabled { opacity: .5; cursor: default; }
+.act-select-status { font-size: 12px; margin: 0; }
+.act-th--select, .act-td--select { width: 32px; text-align: center; }
+.act-row-select, .act-select-tickall-input { cursor: pointer; }
+.act-card-select { position: absolute; top: 10px; left: 10px; z-index: 1; cursor: pointer; }
+
+/* QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin button (top-right of
+   the toolbar, pushed there via margin-left:auto) and its Recover-list items. Reuses
+   .act-drawer-host/.act-drawer for the overlay itself — see activity.js openDeletedPanel. */
+.act-bin-btn {
+  margin-left: auto;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.act-bin-btn:hover { border-color: var(--accent); }
+.act-deleted-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.act-deleted-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.act-deleted-merchant { font-weight: 600; }
+.act-deleted-amount { font-variant-numeric: tabular-nums; }
+.act-deleted-date { font-size: 12px; }
+.act-deleted-recover { padding: 5px 12px; background: var(--moss); color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.act-deleted-recover:disabled { opacity: .6; cursor: default; }
+/* QA 2026-07-13 (Untitled document (4).md): additive-only — the reminder line sits below
+   the untouched .act-deleted-item grid (see buildDeletedItem's comment), so it needs its own
+   minimal spacing/size rather than inheriting the grid's own gap/columns. */
+.act-deleted-row { display: flex; flex-direction: column; gap: 2px; }
+.act-deleted-purge { font-size: 11.5px; padding: 0 12px; }
+.act-deleted-msg { font-size: 11px; }
+
+/* QA B8/B9 (docs/qa/2026-07-09-qa-round.md PR-B): rejected-bill Status-cell controls — the
+   recategorise chevron + its popover picker, and the one-click permanent-delete icon. */
+.act-td--status { position: relative; }
+.act-status-text { text-transform: capitalize; }
+.act-status-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; position: relative; }
+.act-status-chevron, .act-status-delete {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--txt);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.act-status-chevron:hover, .act-status-delete:hover { border-color: var(--accent); }
+.act-status-delete { color: var(--clay); border-color: var(--clay); }
+.act-status-delete:disabled { opacity: .5; cursor: default; }
+.act-status-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  white-space: nowrap;
+}
+.act-status-picker-select { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--txt); }
+.act-status-picker-apply { padding: 4px 10px; background: var(--honey); color: #1c1300; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.act-status-picker-apply:disabled { opacity: .6; cursor: default; }
+.act-status-picker-msg { font-size: 11px; }
+
+/* ---- Mass Upload (Task D) ------------------------------------------------ */
+.up-root { display: flex; flex-direction: column; gap: 14px; }
+.up-intro { margin: 0; }
+
+.up-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.up-zone:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.up-zone.is-dragover { border-color: var(--accent); background: var(--moss-bg); color: var(--txt); }
+.up-zone-text { margin: 0; font-size: 15px; }
+
+/* Manage: CSV-file drop zone (same affordance as the main Upload screen) */
+.tp-file-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+.tp-file-zone.is-dragover { border-color: var(--accent); background: var(--moss-bg); }
+.tp-file-zone-text { margin: 0; font-size: 13px; }
+.up-browse {
+  padding: 6px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.up-hints { display: flex; flex-direction: column; gap: 6px; }
+.up-hint {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--honey-bg);
+  border: 1px solid var(--honey);
+  border-radius: 8px;
+  color: var(--txt);
+}
+
+.up-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.up-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.up-file-kind {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #0e1117;
+}
+.up-file-kind--pdf { background: var(--clay); }
+.up-file-kind--img { background: var(--teal); }
+.up-file-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-file-size { flex: none; font-size: 13px; }
+.up-file-remove {
+  flex: none;
+  width: 26px; height: 26px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.up-file-remove:hover { color: var(--txt); border-color: var(--txt); }
+
+.up-actions { display: flex; gap: 10px; }
+.up-upload {
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.up-upload:disabled, .up-clear:disabled, .up-browse:disabled, .up-file-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.up-clear {
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  cursor: pointer;
+}
+.up-status { margin: 0; font-size: 14px; }
+
+/* QA 2026-07-14 (Untitled document (2).md): "Upload a file" / "Enter manually" toggle —
+   same pill-button language as .act-view-toggle/.act-view-btn. */
+.up-mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.up-mode-btn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.up-mode-btn.is-active { background: var(--accent); color: #fff; }
+body.theme-dark .up-mode-btn.is-active,
+body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
+
+.up-file-section { display: flex; flex-direction: column; gap: 14px; }
+
+/* Manual-entry form — same field language as .act-field/.act-field-input (activity.js's
+   edit drawer), so typing an expense by hand looks consistent with editing one. */
+.up-manual-section { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+/* BUG FIX 2026-07-14 (live QA): the [hidden] attribute JS toggles between the two sections
+   was being silently overridden — .up-file-section/.up-manual-section's own `display: flex`
+   rule has the SAME specificity as the browser's default `[hidden] { display: none }` UA
+   rule, and this stylesheet loads after the UA sheet, so `hidden` lost every time and both
+   sections showed at once. A compound selector (class + [hidden]) has higher specificity
+   than either alone, so this always wins regardless of declaration order. */
+.up-file-section[hidden], .up-manual-section[hidden] { display: none; }
+.up-manual-form { display: flex; flex-direction: column; gap: 10px; }
+.up-manual-field { display: flex; flex-direction: column; gap: 4px; }
+.up-manual-label { color: var(--muted); font-size: 12px; }
+.up-manual-input {
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.up-manual-save {
+  align-self: flex-start;
+  padding: 8px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.up-manual-save:disabled { opacity: 0.5; cursor: default; }
+.up-manual-status { margin: 0; font-size: 14px; }
+
+.up-summary { display: flex; flex-direction: column; gap: 12px; }
+.up-counts { display: flex; flex-wrap: wrap; gap: 10px; }
+.up-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 78px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.up-count-num { font-size: 22px; font-weight: 700; color: var(--txt); }
+.up-count-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.up-count--saved .up-count-num { color: var(--moss); }
+.up-count--failed .up-count-num { color: var(--clay); }
+.up-count--flagged .up-count-num { color: var(--honey); }
+
+.up-notice {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--honey-bg);
+  border: 1px solid var(--honey);
+  border-radius: 8px;
+  color: var(--txt);
+}
+.up-notice--ok { background: var(--moss-bg); border-color: var(--moss); }
+
+.up-list-title { margin: 4px 0 0; font-size: 14px; color: var(--txt); }
+.up-result-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.up-result {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border-left: 3px solid var(--line);
+  background: var(--panel);
+  word-break: break-word;
+}
+.up-result--flagged { border-left-color: var(--honey); }
+.up-result--failed { border-left-color: var(--clay); }
+.up-result--saved { border-left-color: var(--moss); }
+
+.up-staff-msg { margin: -4px 0 0; font-size: 13px; color: var(--muted); }
+.up-staff-host {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.up-staff-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.up-staff-bulk-label { font-size: 13px; color: var(--muted); }
+.up-staff-bulk-select,
+.up-staff-select {
+  min-width: 150px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--txt);
+}
+.up-staff-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.up-staff-table th,
+.up-staff-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+  font-size: 13px;
+}
+.up-staff-table tr:last-child td { border-bottom: none; }
+.up-staff-current { margin-left: 8px; font-size: 12px; }
+.up-flag-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 10px;
+}
+.up-flag-action {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--txt);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.up-flag-action--discard { color: var(--clay); }
+
+.up-view-activity {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.up-view-activity:hover { background: var(--accent-strong); }
+
+/* --- shared accent-button hover polish (matches the reference's brand color) --- */
+.token-gate-submit:hover,
+.up-browse:hover,
+.up-upload:not(:disabled):hover,
+.act-save:hover,
+.tp-submit:not(:disabled):hover,
+.tp-fb-save:not(:disabled):hover,
+.rp-export-btn:not(:disabled):hover,
+.ag-send:not(:disabled):hover {
+  background: var(--accent-strong);
+}
+
+/* --- Manage shell: sub-page dropdown + panels (2026-07-09) ----------------
+   The Manage view hosts sub-pages (template/category editor + the excel-lite Data
+   editor) chosen from a dropdown. Reuses the same select idiom as the Payments
+   filters (.pay-filter-*) so the control language stays consistent. */
+.manage-shell { display: flex; flex-direction: column; gap: 18px; }
+.manage-subnav {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.manage-subnav-label {
+  font-size: 12.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.manage-subnav-select {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.manage-panels { display: block; }
+.manage-panel[hidden] { display: none; }
+
+/* --- Manage: field-template import (Task E) ------------------------------- */
+.tp-root { display: flex; flex-direction: column; gap: 20px; }
+.tp-intro { margin: 0; }
+
+.tp-spec-area { display: flex; flex-direction: column; gap: 10px; }
+.tp-spec-meta { margin: 0; font-size: 13px; }
+.tp-loading, .tp-error, .tp-empty { padding: 12px 0; }
+.tp-error { color: var(--muted); }
+
+.tp-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.tp-table th, .tp-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.tp-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tp-table tr:last-child td { border-bottom: 0; }
+
+.tp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tp-badge--required { background: var(--accent); color: var(--accent-contrast); }
+.tp-badge--optional { background: var(--line); color: var(--muted); }
+
+.tp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.tp-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.tp-csv-textarea {
+  min-height: 110px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+.tp-csv-file { font-size: 13px; color: var(--muted); }
+.tp-name-input {
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+  max-width: 260px;
+}
+.tp-submit {
+  align-self: flex-start;
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-submit:disabled { opacity: 0.5; cursor: default; }
+.tp-msg { margin: 0; font-size: 13px; }
+.tp-msg--ok { color: var(--moss); }
+.tp-msg--err { color: var(--muted); }
+
+/* --- Manage: visual field builder (additive, zero-CSV-knowledge path) ----- */
+.tp-fb {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.tp-fb-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--txt); }
+.tp-fb-sub { margin: 0; font-size: 13px; }
+.tp-fb-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.tp-fb-rows { display: flex; flex-direction: column; gap: 8px; }
+.tp-fb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+/* Up/down reorder handle — this order IS the CSV column (left-to-right) order. */
+.tp-fb-move { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.tp-fb-move-btn {
+  width: 22px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tp-fb-move-btn:hover:not(:disabled) { color: var(--txt); border-color: var(--muted); }
+.tp-fb-move-btn:disabled { opacity: 0.35; cursor: default; }
+
+.tp-fb-name {
+  flex: 1 1 200px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.tp-fb-type {
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+}
+.tp-fb-required {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tp-fb-remove {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-fb-remove:hover { color: var(--txt); border-color: var(--muted); }
+
+/* Popup confirm dialog (Owner request 2026-07-05) — same fixed-overlay +
+   centered-card pattern as .act-drawer-host, reused here for a small Yes/No
+   prompt instead of the earlier inline two-click button. */
+.tp-confirm-host {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(22, 26, 18, 0.45);
+}
+.tp-confirm-card {
+  width: min(360px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  animation: act-drawer-pop 0.18s ease;
+}
+.tp-confirm-msg { margin: 0 0 16px; color: var(--txt); font-size: 14px; line-height: 1.5; }
+.tp-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.tp-confirm-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  cursor: pointer;
+}
+.tp-confirm-cancel:hover { border-color: var(--muted); }
+.tp-confirm-ok {
+  padding: 8px 16px;
+  background: var(--clay);
+  border: 1px solid var(--clay);
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-confirm-ok:hover { background: var(--rust); border-color: var(--rust); }
+
+/* Export-timeframe choice dialog (Reports screen) — same shell as
+   .tp-confirm-*, plus a stack of full-width timeframe buttons instead of a
+   single OK/Cancel pair. */
+.rp-confirm-host {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(22, 26, 18, 0.45);
+}
+.rp-confirm-card {
+  width: min(320px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+.rp-confirm-title { margin: 0 0 10px; color: var(--txt); font-size: 15px; font-weight: 700; }
+/* Owner follow-up (2026-07-10): the actual list of which receipts are unreviewed. */
+.rp-confirm-items { margin: 0 0 4px; padding-left: 18px; color: var(--txt); font-size: 13px; }
+.rp-confirm-items li { margin-bottom: 2px; }
+.rp-confirm-more { margin: 0 0 10px; font-size: 12px; }
+.rp-confirm-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; margin-top: 10px; }
+.rp-confirm-choice {
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.rp-confirm-choice:hover { border-color: var(--accent); background: var(--moss-bg); }
+.rp-confirm-cancel {
+  width: 100%;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rp-confirm-cancel:hover { border-color: var(--muted); color: var(--txt); }
+
+.tp-fb-add {
+  align-self: flex-start;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-fb-add:hover { background: var(--accent); color: var(--accent-contrast); }
+.tp-fb-add:disabled { opacity: 0.5; cursor: default; }
+
+.tp-fb-save {
+  align-self: flex-start;
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tp-fb-save:disabled { opacity: 0.5; cursor: default; }
+
+/* --- Reports + Excel export (Task F) -------------------------------------- */
+.rp-root { display: flex; flex-direction: column; gap: 16px; }
+
+.rp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.rp-period-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.rp-period-btn {
+  padding: 7px 16px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rp-period-btn:hover { color: var(--txt); border-color: var(--txt); }
+.rp-period-btn.is-active {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.rp-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rp-nav-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--panel);
+  color: var(--txt);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rp-nav-btn:hover { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
+.rp-nav-label {
+  min-width: 140px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--txt);
+}
+
+.rp-export-btn {
+  margin-left: auto;
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rp-export-btn:disabled { opacity: 0.5; cursor: default; }
+
+.rp-export-status { margin: 0; font-size: 13px; color: var(--muted); }
+
+.rp-notice {
+  margin: 0;
+}
+
+.rp-body { display: flex; flex-direction: column; gap: 20px; }
+
+.rp-categories { display: flex; flex-direction: column; gap: 10px; }
+.rp-categories-title { margin: 0; font-size: 14px; color: var(--txt); }
+.rp-categories-empty { margin: 0; }
+
+.rp-category-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rp-category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.rp-category-name { font-weight: 500; overflow-wrap: anywhere; }
+.rp-category-total { font-variant-numeric: tabular-nums; color: var(--txt); font-weight: 600; }
+
+/* --- Agent chat (Task G) --------------------------------------------------- */
+.ag-root { display: flex; flex-direction: column; gap: 14px; }
+.ag-intro { margin: 0; }
+
+.ag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+/* --- rate-limit "% used" meter (header chip, reads RateLimit-* headers) ----- */
+.rm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0 14px;       /* a small, deliberate status chip under the nav bar */
+  padding: 4px 12px 4px 8px;
+  width: fit-content;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--panel-shadow);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.rm-chip[hidden] { display: none; }
+/* the fill grows left→right with % used; sits behind the text */
+.rm-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 0;
+  background: var(--line);
+  opacity: 0.6;
+  transition: width 0.25s ease;
+}
+.rm-text { position: relative; z-index: 1; }
+.rm-chip--ok .rm-fill { background: var(--line); }
+.rm-chip--warn { color: var(--txt); border-color: var(--honey); }
+.rm-chip--warn .rm-fill { background: var(--honey)55; }
+.rm-chip--critical { color: #fff; border-color: var(--accent-strong); }
+.rm-chip--critical .rm-fill { background: var(--accent); opacity: 0.9; }
+
+.ag-msg { display: flex; flex-direction: column; max-width: 72%; }
+.ag-msg--user { align-self: flex-end; align-items: flex-end; }
+.ag-msg--assistant { align-self: flex-start; align-items: flex-start; }
+
+.ag-msg-bubble {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.ag-msg--user .ag-msg-bubble {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.ag-msg--assistant .ag-msg-bubble {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--txt);
+}
+
+.ag-thinking .ag-msg-bubble,
+.ag-thinking.ag-msg-bubble {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-style: italic;
+}
+
+.ag-tools {
+  margin: 4px 2px 0;
+  font-size: 12px;
+}
+
+.ag-notice {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ag-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.ag-input {
+  min-height: 48px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font: inherit;
+  resize: vertical;
+}
+
+.ag-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ag-send {
+  padding: 9px 20px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ag-send:disabled { opacity: 0.5; cursor: default; }
+
+.ag-clear {
+  padding: 9px 16px;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ag-clear:hover { color: var(--txt); border-color: var(--txt); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 2 — Mugi's Treehouse concept: brand emblem, Settings view, Falc orb.
+   Token-driven (reuses the palette above) so light/dark come for free.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* --- Settings view --- */
+.set-root { display: flex; flex-direction: column; gap: 14px; }
+.view-sub { margin: -4px 0 4px; }
+
+.collapsible {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  box-shadow: var(--panel-shadow);
+  overflow: hidden;
+}
+.collapsible-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 13px 18px;
+  background: transparent; border: none; cursor: pointer;
+  font: inherit; color: var(--txt); text-align: left;
+}
+.collapsible-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--txt-soft);
+}
+.collapsible-head:hover .collapsible-title { color: var(--txt); }
+.collapsible-chev { font-size: 10px; color: var(--accent); transition: transform 0.25s ease; display: inline-block; }
+.collapsible.is-open .collapsible-chev { transform: rotate(90deg); }
+.collapsible-body { display: none; padding: 2px 18px 14px; border-top: 1px solid var(--line); }
+.collapsible.is-open .collapsible-body { display: block; padding-top: 12px; }
+
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 0; border-bottom: 1px dashed var(--line);
+}
+.set-row:last-child { border-bottom: none; }
+.set-main { flex: 1; min-width: 0; }
+.set-label { font-size: 13.5px; font-weight: 700; color: var(--txt); display: flex; align-items: center; }
+.set-desc { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.set-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.set-value { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; color: var(--txt-soft); }
+.set-select {
+  min-width: 140px; padding: 7px 10px; font: inherit; font-size: 13px;
+  color: var(--txt); background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+.concept-tag {
+  font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--honey); background: var(--honey-bg); border-radius: 5px; padding: 2px 6px; margin-left: 8px;
+}
+.set-privacy-text { font-size: 12.5px; color: var(--txt-soft); line-height: 1.7; margin: 8px 0 0; }
+
+/* Currency reconversion banner + Plan & billing (preview, 2026-07-25 — see plan file) */
+.set-currency-banner { font-size: 12.5px; margin: 0 0 8px; }
+.set-usage { padding: 8px 0 14px; }
+.set-usage-track { width: 100%; height: 8px; border-radius: 999px; background: var(--line-2); overflow: hidden; }
+.set-usage-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.set-usage-label { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.set-upgrade-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 4px; }
+.set-upgrade-panel[hidden] { display: none; }
+.set-upgrade-row { display: flex; align-items: center; gap: 10px; }
+.set-upgrade-status { font-size: 12px; }
+
+.set-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.set-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.set-btn--danger { background: var(--clay); color: #fff; border-color: var(--clay); }
+.set-btn--ghost { background: var(--panel); color: var(--muted); }
+.set-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+
+/* concept toggle switch (visual only) */
+.switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch-track { position: absolute; inset: 0; background: var(--line-2); border-radius: 999px; transition: background 0.2s ease; }
+.switch-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: var(--accent-contrast); border-radius: 50%; transition: transform 0.2s ease; box-shadow: var(--panel-shadow); }
+.switch input:checked ~ .switch-track { background: var(--accent); }
+.switch input:checked ~ .switch-knob { transform: translateX(18px); }
+
+/* --- Team: branches / staff / companies (M2 business layer) --- */
+.team { display: flex; flex-direction: column; gap: 18px; }
+.team-error { color: var(--clay); font-size: 13px; }
+
+/* Credential panel — a centered modal popup (2026-07-12), same overlay/card convention
+   as activity.js's receipt drawer (.act-drawer-host/.act-drawer): fixed backdrop,
+   auto-margin centered card, pop-in animation, click-outside/× to dismiss. */
+.team-cred-overlay {
+  position: fixed; inset: 0; z-index: 140; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(22, 26, 18, 0.45); overflow-y: auto;
+}
+.team-cred-panel {
+  margin: auto; width: min(480px, 100%); max-height: calc(100vh - 48px); overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;
+  animation: act-drawer-pop 0.18s ease;
+}
+.team-cred-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.team-cred-title { font-weight: 700; color: var(--txt); font-size: 14px; flex: 1; }
+.team-cred-copy {
+  font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+.team-cred-copy:hover { color: var(--txt); border-color: var(--txt); }
+.team-cred-close {
+  flex-shrink: 0; background: none; border: 0; color: var(--muted); font-size: 22px;
+  line-height: 1; cursor: pointer; padding: 0 0 0 4px;
+}
+.team-cred-close:hover { color: var(--clay); }
+.team-cred-warn { font-size: 12.5px; color: var(--txt-soft); line-height: 1.6; }
+.team-cred-grid { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.team-cred-row { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.team-cred-label { min-width: 130px; font-weight: 600; color: var(--muted); }
+.team-cred-value { font-family: var(--font-mono, ui-monospace, monospace); color: var(--txt); word-break: break-all; }
+.team-cred-value--mono { font-size: 12px; }
+.team-cred-hint { font-size: 12px; color: var(--txt-soft); }
+.team-cred-link {
+  align-self: flex-start; font-size: 13px; font-weight: 700; color: var(--accent);
+  text-decoration: none; padding: 6px 0;
+}
+.team-cred-link:hover { text-decoration: underline; }
+
+.team-add-row, .team-companies { display: flex; flex-direction: column; gap: 8px; }
+.team-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.team-add-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.team-input {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; min-width: 160px;
+}
+.team-input--sm { min-width: 120px; padding: 6px 10px; font-size: 12.5px; }
+.team-form-status { font-size: 12px; }
+
+.team-company-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.team-company-chip {
+  font-size: 12px; color: var(--txt-soft); background: var(--sage-bg); border-radius: 999px; padding: 4px 12px;
+}
+
+.team-branch-card {
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--teal);
+  border-radius: var(--radius-sm); box-shadow: var(--panel-shadow); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.team-branch-card.is-inactive { opacity: 0.55; }
+.team-branch-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.team-branch-name-col { display: flex; flex-direction: column; gap: 2px; }
+.team-branch-name { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--txt); }
+.team-branch-clerk { font-size: 11.5px; color: var(--txt-soft); }
+.team-branch-cred-btn {
+  flex-shrink: 0; font-size: 15px; line-height: 1; background: none; border: none;
+  cursor: pointer; padding: 2px 4px; border-radius: 6px; opacity: 0.7;
+}
+.team-branch-cred-btn:hover { opacity: 1; background: var(--bg); }
+.team-branch-cred-btn:disabled { opacity: 0.4; cursor: default; }
+.team-branch-remove {
+  align-self: flex-start; font-size: 11.5px; color: var(--muted); background: none; border: none;
+  cursor: pointer; padding: 0; text-decoration: underline;
+}
+.team-branch-remove:hover { color: var(--clay); }
+
+.team-modal-overlay {
+  position: fixed; inset: 0; background: rgba(22, 26, 18, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px;
+}
+.team-modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow); padding: 20px 22px; max-width: 380px; width: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.team-modal-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--txt); }
+.team-modal-message { font-size: 13px; color: var(--txt-soft); line-height: 1.6; }
+.team-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+/* --- Team: organisation banner + a branch-card grid (visual reshape 2026-07-12) ---
+   An organisation root banner up top, then every branch (and the add-branch tile)
+   laid out 3-per-row — was a single vertical spine with elbow connectors, which read
+   as too tall/narrow for more than a couple of branches. No SVG, no libs (strict CSP,
+   no build step). Scales to any branch count; stacks down to 1 column on mobile. */
+.team-tree { display: flex; flex-direction: column; gap: 14px; }
+
+.team-root {
+  align-self: flex-start; min-width: 240px; max-width: 460px;
+  background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--moss);
+  border-radius: var(--radius-sm); box-shadow: var(--panel-shadow);
+  padding: 14px 18px; display: flex; flex-direction: column; gap: 3px;
+}
+.team-root-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--moss); }
+.team-root-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--txt); line-height: 1.25; }
+.team-root-sub { font-size: 11.5px; color: var(--txt-soft); }
+
+.team-branch-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.team-tree-empty { grid-column: 1 / -1; font-size: 12.5px; margin: 0; }
+
+.team-branch-company {
+  align-self: flex-start; font-size: 11px; color: var(--txt-soft);
+  background: var(--sage-bg); border-radius: 999px; padding: 2px 10px; margin-top: 2px;
+}
+
+/* add-branch tile: a dashed "ghost" card that reads as an empty grid slot to fill */
+.team-add-box {
+  background: var(--panel); border: 1px dashed var(--line); border-radius: var(--radius-sm);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.team-node-add-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+
+@media (max-width: 900px) {
+  .team-branch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .team-root { max-width: none; align-self: stretch; }
+  .team-branch-grid { grid-template-columns: 1fr; }
+}
+
+.team-staff-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 6px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.team-staff-list { display: flex; flex-direction: column; gap: 4px; }
+.team-staff-empty { font-size: 12px; margin: 0; }
+.team-staff-row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--txt); }
+.team-staff-remove {
+  width: 20px; height: 20px; line-height: 1; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); cursor: pointer; font-size: 12px;
+}
+.team-staff-remove:hover, .team-staff-remove.is-confirming { color: #fff; background: var(--clay); border-color: var(--clay); }
+.team-staff-add { display: flex; gap: 6px; margin-top: 6px; }
+
+.team-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.team-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.team-btn--ghost { background: var(--panel); color: var(--muted); }
+.team-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+.team-btn--danger { background: var(--clay); color: var(--accent-contrast); border-color: var(--clay); }
+.team-btn--danger:hover { filter: brightness(0.92); }
+.team-btn--sm { padding: 5px 12px; font-size: 12px; }
+
+/* --- Payments: Pending/Paid tabs + bulk mark-paid (M2 business layer) ---
+   Pre-existing view (ADR-021 Phase 6) whose JS classes were never styled —
+   filters/table/tabs rendered as raw browser-default controls. Reuses the
+   EXACT SAME idioms already established elsewhere (no new visual language):
+   .pay-tabs/.pay-tab = .act-view-toggle/.act-view-btn's pill-toggle language;
+   filter inputs = .team-input; the table = .act-table's border/radius/panel
+   language (descendant th/td selectors since payments.js's cells carry no
+   per-element class); buttons = .team-btn/.set-btn. */
+.payments { display: flex; flex-direction: column; gap: 14px; }
+
+.pay-tabs {
+  display: inline-flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px; width: fit-content;
+}
+.pay-tab {
+  background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 999px;
+  padding: 6px 16px; font: inherit; font-weight: 500; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.pay-tab:hover { color: var(--txt); }
+.pay-tab.is-active { color: var(--accent-contrast); background: var(--txt); border-color: var(--txt); }
+body.theme-dark .pay-tab.is-active { color: var(--bg); }
+
+.pay-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.pay-filter-month, .pay-filter-branch {
+  padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+
+.pay-submission { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.pay-submission-msg { font-size: 13px; }
+.pay-send-btn, .pay-withdraw-btn {
+  padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line);
+}
+.pay-send-btn { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.pay-send-btn:disabled { opacity: 0.5; cursor: default; }
+.pay-withdraw-btn { background: var(--panel); color: var(--muted); }
+.pay-withdraw-btn:hover { color: var(--clay); border-color: var(--clay); }
+
+.pay-statement { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 0; }
+.pay-statement-label { font-size: 12.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.pay-statement-btn {
+  padding: 7px 14px; border-radius: 999px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--panel); color: var(--accent);
+}
+.pay-statement-btn:hover { background: var(--accent); color: var(--accent-contrast); }
+.pay-statement-btn:disabled { opacity: 0.5; cursor: default; background: var(--panel); color: var(--accent); }
+.pay-statement-msg { font-size: 13px; }
+
+.pay-msg { font-size: 13px; }
+
+.pay-table-host { overflow-x: auto; border-radius: var(--radius-sm); }
+.pay-table {
+  width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.pay-table th, .pay-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.pay-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pay-table tbody tr:last-child td { border-bottom: none; }
+.pay-table tbody tr:hover { background: rgba(91, 157, 255, 0.06); }
+.pay-row-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+
+.pay-selection-bar {
+  position: sticky; bottom: 12px; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; background: var(--txt); color: var(--bg); border-radius: var(--radius-sm);
+  padding: 12px 18px; box-shadow: var(--shadow);
+}
+.pay-selection-label { font-weight: 600; font-size: 13.5px; }
+.pay-action-btn {
+  padding: 8px 18px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-contrast);
+}
+.pay-action-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* --- Ledger: the excel-lite grid, read-only-by-default with an Edit-cells toggle
+   (M2 business layer). Never had any CSS either (same pre-existing gap as Payments) —
+   built alongside the redesign this time. Reuses the exact same idioms already
+   established: toolbar buttons = .team-btn/.set-btn, badge = .concept-tag's pill
+   language, search input = .team-input, table = .pay-table/.act-table's border/
+   radius/panel language, pager = a slim variant of .pay-selection-bar. */
+.ledger { display: flex; flex-direction: column; gap: 12px; }
+
+.ledger-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ledger-badge {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); background: var(--line); border-radius: 999px; padding: 4px 12px;
+}
+.ledger-badge--edit { color: var(--moss); background: var(--moss-bg); }
+
+.ledger-statement-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+}
+.ledger-statement-label { font-size: 12px; font-weight: 700; color: var(--txt); }
+.ledger-statement-month,
+.ledger-statement-branch {
+  min-height: 36px; padding: 7px 10px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+}
+
+.ledger-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.ledger-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+.ledger-btn--ghost { background: var(--panel); color: var(--muted); }
+.ledger-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
+/* Pro-gated export button (2026-07-28) — visually "light"/deemphasized, not truly disabled
+   (still clickable — opens the upgrade prompt, see grid.js's showExportPdfPaywall). */
+.ledger-btn--locked { opacity: 0.55; border-style: dashed; }
+.ledger-btn--locked:hover { opacity: 0.85; }
+
+/* Export PDF paywall (2026-07-28) — same centered-overlay convention as activity.js's
+   receipt drawer / team.js's credential panel: fixed backdrop, auto-margin centered card. */
+.ledger-paywall-host {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(22, 26, 18, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.ledger-paywall-card {
+  width: 100%; max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow, var(--panel-shadow));
+  padding: 28px 24px;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
+}
+.ledger-paywall-badge { font-size: 34px; line-height: 1; }
+.ledger-paywall-title { margin: 0; font-family: var(--font-display); font-size: 19px; color: var(--txt); }
+.ledger-paywall-sub { margin: 0; color: var(--txt-soft); font-size: 14px; line-height: 1.5; }
+.ledger-paywall-actions { display: flex; gap: 10px; margin-top: 10px; width: 100%; }
+.ledger-paywall-actions .ledger-btn { flex: 1; }
+
+.ledger-search-row { display: flex; }
+.ledger-search {
+  width: 100%; max-width: 360px; padding: 8px 12px; font: inherit; font-size: 13px; color: var(--txt);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+
+.ledger-msg { font-size: 13px; }
+
+.ledger-host { overflow-x: auto; border-radius: var(--radius-sm); }
+.ledger-table {
+  width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.ledger-table th, .ledger-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.ledger-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ledger-table tbody tr:last-child td { border-bottom: none; }
+.ledger-cell.is-editable { cursor: pointer; }
+.ledger-cell.is-editable:hover { background: rgba(91, 157, 255, 0.08); }
+.ledger-cell.is-editing { padding: 4px 8px; }
+/* QA 2026-07-13 (Untitled document.md): "which fields are editable?" was unclear in Edit
+   Mode — a green cue on the editable columns answers it. Additive only (new selectors,
+   existing rules above untouched) so this can't collide with any other in-flight CSS
+   change to this file. Reuses --moss, the same green already used for the "Editing
+   enabled" badge (.ledger-badge--edit), so it reads as one consistent "edit is on" cue. */
+.ledger-table.is-editing th { color: var(--moss); }
+.ledger-table.is-editing .ledger-cell.is-editable { border-left: 3px solid var(--moss); background: var(--moss-bg); }
+.ledger-table.is-editing .ledger-cell.is-editable:hover { background: var(--moss-bg); filter: brightness(0.96); }
+.ledger-cell-input {
+  width: 100%; padding: 6px 8px; font: inherit; font-size: 13.5px; color: var(--txt); background: var(--bg);
+  border: 1px solid var(--accent); border-radius: 6px;
+}
+
+.ledger-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ledger-pager-info { font-size: 12px; color: var(--muted); }
+.ledger-pager-nav { display: flex; align-items: center; gap: 10px; }
+.ledger-pager-page { font-size: 12.5px; font-weight: 600; color: var(--txt); font-variant-numeric: tabular-nums; }
+.ledger-pager-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel);
+  color: var(--txt); cursor: pointer; font-size: 14px; line-height: 1;
+}
+.ledger-pager-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ledger-pager-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* --- Falc: floating assistant --- */
+.sora-perch { position: fixed; right: clamp(16px, 3vw, 30px); bottom: 24px; z-index: 96; }
+.sora-btn {
+  width: 88px; height: 88px; padding: 0; border: none; background: transparent;
+  display: grid; place-items: center; cursor: pointer;
+  transition: transform 0.22s cubic-bezier(.5,1.5,.4,1);
+}
+.sora-btn svg { width: 82px; height: 82px; display: block; filter: drop-shadow(0 6px 8px rgba(40,40,24,0.26)); }
+.sora-btn:hover { transform: translateY(-2px); }
+#sproutBody { transform-box: fill-box; transform-origin: 50% 100%; animation: sora-breathe 3.8s ease-in-out infinite; }
+.sora-wing { transform-box: fill-box; transform-origin: 8% 22%; }
+.sora-btn:hover .sora-wing { animation: sora-flap 0.95s ease-in-out infinite; }
+@keyframes sora-breathe { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.015); } }
+@keyframes sora-flap { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-14deg); } }
+
+.sora-chat {
+  position: fixed; right: clamp(16px, 3vw, 30px); bottom: 116px; z-index: 150;
+  width: min(380px, calc(100vw - 32px)); height: min(540px, calc(100vh - 160px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+  box-shadow: var(--shadow); display: none; flex-direction: column; overflow: hidden;
+  transform-origin: bottom right;
+}
+.sora-chat.open { display: flex; animation: sora-unfurl 0.32s ease; }
+@keyframes sora-unfurl { from { opacity: 0; transform: scale(0.92) translateY(10px); } to { opacity: 1; transform: none; } }
+.sc-head { display: flex; align-items: center; gap: 11px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.sc-orb { width: 36px; height: 36px; border-radius: 50%; background: var(--moss-bg); display: grid; place-items: center; flex-shrink: 0; }
+.sc-orb svg { width: 22px; height: 22px; }
+.sc-title { display: flex; flex-direction: column; }
+.sc-name { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--txt); }
+.sc-status { font-size: 11px; color: var(--muted); }
+.sc-close {
+  margin-left: auto; width: 30px; height: 30px; border-radius: 8px;
+  background: transparent; border: 1px solid transparent; color: var(--muted);
+  font-size: 14px; cursor: pointer;
+}
+.sc-close:hover { color: var(--clay); border-color: var(--clay); }
+.sc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+/* Let the reused Agent chat fill Falc's panel body. */
+.sc-body .ag-root { height: 100%; }
+.sc-body .ag-list { flex: 1; }
+
+/* Tablet: two columns. Cards pair up, chart / donut go full width. */
+@media (max-width: 768px) {
+  .ov-root {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "spend   count"
+      "chart   chart"
+      "donut   donut"
+      "alltime topcat";
+  }
+}
+
+/* Phone: single column, everything stacks in reading order. */
+@media (max-width: 620px) {
+  .sora-btn { width: 72px; height: 72px; }
+  .sora-btn svg { width: 66px; height: 66px; }
+  .sora-chat { bottom: 96px; }
+
+  .ov-root {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "spend"
+      "count"
+      "chart"
+      "donut"
+      "alltime"
+      "topcat";
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPACT DENSITY PASS — the layout felt "zoomed in" on high-DPI displays even
+   at 100% browser zoom (large base font + generous card padding). This shrinks
+   the page itself (not a browser/OS zoom hack) so more fits on screen at
+   native zoom. Overrides the base rules above via source order; same
+   selectors, no !important needed.
+   Owner request 2026-07-06: that earlier pass went too small compared to
+   Mugi's reference mockup (14px base font) — sized back up to match it
+   (12px -> 14px base, proportional bump to the paddings/sizes below), while
+   keeping this as one real layout instead of a browser/OS zoom hack.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body { font-size: 14px; line-height: 1.5; }
+.app-header { padding: 14px 20px 8px; max-width: 1040px; }
+.app-main { padding: 12px 20px 24px; max-width: 1040px; }
+.nav { gap: 12px; padding: 8px 14px; }
+.nav-link { padding: 7px 14px; font-size: 14px; }
+.rm-chip { font-size: 13px; }
+
+.view { padding: 18px; margin-top: 12px; border-radius: 16px; }
+.view-title { font-size: 17px; }
+.view-title-row { margin-bottom: 12px; }
+
+.ov-root { gap: 16px; }
+.ov-kpi { padding: 14px; border-radius: 12px; }
+.ov-kpi-label { font-size: 11px; }
+.ov-kpi-value { font-size: 22px; }
+.ov-linechart, .ov-donut-wrap { padding: 16px; border-radius: 14px; }
+
+.set-row { padding: 9px 0; }
+.set-label { font-size: 13px; }
+.set-desc { font-size: 12px; }
+.collapsible-head { padding: 10px 14px; }
+.collapsible-title { font-size: 11px; }
+.collapsible-body { padding: 3px 14px 11px; }
+.collapsible.is-open .collapsible-body { padding-top: 9px; }
+
+.act-card, .up-zone, .rp-toolbar, .tp-file-zone { border-radius: 12px; }
+button, .btn, select, input { font-size: inherit; }

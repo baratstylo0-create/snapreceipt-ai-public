@@ -1,0 +1,152 @@
+'use strict';
+// Task A §4.2: the security-headers middleware must set a strict CSP and the
+// hardening headers on EVERY response, plus Cache-Control: no-store on data-
+// bearing paths (/api/*, /receipt). Written TDD first. Two layers of proof:
+//  1) unit — call the middleware with a fake req/res and assert res.set() calls,
+//  2) integration — mount it on a real express app and assert response headers.
+const test = require('node:test');
+const assert = require('node:assert');
+const express = require('express');
+const securityHeaders = require('../lib/security-headers');
+
+// --- unit: fake res captures every header set ---
+function fakeRes() {
+  const headers = {};
+  return {
+    headers,
+    set(k, v) {
+      if (typeof k === 'object') Object.assign(headers, k);
+      else headers[k] = v;
+      return this;
+    },
+  };
+}
+
+test('sets CSP + hardening headers on a normal (non-api) path', () => {
+  const res = fakeRes();
+  let nexted = false;
+  securityHeaders({ path: '/index.html' }, res, () => { nexted = true; });
+  assert.ok(nexted, 'must call next()');
+  assert.match(res.headers['Content-Security-Policy'], /default-src 'self'/);
+  assert.match(res.headers['Content-Security-Policy'], /object-src 'none'/);
+  assert.match(res.headers['Content-Security-Policy'], /frame-ancestors 'none'/);
+  assert.strictEqual(res.headers['X-Content-Type-Options'], 'nosniff');
+  assert.strictEqual(res.headers['X-Frame-Options'], 'DENY');
+  assert.strictEqual(res.headers['Referrer-Policy'], 'no-referrer');
+  assert.match(res.headers['Permissions-Policy'], /camera=\(\)/);
+  assert.strictEqual(res.headers['Cache-Control'], undefined, 'no no-store on a page path');
+});
+
+test("CSP allows the Google Fonts hosts (style-src googleapis, font-src gstatic) but NOT unsafe-inline", () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/index.html' }, res, () => {});
+  const csp = res.headers['Content-Security-Policy'];
+  assert.match(csp, /style-src [^;]*https:\/\/fonts\.googleapis\.com/);
+  assert.match(csp, /font-src [^;]*https:\/\/fonts\.gstatic\.com/);
+  assert.ok(!/unsafe-inline/.test(csp), 'must not weaken to unsafe-inline');
+});
+
+test("img-src allows blob: — receipt images render via fetchBlob -> object URL (ADR-018)", () => {
+  // The dashboard fetches every receipt image with an auth'd XHR and renders the bytes as
+  // a browser-generated blob: object URL in a real <img> (never a raw cross-origin URL).
+  // Without blob: in img-src, CSP silently blocks EVERY receipt image (Storage + Telegram).
+  const res = fakeRes();
+  securityHeaders({ path: '/index.html' }, res, () => {});
+  assert.match(res.headers['Content-Security-Policy'], /img-src [^;]*\bblob:/);
+  // still same-origin only for scripts/styles (no loosening elsewhere)
+  assert.match(res.headers['Content-Security-Policy'], /script-src 'self'/);
+});
+
+test('adds Cache-Control: no-store on /api/* paths', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/api/expenses' }, res, () => {});
+  assert.strictEqual(res.headers['Cache-Control'], 'no-store');
+  // still carries the base headers
+  assert.ok(res.headers['Content-Security-Policy']);
+});
+
+test('adds Cache-Control: no-store on /receipt paths', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/receipt/abc123' }, res, () => {});
+  assert.strictEqual(res.headers['Cache-Control'], 'no-store');
+});
+
+// --- integration: real express app applying only the middleware ---
+function server() {
+  const app = express();
+  app.use(securityHeaders);
+  app.get('/', (req, res) => res.send('ok'));
+  app.get('/api/thing', (req, res) => res.json({ ok: true }));
+  const s = app.listen(0);
+  return { s, base: 'http://127.0.0.1:' + s.address().port };
+}
+
+test('integration: normal response carries CSP + nosniff, no Cache-Control', async () => {
+  const { s, base } = server();
+  try {
+    const r = await fetch(base + '/');
+    assert.match(r.headers.get('content-security-policy'), /default-src 'self'/);
+    assert.strictEqual(r.headers.get('x-content-type-options'), 'nosniff');
+    assert.strictEqual(r.headers.get('x-frame-options'), 'DENY');
+    assert.strictEqual(r.headers.get('cache-control'), null);
+  } finally { s.close(); }
+});
+
+test('integration: /api/* response carries Cache-Control: no-store', async () => {
+  const { s, base } = server();
+  try {
+    const r = await fetch(base + '/api/thing');
+    assert.strictEqual(r.headers.get('cache-control'), 'no-store');
+    assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
+  } finally { s.close(); }
+});
+
+// --- security hardening batch 2: CORP always; HSTS only over HTTPS ---
+test('Cross-Origin-Resource-Policy: same-origin is set on every response', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/index.html' }, res, () => {});
+  assert.strictEqual(res.headers['Cross-Origin-Resource-Policy'], 'same-origin');
+});
+test('HSTS is NOT sent on an insecure (HTTP) request — local dev untouched', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/api/x', secure: false }, res, () => {});
+  assert.strictEqual(res.headers['Strict-Transport-Security'], undefined);
+});
+test('HSTS IS sent on a secure (HTTPS) request, with a real max-age and no premature preload', () => {
+  const res = fakeRes();
+  securityHeaders({ path: '/api/x', secure: true }, res, () => {});
+  assert.match(res.headers['Strict-Transport-Security'], /max-age=\d+/);
+  assert.ok(!/preload/.test(res.headers['Strict-Transport-Security']), 'no preload commitment yet');
+  assert.ok(!/includeSubDomains/.test(res.headers['Strict-Transport-Security']));
+});
+
+// Incident 2026-07-17: a self-signed cert + HSTS is a permanent-lockout combo, not
+// downgrade protection. Once a browser accepts the self-signed cert once and receives
+// HSTS, it caches the policy and refuses to EVER show a cert-error bypass link again for
+// that host for the max-age window — an ordinary reload after that point hard-fails with
+// no way through except manually clearing chrome://net-internals/#hsts. HSTS only earns
+// its keep once the deployment has a CA-trusted cert (needs a real domain, not a bare IP).
+// HSTS_ENABLED=false is the opt-out for a self-signed deployment; unset/anything else
+// preserves the existing default-on behavior for a real HTTPS deploy.
+test('HSTS is suppressed when HSTS_ENABLED=false, even over HTTPS (self-signed-cert deployments)', () => {
+  const prev = process.env.HSTS_ENABLED;
+  process.env.HSTS_ENABLED = 'false';
+  try {
+    const res = fakeRes();
+    securityHeaders({ path: '/api/x', secure: true }, res, () => {});
+    assert.strictEqual(res.headers['Strict-Transport-Security'], undefined);
+  } finally {
+    if (prev === undefined) delete process.env.HSTS_ENABLED; else process.env.HSTS_ENABLED = prev;
+  }
+});
+test('HSTS_ENABLED unset (or anything other than "false") keeps the default-on behavior', () => {
+  const prev = process.env.HSTS_ENABLED;
+  delete process.env.HSTS_ENABLED;
+  try {
+    const res = fakeRes();
+    securityHeaders({ path: '/api/x', secure: true }, res, () => {});
+    assert.match(res.headers['Strict-Transport-Security'], /max-age=\d+/);
+  } finally {
+    if (prev === undefined) delete process.env.HSTS_ENABLED; else process.env.HSTS_ENABLED = prev;
+  }
+});
