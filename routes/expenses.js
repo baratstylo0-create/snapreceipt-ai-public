@@ -12,6 +12,7 @@ const { getCapabilities } = require('../lib/account'); // ADR-010 flags (multiUs
 const { lookupSession, scopeForUser, guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // ADR-021 business identity
 const { GUEST_RECEIPT_CAP, countGuestExpenses } = require('../lib/ocr'); // Guest Mode (2026-07-28)
 const googleAuth = require('../lib/googleAuth'); // Google Sign-In (2026-07-30) — isConfigured() for /api/config
+const { countExpensesThisMonth, FREE_TIER_MONTHLY_CAP } = require('../lib/billing'); // plan_usage for /api/config (2026-08-08)
 
 // P6 abuse defense (§4.4): checkDash IS the auth gate for every dashboard/API route (they all
 // import it from here) — without a limit it's brute-forceable (guess DASHBOARD_TOKEN). Runs
@@ -506,6 +507,8 @@ module.exports = function mountExpenses(app) {
     // but flagged here so it isn't missed once real billing goes live (a page reload always
     // gets it right either way, since the token exists before that /api/config call).
     let plan = 'free';
+    let planUsage = null;
+    let accountInfo = null;
     try {
       const a = req.get('Authorization') || '';
       const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
@@ -514,6 +517,24 @@ module.exports = function mountExpenses(app) {
         if (sess) {
           const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
           if (rows[0] && rows[0].plan === 'pro') plan = 'pro';
+          if (rows[0] && rows[0].role === 'owner') {
+            if (plan !== 'pro') {
+              try {
+                const used = await countExpensesThisMonth();
+                planUsage = { used, limit: FREE_TIER_MONTHLY_CAP };
+              } catch (e) { console.error('[api/config] plan usage lookup failed:', e.message); }
+            }
+            accountInfo = { email: rows[0].username, created_at: rows[0].created_at };
+            // Telegram connect status (2026-08-08) — Settings needs to show "Connected" /
+            // "Not connected" + the connect link ANY time, not just once during onboarding
+            // (the link itself is now permanent, see schema.sql's bot_bindings migration).
+            try {
+              const bindRows = await sbSelect('bot_bindings', { eq: { user_id: sess.user_id }, limit: 1 });
+              const b = bindRows[0];
+              accountInfo.telegram_connected = !!(b && b.chat_id);
+              accountInfo.telegram_bind_token = b ? b.bind_token : null;
+            } catch (e) { console.error('[api/config] telegram status lookup failed:', e.message); }
+          }
         }
       }
     } catch (e) { console.error('[api/config] plan lookup failed, defaulting to free:', e.message); }
@@ -521,6 +542,8 @@ module.exports = function mountExpenses(app) {
       auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories,
       multi_user: !!caps.multiUser,
       plan,
+      plan_usage: planUsage,
+      account_info: accountInfo,
       // personal_auth (2026-07-25): tells the frontend to show the real signup/login flow
       // (Onboarding's Create-account step) instead of the static token gate, for a personal
       // deployment that has opted into real accounts. Independent of multi_user.

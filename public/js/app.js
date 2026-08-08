@@ -487,6 +487,16 @@
     // cap hits, so this never disappears/blocks anything, it just never lets them forget.
     if (header && deps.session && deps.session.role === 'guest') header.appendChild(buildGuestBanner(deps));
 
+    // Telegram connect reminder (2026-08-08): a persistent header banner for a real personal
+    // owner whose Telegram isn't connected yet — mirrors buildGuestBanner's placement/pattern
+    // above so it survives every select() call. account_info.telegram_connected comes from
+    // /api/config (routes/expenses.js), so this is only ever true/false for a real owner
+    // session (null for guest/business/signed-out — see routes/expenses.js's own gating).
+    var acctInfo = deps.config && deps.config.account_info;
+    if (header && deps.session && deps.session.role === 'owner' && acctInfo && acctInfo.telegram_connected === false) {
+      header.appendChild(buildTelegramBanner(deps, acctInfo));
+    }
+
     // QA report #1: after a dashboard upload, the user had no way to jump to what was
     // just saved. `select` (below) is the real switcher (updates the nav pill + lazy-
     // loads the target view's data) — shared with every mounted view via `deps` so e.g.
@@ -741,6 +751,35 @@
     btn.className = 'guest-banner-btn';
     btn.textContent = 'Sign up';
     btn.addEventListener('click', function () { mountOnboarding(deps, deps.config); });
+    bar.appendChild(btn);
+    return bar;
+  }
+
+  // buildTelegramBanner(deps, acctInfo) -> a persistent header banner (same classes/placement
+  // as buildGuestBanner above) for a real owner account whose Telegram isn't connected yet
+  // (2026-08-08). The connect link is permanent now (no expiry), so this is always safe to
+  // show — tapping it just opens the same t.me/<bot>?start=<token> deep link Settings' own
+  // Telegram row uses. Disappears on its own next boot once acctInfo.telegram_connected flips
+  // true (this banner is only ever appended when it's explicitly false, see enterApp above).
+  function buildTelegramBanner(deps, acctInfo) {
+    var bar = document.createElement('div');
+    bar.className = 'guest-banner';
+    var msg = document.createElement('span');
+    msg.textContent = 'Connect Telegram to start capturing receipts from your phone.';
+    bar.appendChild(msg);
+    var botUser = deps.config && deps.config.bot_username;
+    var token = acctInfo && acctInfo.telegram_bind_token;
+    var btn = document.createElement(botUser && token ? 'a' : 'button');
+    btn.className = 'guest-banner-btn';
+    btn.textContent = 'Connect';
+    if (botUser && token) {
+      btn.href = 'https://t.me/' + botUser + '?start=' + encodeURIComponent(token);
+      btn.target = '_blank';
+      btn.rel = 'noopener';
+    } else {
+      btn.type = 'button';
+      btn.addEventListener('click', function () { deps.switchView && deps.switchView('settings'); });
+    }
     bar.appendChild(btn);
     return bar;
   }

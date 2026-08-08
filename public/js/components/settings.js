@@ -155,8 +155,8 @@
     Escape.setText(sub, 'Account, appearance, capture, notifications and privacy.');
     rootEl.appendChild(sub);
 
-    // --- Account & session (real) ---
-    var acc = collapsible('Account & session', true);
+    // --- Account settings (real) ---
+    var acc = collapsible('Account settings', true);
     var authBtn = el('button', model.signedIn ? 'set-btn set-btn--danger' : 'set-btn set-btn--primary');
     Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
     // Bug fix: this used to call opts.logout() unconditionally — even when the
@@ -177,6 +177,43 @@
         : (model.authRequired ? 'Not signed in.' : 'This dashboard is open (no token required in dev).'),
       authBtn
     ));
+
+    // Account identity + plan summary (2026-08-08) — opts.config.account_info comes from
+    // /api/config's real session lookup (routes/expenses.js), null for a signed-out/guest/
+    // business session. A compact glance only — the full usage bar + upgrade button stays
+    // in the separate "Plan & billing" section below, not duplicated here.
+    var accountInfo = opts.config && opts.config.account_info;
+    if (accountInfo) {
+      acc.body.appendChild(setRow('Email', null, valueChip(accountInfo.email || '')));
+      if (accountInfo.created_at) {
+        var joined = new Date(accountInfo.created_at);
+        var joinedText = isNaN(joined.getTime()) ? '' : joined.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+        if (joinedText) acc.body.appendChild(setRow('Member since', null, valueChip(joinedText)));
+      }
+      var usage = opts.config.plan_usage;
+      var planLabel = (opts.config.plan === 'pro') ? 'Pro plan'
+        : 'Free plan' + (usage ? ' · ' + usage.used + '/' + usage.limit + ' receipts this month' : '');
+      acc.body.appendChild(setRow('Plan', null, valueChip(planLabel)));
+
+      // Telegram connect status (2026-08-08) — reachable ANY time now, not just once during
+      // onboarding. The connect link (bind_token) is permanent (schema.sql migration), so
+      // there's no "expired link" case to handle here — just connected vs. not-yet.
+      if (accountInfo.telegram_connected) {
+        acc.body.appendChild(setRow('Telegram', null, valueChip('Connected')));
+      } else {
+        var connectBtn = el('a', 'set-btn set-btn--primary');
+        Escape.setText(connectBtn, 'Connect Telegram');
+        var botUser = opts.config.bot_username;
+        var token = accountInfo.telegram_bind_token;
+        if (botUser && token) {
+          connectBtn.href = 'https://t.me/' + botUser + '?start=' + encodeURIComponent(token);
+          connectBtn.target = '_blank';
+          connectBtn.rel = 'noopener';
+        }
+        acc.body.appendChild(setRow('Telegram', 'Not connected yet — tap to open the bot.', connectBtn));
+      }
+    }
+
     rootEl.appendChild(acc.el);
 
     // --- Appearance (real: theme) ---
