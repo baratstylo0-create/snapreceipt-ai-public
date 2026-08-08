@@ -53,6 +53,58 @@ test('resolveBinding: fails CLOSED (returns null, never throws) on a lookup erro
   assert.strictEqual(binding, null);
 });
 
+// --- 30-day inactivity auto-unbind (2026-08-08) — scoped to role==='owner' ONLY ------
+
+test('resolveBinding: a stale (31+ days inactive) OWNER binding is auto-unbound (clears chat_id, returns null)', async () => {
+  const staleAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+  const row = { id: 'ownerBind1', chat_id: '100', role: 'owner', active: true, last_active_at: staleAt };
+  const updates = [];
+  const binding = await resolveBinding(100, {
+    sbSelect: async () => [row],
+    sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
+  });
+  assert.strictEqual(binding, null);
+  assert.strictEqual(updates.length, 1);
+  assert.strictEqual(updates[0].where.id, 'ownerBind1');
+  assert.strictEqual(updates[0].patch.chat_id, null);
+});
+
+test('resolveBinding: a RECENTLY active owner binding (within 30 days) is returned normally, not unbound', async () => {
+  const recentAt = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+  const row = { id: 'ownerBind2', chat_id: '100', role: 'owner', active: true, last_active_at: recentAt };
+  const updates = [];
+  const binding = await resolveBinding(100, {
+    sbSelect: async () => [row],
+    sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
+  });
+  assert.deepStrictEqual(binding, row);
+  assert.strictEqual(updates.length, 0);
+});
+
+test('resolveBinding: a stale BUSINESS (clerk) binding is NEVER auto-unbound — business behavior is byte-for-byte unchanged', async () => {
+  const staleAt = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString(); // over a year inactive
+  const row = { id: 'clerkBind1', chat_id: '100', branch_id: 'br-A', role: 'clerk', active: true, last_active_at: staleAt };
+  const updates = [];
+  const binding = await resolveBinding(100, {
+    sbSelect: async () => [row],
+    sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
+  });
+  assert.deepStrictEqual(binding, row);
+  assert.strictEqual(updates.length, 0, 'business bindings must never be auto-unbound by the inactivity check');
+});
+
+test('resolveBinding: a stale GUEST binding is NEVER auto-unbound by the inactivity check (guest cleanup is a separate mechanism)', async () => {
+  const staleAt = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
+  const row = { id: 'guestBind1', chat_id: '100', role: 'guest', active: true, last_active_at: staleAt };
+  const updates = [];
+  const binding = await resolveBinding(100, {
+    sbSelect: async () => [row],
+    sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
+  });
+  assert.deepStrictEqual(binding, row);
+  assert.strictEqual(updates.length, 0);
+});
+
 // --- bindWithToken -------------------------------------------------------------------
 
 test('bindWithToken: a valid, unbound token binds this chat and returns the role', async () => {
@@ -99,12 +151,26 @@ test('bindWithToken: a token already bound to a DIFFERENT chat is refused (used 
   assert.match(result.message, /already been used/i);
 });
 
-test('bindWithToken: an expired token is refused', async () => {
+test('bindWithToken: an expired BUSINESS (clerk) token is still refused (2026-08-08 fix is scoped to owner only)', async () => {
   const row = { id: 'bind5', bind_token: 'tok5', role: 'clerk', chat_id: null, active: true,
     token_expires_at: new Date(Date.now() - 1000).toISOString() };
   const result = await bindWithToken('tok5', 1, { sbSelect: async () => [row] });
   assert.strictEqual(result.ok, false);
   assert.match(result.message, /expired/i);
+});
+
+test('bindWithToken: an expired token is NOT enforced for a personal OWNER binding (2026-08-08 — connect links are permanent for owners)', async () => {
+  const row = { id: 'bind5b', bind_token: 'tok5b', role: 'owner', chat_id: null, active: true,
+    token_expires_at: new Date(Date.now() - 1000).toISOString() };
+  const updates = [];
+  const result = await bindWithToken('tok5b', 1, {
+    sbSelect: async () => [row],
+    sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
+  });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(updates.length, 1);
+  assert.strictEqual(updates[0].patch.chat_id, '1');
+  assert.ok(updates[0].patch.last_active_at, 'owner binds should stamp last_active_at for the 30-day inactivity clock');
 });
 
 test('bindWithToken: an unknown token is refused', async () => {

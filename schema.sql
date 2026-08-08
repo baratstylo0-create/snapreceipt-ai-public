@@ -585,3 +585,24 @@ create trigger subscriptions_touch_updated_at before update on subscriptions
 
 alter table subscriptions enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+
+-- ============================================================================
+-- Migration: permanent bot binding + 30-day inactivity re-verify (2026-08-08)
+-- A personal (personalAuth) owner's connect link used to expire after 7 days
+-- (BIND_TOKEN_TTL_MS) with no self-service way to get a fresh one — a real user
+-- got permanently stuck this way (chat_id stayed null forever). Two changes:
+--   1. token_expires_at is now NULLABLE — new signups (lib/personalAuth.js)
+--      leave it null (link never expires); lib/bot.js's bindWithToken no
+--      longer enforces an expiry at all. Existing rows keep whatever expiry
+--      they already had (harmless — bindWithToken no longer checks it).
+--   2. last_active_at tracks the last time this chat sent the bot a message.
+--      lib/bot.js's resolveBinding clears chat_id (forcing a re-verify, not a
+--      dead end — the in-bot "I already have one" flow rebinds via a 6-digit
+--      email code) once this is >30 days old, so a lost/stolen/sold phone
+--      can't keep using the bot forever, without making normal daily use ever
+--      expire. Backfilled from bound_at (fallback created_at) so existing
+--      users aren't treated as already-inactive the moment this ships.
+-- ============================================================================
+alter table bot_bindings alter column token_expires_at drop not null;
+alter table bot_bindings add column if not exists last_active_at timestamptz;
+update bot_bindings set last_active_at = coalesce(bound_at, created_at) where last_active_at is null;
