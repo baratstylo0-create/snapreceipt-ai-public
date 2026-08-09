@@ -414,6 +414,19 @@ test('donutSlicePath: a zero/negative span -> "" (never throws)', () => {
   assert.doesNotThrow(() => donutSlicePath(null, null, null, null, null, null));
 });
 
+test('donutSlicePath: a full 360deg span (single category at 100%) still renders a visible slice, not an empty path', () => {
+  // Regression (2026-08-09): a real account with exactly one category produced 0-360,
+  // which put the arc's start and end points at the identical (x,y) — SVG collapses
+  // that to a zero-length/invisible path even though the chart's data was correct.
+  const d = donutSlicePath(90, 90, 82, 50, 0, 360);
+  assert.notStrictEqual(d, '');
+  const outerStart = /^M([\d.-]+),([\d.-]+)/.exec(d);
+  const outerEndMatch = /A82,82 0 (\d) 1 ([\d.-]+),([\d.-]+)/.exec(d);
+  assert.ok(outerStart && outerEndMatch, 'expected a real outer arc segment');
+  assert.notStrictEqual(outerStart[1] + ',' + outerStart[2], outerEndMatch[2] + ',' + outerEndMatch[3],
+    'start and end points must differ or the arc renders invisible');
+});
+
 // --- custom category colours (Owner request 2026-07-05) -------------------------
 
 test('normaliseCategoryKey: trims and lowercases, tolerant of null/undefined', () => {
