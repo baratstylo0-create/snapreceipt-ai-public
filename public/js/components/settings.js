@@ -276,34 +276,6 @@
 
     // --- Account settings (real) ---
     var acc = collapsible('Account settings', true);
-    // 2026-08-09 (Barat: "change the logout button colour into blue based on web theme
-    // colour"): Log out is a safe, reversible action — it never belonged visually grouped
-    // with truly destructive actions (Delete account, below). Scoped to personal accounts
-    // only (opts.config.personal_auth) so the shared business/Premala dashboard's Log out
-    // stays exactly as it was — --danger red — completely untouched.
-    var isPersonal = !!(opts.config && opts.config.personal_auth);
-    var authBtn = el('button', model.signedIn
-      ? 'set-btn ' + (isPersonal ? 'set-btn--primary' : 'set-btn--danger')
-      : 'set-btn set-btn--primary');
-    Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
-    // Bug fix: this used to call opts.logout() unconditionally — even when the
-    // button read "Log in" — so clicking "Log in" silently cleared the (already
-    // empty) token and reloaded, landing back on Overview with nothing entered.
-    // Branch on sign-in state: signed in -> log out; signed out -> show the
-    // real token-entry gate (opts.login).
-    authBtn.addEventListener('click', function () {
-      if (model.signedIn) {
-        if (typeof opts.logout === 'function') opts.logout();
-      } else {
-        if (typeof opts.login === 'function') opts.login();
-      }
-    });
-    acc.body.appendChild(setRow(
-      'Session',
-      model.signedIn ? 'You are signed in on this device.'
-        : (model.authRequired ? 'Not signed in.' : 'This dashboard is open (no token required in dev).'),
-      authBtn
-    ));
 
     // Account identity + plan summary (2026-08-08) — opts.config.account_info comes from
     // /api/config's real session lookup (routes/expenses.js), null for a signed-out/guest/
@@ -528,6 +500,37 @@
     var about = collapsible('About', false);
     about.body.appendChild(setRow('AutoReceipt Dashboard', 'Treehouse design · Mugi.', valueChip('v0.2')));
     rootEl.appendChild(about.el);
+
+    // --- Session (real) --- moved to the last section of the page (2026-08-09, Barat:
+    // "remove logout option from here [Account settings] and give logout option in
+    // settings page last column") — was previously the first row under Account settings,
+    // grouped too close to the account identity info. Same exact button/behavior, just
+    // relocated to the bottom of the page.
+    var sess = collapsible('Session', false);
+    var isPersonal = !!(opts.config && opts.config.personal_auth);
+    var authBtn = el('button', model.signedIn
+      ? 'set-btn ' + (isPersonal ? 'set-btn--primary' : 'set-btn--danger')
+      : 'set-btn set-btn--primary');
+    Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
+    // Bug fix: this used to call opts.logout() unconditionally — even when the
+    // button read "Log in" — so clicking "Log in" silently cleared the (already
+    // empty) token and reloaded, landing back on Overview with nothing entered.
+    // Branch on sign-in state: signed in -> log out; signed out -> show the
+    // real token-entry gate (opts.login).
+    authBtn.addEventListener('click', function () {
+      if (model.signedIn) {
+        if (typeof opts.logout === 'function') opts.logout();
+      } else {
+        if (typeof opts.login === 'function') opts.login();
+      }
+    });
+    sess.body.appendChild(setRow(
+      'Session',
+      model.signedIn ? 'You are signed in on this device.'
+        : (model.authRequired ? 'Not signed in.' : 'This dashboard is open (no token required in dev).'),
+      authBtn
+    ));
+    rootEl.appendChild(sess.el);
 
     // Settings is static — no async data to fetch on view.
     return { el: rootEl };
