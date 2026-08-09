@@ -506,7 +506,7 @@
     // settings page last column") — was previously the first row under Account settings,
     // grouped too close to the account identity info. Same exact button/behavior, just
     // relocated to the bottom of the page.
-    var sess = collapsible('Session', false);
+    var sess = collapsible('Logout', false);
     var isPersonal = !!(opts.config && opts.config.personal_auth);
     var authBtn = el('button', model.signedIn
       ? 'set-btn ' + (isPersonal ? 'set-btn--primary' : 'set-btn--danger')
