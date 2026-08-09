@@ -2592,6 +2592,27 @@ body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
 .set-btn--ghost { background: var(--panel); color: var(--muted); }
 .set-btn--ghost:hover { color: var(--txt); border-color: var(--txt); }
 
+/* Delete-account modal fields (2026-08-09) — password (+ eye toggle) and the
+   "type DELETE to confirm" text field, styled to match .set-select's inputs. */
+.set-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; text-align: left; }
+.set-field-label { font-size: 12.5px; font-weight: 700; color: var(--txt); }
+.set-field-input-row { position: relative; display: flex; align-items: center; }
+.set-field-input {
+  width: 100%; padding: 8px 10px; font: inherit; font-size: 13px;
+  color: var(--txt); background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+.set-field-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.set-field-input-row .set-field-input { padding-right: 36px; }
+.set-field-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer; font-size: 14px; color: var(--muted);
+  border-radius: 6px;
+}
+.set-field-eye:hover { color: var(--txt); }
+.set-field-eye.is-active { color: var(--accent); }
+.set-field-error { color: var(--clay); text-align: left; margin-top: 8px; }
+
 /* concept toggle switch (visual only) */
 .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
 .switch input { opacity: 0; width: 0; height: 0; position: absolute; }

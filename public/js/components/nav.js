@@ -157,6 +157,7 @@
     var onSettings = typeof opts.onSettings === 'function' ? opts.onSettings : function () {};
     var onToggleTheme = typeof opts.onToggleTheme === 'function' ? opts.onToggleTheme : function () {};
     var onRefresh = typeof opts.onRefresh === 'function' ? opts.onRefresh : function () {};
+    var onFeedback = typeof opts.onFeedback === 'function' ? opts.onFeedback : function () {};
     var business = !!opts.business;
 
     var top = document.createElement('div');
@@ -208,19 +209,38 @@
       actions.appendChild(tgBtn);
     }
 
-    var settingsBtn = document.createElement('button');
-    settingsBtn.type = 'button';
-    // 2026-07-27 (Barat: "increase the size") — these three are plain text glyphs
-    // (Telegram's own icon above is already a properly-sized SVG); icon-btn--lg
-    // bumps just their font-size to match the logout icon's 22px, without
-    // touching the shared .icon-btn base size used by icon buttons elsewhere
-    // (Team/Templates/etc — business included, unaffected).
-    settingsBtn.className = 'icon-btn icon-btn--lg';
-    settingsBtn.title = 'Settings';
-    settingsBtn.setAttribute('aria-label', 'Settings');
-    settingsBtn.textContent = '⚙';
-    settingsBtn.addEventListener('click', function () { onSettings(); });
-    actions.appendChild(settingsBtn);
+    // 2026-08-09 (Barat: "remove the appearance option from here and set the new customer
+    // service icon"): the gear/Settings shortcut is replaced with a feedback/contact icon
+    // for PERSONAL accounts only — Settings itself stays fully reachable via the main nav
+    // pills (it's one of the 5 sections), so dropping this header shortcut loses nothing.
+    // Business (Premala) keeps the original gear icon exactly as before — untouched.
+    if (opts.personalAuth) {
+      var feedbackBtn = document.createElement('button');
+      feedbackBtn.type = 'button';
+      feedbackBtn.className = 'icon-btn icon-btn--lg';
+      feedbackBtn.title = 'Contact us / feedback';
+      feedbackBtn.setAttribute('aria-label', 'Contact us or give feedback');
+      feedbackBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'
+        + '</svg>';
+      feedbackBtn.addEventListener('click', function () { onFeedback(); });
+      actions.appendChild(feedbackBtn);
+    } else {
+      var settingsBtn = document.createElement('button');
+      settingsBtn.type = 'button';
+      // 2026-07-27 (Barat: "increase the size") — these three are plain text glyphs
+      // (Telegram's own icon above is already a properly-sized SVG); icon-btn--lg
+      // bumps just their font-size to match the logout icon's 22px, without
+      // touching the shared .icon-btn base size used by icon buttons elsewhere
+      // (Team/Templates/etc — business included, unaffected).
+      settingsBtn.className = 'icon-btn icon-btn--lg';
+      settingsBtn.title = 'Settings';
+      settingsBtn.setAttribute('aria-label', 'Settings');
+      settingsBtn.textContent = '⚙';
+      settingsBtn.addEventListener('click', function () { onSettings(); });
+      actions.appendChild(settingsBtn);
+    }
 
     // 2026-07-27: personal accounts only cycle Light(blue/white)/Dark now — see
     // app.js's themeCycleFor(). Business keeps the original three-way label.
