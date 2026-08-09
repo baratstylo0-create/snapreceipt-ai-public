@@ -419,7 +419,30 @@
   }
 
   // Enter the app proper: build the brand header + nav + views, wire switching + theme.
+  // enterApp(deps) — thin wrapper around renderApp(deps) (2026-08-09 fix). Every login/
+  // signup/reconnect path stores the token then calls this BEFORE deps.config has ever
+  // been fetched WITH that token — deps.config is still the one unauthenticated /api/config
+  // response from boot() (account_info/plan_usage/telegram_connected always null there,
+  // per routes/expenses.js's own owner-only gating). That made Settings' "Account settings"
+  // panel (email/member-since/plan/Telegram row) permanently blank for a real signed-in
+  // session, since it reads opts.config straight off this same stale object — a page reload
+  // "fixed" it only because reload re-runs boot() with the token already stored. Refetching
+  // here (now authenticated, since every call site stores the token first) fixes every entry
+  // path in one place instead of patching each of the 9 enterApp() call sites individually.
   function enterApp(deps) {
+    if (deps.Api && typeof deps.Api.apiFetch === 'function') {
+      deps.Api.apiFetch('/api/config').then(function (freshCfg) {
+        if (freshCfg) deps.config = freshCfg;
+      }).catch(function () {
+        // Never block entering the app on this refresh — fall back to the stale
+        // pre-login config (same behavior as before this fix existed).
+      }).then(function () { renderApp(deps); });
+    } else {
+      renderApp(deps);
+    }
+  }
+
+  function renderApp(deps) {
     // Defensive: strip the pre-login entry screens' body classes (landing-mode,
     // onboard-mode) no matter which path got us here, so the real dashboard theme
     // (Light/Warm/Dark/Ocean) is never seen through a leftover override.
