@@ -210,3 +210,25 @@ test('line-item category split: off-template portions fall back and remainder re
   assert.deepStrictEqual(r.buckets[0].byCategory, { Food: 80 });
   assert.strictEqual(r.total, 80);
 });
+
+test('line-item category split: EVERY line item low-confidence "Others" defers to the receipt-level category, not Others (regression, 2026-08-09)', () => {
+  // Real bug: OCR tags an individual line item 'Others' when it can't confidently
+  // categorize THAT item — that's not the same as the receipt belonging to Others.
+  // A receipt correctly read as "Meals & Entertainment" was showing up entirely as
+  // "Others" in every report/chart because ALL its line items independently fell back.
+  const r = buildReport([E('2026-08-09', 36, 'Meals & Entertainment', {
+    line_items: [
+      { amount: 0, category: 'Others', source: 'fallback', confidence: 0.3 },
+      { amount: 16.97, category: 'Others', source: 'fallback', confidence: 0.3 },
+      { amount: 19.03, category: 'Others', source: 'fallback', confidence: 0.3 },
+    ],
+  })], 'month');
+  assert.deepStrictEqual(r.buckets[0].byCategory, { 'Meals & Entertainment': 36 });
+});
+
+test('line-item category split: a genuine MIX of real categories + some Others items still splits normally (not swallowed by the fix above)', () => {
+  const r = buildReport([E('2026-06-01', 80, 'Food', {
+    line_items: [{ amount: 50, category: 'Food' }, { amount: 30, category: 'Others' }],
+  })], 'month', { categories: ['Food', 'Petrol', 'Others'] });
+  assert.deepStrictEqual(r.buckets[0].byCategory, { Food: 50, Others: 30 });
+});
