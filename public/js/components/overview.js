@@ -415,6 +415,13 @@
   function donutSlicePath(cx, cy, rO, rI, startAngle, endAngle) {
     var s = toNum(startAngle), e = toNum(endAngle);
     if (e <= s) return '';
+    // Bug fix (2026-08-09, found via a real account with ONE category at 100% of spend):
+    // a span of exactly 360deg puts the start and end points at the identical (x,y) —
+    // sin/cos are periodic — so the SVG arc command degenerates to a zero-length path
+    // and the whole donut renders invisible even though the data is correct. Clamping
+    // just short of a full circle keeps start/end distinct; the 0.01deg gap is not
+    // visible at any real render size.
+    if (e - s >= 360) e = s + 359.99;
     var large = (e - s) > 180 ? 1 : 0;
     var oStart = polarToXY(cx, cy, rO, s), oEnd = polarToXY(cx, cy, rO, e);
     var iStart = polarToXY(cx, cy, rI, e), iEnd = polarToXY(cx, cy, rI, s);
