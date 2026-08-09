@@ -4,7 +4,7 @@
 // product has no login concept — it uses the static DASHBOARD_TOKEN). Admin/clerk
 // exchange username+password for an opaque session bearer; staff never log in.
 const express = require('express');
-const { sbSelect } = require('../lib/supabase');
+const { sbSelect, sbSoftDelete, sbHardDelete } = require('../lib/supabase');
 const { verifyPassword, mintSession, lookupSession, revokeSessionsForUser } = require('../lib/auth');
 const { getCapabilities } = require('../lib/account');
 const { signupOwner } = require('../lib/personalAuth');
@@ -26,6 +26,9 @@ const signupLimiter = createRateLimiter({ max: Number(process.env.SIGNUP_RATE_MA
 // effectively "try to guess a token," structurally the same threat as guessing a password.
 const forgotPasswordLimiter = createRateLimiter({ max: Number(process.env.FORGOT_PASSWORD_RATE_MAX) || 6 });
 const resetPasswordLimiter = createRateLimiter({ max: Number(process.env.RESET_PASSWORD_RATE_MAX) || 20 });
+// Delete-account (2026-08-06) — irreversible, so worth throttling the same way login guesses
+// are: a wrong-password attempt here is structurally the same brute-force surface as login.
+const deleteAccountLimiter = createRateLimiter({ max: Number(process.env.DELETE_ACCOUNT_RATE_MAX) || 10 });
 
 // A constant, well-formed scrypt hash for the unknown-user path so verifyPassword does
 // real work (equal-ish timing) whether or not the username exists — no user enumeration
@@ -136,6 +139,52 @@ module.exports = function mountAuth(app) {
     } catch (e) {
       console.error('[reset-password]', e.message);
       return res.status(502).json({ error: 'reset failed' });
+    }
+  }));
+
+  // DELETE /api/account { password } -> { ok:true } | { error }
+  // Real, irreversible account deletion (2026-08-06) — personal (personalAuth) owner accounts
+  // only; business/staff/guest sessions never reach the frontend button that calls this, but
+  // the role check below is the actual enforcement, not just UI hiding. Requires password
+  // re-entry (no other destructive endpoint in this codebase does — deliberate extra friction
+  // for something this irreversible). Reuses sbHardDelete('users', {id}) — the exact mechanism
+  // routes/guest.js already relies on for guest cleanup — which cascades sessions,
+  // bot_bindings, password_resets, subscriptions, and any owner_user_id-tagged rows (schema.sql).
+  // owner_user_id is guest-only though (see the per-user-cap work earlier) — a real owner's OWN
+  // captured receipts are tagged created_by_user_id instead, which is `on delete set null`, NOT
+  // cascade, so they'd survive as invisible orphans unless explicitly cleaned up first below.
+  app.delete('/api/account', express.json({ limit: '4kb' }), (req, res) => deleteAccountLimiter(req, res, async () => {
+    if (!getCapabilities().personalAuth) return res.status(404).json({ error: 'not found' });
+    const a = req.get('Authorization') || '';
+    const token = a.startsWith('Bearer ') ? a.slice(7) : '';
+    const { password } = req.body || {};
+    if (!token) return res.status(401).json({ error: 'unauthorized' });
+    if (!password || typeof password !== 'string') return res.status(400).json({ error: 'password is required' });
+    try {
+      const sess = await lookupSession(token);
+      if (!sess) return res.status(401).json({ error: 'unauthorized' });
+      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
+      const user = rows[0];
+      if (!user || user.role !== 'owner') return res.status(403).json({ error: 'forbidden' });
+      // 400, NOT 401: the session token itself is still valid — only the re-entered
+      // password is wrong. A 401 here would wrongly trip Api.js's global
+      // notifyAuthExpired() (any 401 with a valid Authorization header = "session
+      // expired, log in again"), which would confusingly boot the user out of the
+      // whole app just for mistyping their password during delete confirmation.
+      const ok = await verifyPassword(password, user.password_hash || DUMMY_HASH);
+      if (!ok) return res.status(400).json({ error: 'wrong password' });
+      // Close the cascade gap: soft-delete every expense this owner personally captured
+      // (created_by_user_id) BEFORE hard-deleting the user row — on delete set null would
+      // otherwise leave them intact but permanently unowned/invisible.
+      const owned = await sbSelect('expenses', { eq: { created_by_user_id: sess.user_id }, extra: 'deleted_at=is.null' });
+      for (const row of owned) {
+        try { await sbSoftDelete('expenses', { id: row.id }); } catch (e) { console.error('[delete-account] soft-delete expense failed:', row.id, e.message); }
+      }
+      await sbHardDelete('users', { id: sess.user_id });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[delete-account]', e.message);
+      return res.status(502).json({ error: 'delete failed' });
     }
   }));
 };
