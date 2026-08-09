@@ -9,7 +9,7 @@ const { verifyPassword, mintSession, lookupSession, revokeSessionsForUser } = re
 const { getCapabilities } = require('../lib/account');
 const { signupOwner } = require('../lib/personalAuth');
 const { requestPasswordReset, resetPassword } = require('../lib/passwordReset');
-const { sendResetEmail } = require('../lib/mailer');
+const { sendResetEmail, sendFeedbackEmail } = require('../lib/mailer');
 const { createRateLimiter } = require('../lib/ratelimit');
 const { cfg } = require('../lib/config');
 
@@ -29,6 +29,10 @@ const resetPasswordLimiter = createRateLimiter({ max: Number(process.env.RESET_P
 // Delete-account (2026-08-06) — irreversible, so worth throttling the same way login guesses
 // are: a wrong-password attempt here is structurally the same brute-force surface as login.
 const deleteAccountLimiter = createRateLimiter({ max: Number(process.env.DELETE_ACCOUNT_RATE_MAX) || 10 });
+// In-app feedback (2026-08-09) — an authenticated action (only reachable from inside the
+// dashboard header, personal accounts only), but still worth throttling: it triggers a real
+// outbound email send per request, an external cost/abuse surface same as forgot-password.
+const feedbackLimiter = createRateLimiter({ max: Number(process.env.FEEDBACK_RATE_MAX) || 10 });
 
 // A constant, well-formed scrypt hash for the unknown-user path so verifyPassword does
 // real work (equal-ish timing) whether or not the username exists — no user enumeration
@@ -185,6 +189,39 @@ module.exports = function mountAuth(app) {
     } catch (e) {
       console.error('[delete-account]', e.message);
       return res.status(502).json({ error: 'delete failed' });
+    }
+  }));
+
+  // POST /api/feedback { message } -> { ok:true } | { error }
+  // In-app "Contact us" (2026-08-09) — reached from the header feedback icon (nav.js,
+  // personal accounts only). Requires an authenticated session (so we know who to reply to
+  // without asking them to type their own email) but does NOT require the personalAuth/owner
+  // role check the account-deletion route above has — any signed-in user on a personalAuth
+  // deployment can send feedback, matching the header icon's own visibility. Reuses
+  // sendFeedbackEmail's real Resend send (unlike sendResetEmail/sendVerificationCode, this
+  // one does NOT swallow a failure — the user gets a real "try again" if the send failed).
+  app.post('/api/feedback', express.json({ limit: '8kb' }), (req, res) => feedbackLimiter(req, res, async () => {
+    if (!getCapabilities().personalAuth) return res.status(404).json({ error: 'not found' });
+    const a = req.get('Authorization') || '';
+    const token = a.startsWith('Bearer ') ? a.slice(7) : '';
+    const message = req.body && req.body.message;
+    if (!token) return res.status(401).json({ error: 'unauthorized' });
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'message is required' });
+    }
+    if (message.length > 4000) return res.status(400).json({ error: 'message is too long' });
+    try {
+      const sess = await lookupSession(token);
+      if (!sess) return res.status(401).json({ error: 'unauthorized' });
+      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
+      const user = rows[0];
+      if (!user) return res.status(401).json({ error: 'unauthorized' });
+      const result = await sendFeedbackEmail(user.username, message.trim());
+      if (!result.ok) return res.status(502).json({ error: 'Could not send your message. Please try again.' });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[feedback]', e.message);
+      return res.status(502).json({ error: 'Could not send your message. Please try again.' });
     }
   }));
 };

@@ -139,6 +139,125 @@
     return sel;
   }
 
+  // A labelled text input with an eye-icon toggle to show/hide the value — built for the
+  // Delete-account password field (2026-08-09, Barat: "give eye icon that password view
+  // option"). Starts masked (type=password); the toggle flips type password<->text and
+  // swaps the glyph, mirroring the same open/closed-eye convention used everywhere else
+  // (browsers' own native show-password icon, etc.). Returns { wrap, input }.
+  function passwordFieldWithEye(labelText) {
+    var wrap = el('div', 'set-field');
+    var lab = el('label', 'set-field-label');
+    Escape.setText(lab, labelText);
+    wrap.appendChild(lab);
+    var row = el('div', 'set-field-input-row');
+    var input = el('input', 'set-field-input');
+    input.type = 'password';
+    input.autocomplete = 'current-password';
+    row.appendChild(input);
+    var eyeBtn = el('button', 'set-field-eye');
+    eyeBtn.type = 'button';
+    eyeBtn.setAttribute('aria-label', 'Show password');
+    eyeBtn.textContent = '👁';
+    eyeBtn.addEventListener('click', function () {
+      var showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      eyeBtn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      eyeBtn.classList.toggle('is-active', !showing);
+    });
+    row.appendChild(eyeBtn);
+    wrap.appendChild(row);
+    return { wrap: wrap, input: input };
+  }
+
+  // Delete-account confirmation modal (2026-08-09) — reuses team.js's openDeleteModal
+  // structure/CSS classes (.team-modal-overlay/.team-modal/...) exactly, the established
+  // fixed-backdrop-centered-card pattern already shared across this app, rather than
+  // inventing a new one. Requires BOTH the real account password (verified server-side —
+  // routes/auth.js's DELETE /api/account, already live) AND typing the literal word DELETE
+  // (client-side friction only, mirrors the reference design) before the button un-disables.
+  function openDeleteAccountModal(opts) {
+    if (!hasDom()) return;
+    var overlay = el('div', 'team-modal-overlay');
+    var modal = el('div', 'team-modal');
+    modal.setAttribute('role', 'alertdialog');
+    modal.setAttribute('aria-label', 'Delete your account?');
+    modal.appendChild((function () { var t = el('div', 'team-modal-title'); Escape.setText(t, 'Delete your account?'); return t; })());
+    modal.appendChild((function () {
+      var p = el('p', 'team-modal-message');
+      Escape.setText(p, 'This permanently deletes your account, every receipt, and your Telegram connection. This cannot be undone.');
+      return p;
+    })());
+
+    var pw = passwordFieldWithEye('Confirm your password');
+    modal.appendChild(pw.wrap);
+
+    var confirmField = el('div', 'set-field');
+    var confirmLab = el('label', 'set-field-label');
+    Escape.setText(confirmLab, 'Type DELETE to confirm');
+    confirmField.appendChild(confirmLab);
+    var confirmInput = el('input', 'set-field-input');
+    confirmInput.type = 'text';
+    confirmInput.autocomplete = 'off';
+    confirmField.appendChild(confirmInput);
+    modal.appendChild(confirmField);
+
+    var errMsg = el('p', 'team-modal-message set-field-error');
+    errMsg.style.display = 'none';
+    modal.appendChild(errMsg);
+
+    var actions = el('div', 'team-modal-actions');
+    var cancel = el('button', 'set-btn set-btn--ghost'); cancel.type = 'button';
+    Escape.setText(cancel, 'Cancel');
+    var confirm = el('button', 'set-btn set-btn--danger'); confirm.type = 'button';
+    confirm.disabled = true;
+    Escape.setText(confirm, 'Delete my account');
+    actions.appendChild(cancel); actions.appendChild(confirm);
+    modal.appendChild(actions);
+    overlay.appendChild(modal);
+
+    // Both fields must be filled (password non-empty, confirm text exactly "DELETE") before
+    // the destructive button is even clickable — matches the reference design, and gives an
+    // extra guard against a fast/accidental click beyond the password check alone.
+    function refreshEnabled() {
+      confirm.disabled = !(pw.input.value && confirmInput.value === 'DELETE');
+    }
+    pw.input.addEventListener('input', refreshEnabled);
+    confirmInput.addEventListener('input', refreshEnabled);
+
+    function closeModal() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeModal(); });
+    cancel.addEventListener('click', closeModal);
+    confirmInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && !confirm.disabled) confirm.click(); });
+
+    confirm.addEventListener('click', function () {
+      if (confirm.disabled || !opts.Api || typeof opts.Api.apiFetch !== 'function') return;
+      confirm.disabled = true;
+      cancel.disabled = true;
+      errMsg.style.display = 'none';
+      opts.Api.apiFetch('/api/account', { method: 'DELETE', body: { password: pw.input.value } })
+        .then(function () {
+          // Account (and its session) no longer exists server-side — reuse the app's real
+          // logout path (deps.logout, wired in app.js) so the browser's stored token is
+          // cleared and the page reloads back to the signed-out entry screen, exactly like
+          // any other logout. Its own best-effort POST /api/logout will just no-op/404
+          // since the user is already gone — logout()'s .then(finish, finish) tolerates that.
+          if (typeof opts.logout === 'function') { closeModal(); opts.logout(); }
+          else { closeModal(); }
+        })
+        .catch(function (err) {
+          var msg = (err && err.body && err.body.error) || '';
+          Escape.setText(errMsg, msg === 'wrong password' ? 'Wrong password — try again.'
+            : msg ? msg : 'Could not delete your account. Please try again.');
+          errMsg.style.display = '';
+          cancel.disabled = false;
+          refreshEnabled();
+        });
+    });
+
+    document.body.appendChild(overlay);
+    pw.input.focus();
+  }
+
   // ---- render layer --------------------------------------------------------
 
   function mount(section, opts) {
@@ -157,7 +276,15 @@
 
     // --- Account settings (real) ---
     var acc = collapsible('Account settings', true);
-    var authBtn = el('button', model.signedIn ? 'set-btn set-btn--danger' : 'set-btn set-btn--primary');
+    // 2026-08-09 (Barat: "change the logout button colour into blue based on web theme
+    // colour"): Log out is a safe, reversible action — it never belonged visually grouped
+    // with truly destructive actions (Delete account, below). Scoped to personal accounts
+    // only (opts.config.personal_auth) so the shared business/Premala dashboard's Log out
+    // stays exactly as it was — --danger red — completely untouched.
+    var isPersonal = !!(opts.config && opts.config.personal_auth);
+    var authBtn = el('button', model.signedIn
+      ? 'set-btn ' + (isPersonal ? 'set-btn--primary' : 'set-btn--danger')
+      : 'set-btn set-btn--primary');
     Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
     // Bug fix: this used to call opts.logout() unconditionally — even when the
     // button read "Log in" — so clicking "Log in" silently cleared the (already
@@ -212,6 +339,15 @@
         }
         acc.body.appendChild(setRow('Telegram', 'Not connected yet — tap to open the bot.', connectBtn));
       }
+
+      // Delete account (2026-08-09): the backend (DELETE /api/account, routes/auth.js) has
+      // existed and worked for a while — this button/modal is the missing frontend half.
+      // Owner-only (accountInfo is null for anyone else — business/guest/signed-out), same
+      // gate as the rest of this block.
+      var delBtn = el('button', 'set-btn set-btn--danger');
+      Escape.setText(delBtn, 'Delete account');
+      delBtn.addEventListener('click', function () { openDeleteAccountModal(opts); });
+      acc.body.appendChild(setRow('Delete account', 'Permanently deletes your account, every receipt, and your Telegram connection. This cannot be undone.', delBtn));
     }
 
     rootEl.appendChild(acc.el);

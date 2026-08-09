@@ -498,6 +498,7 @@
         return next;
       },
       onRefresh: reloadPage,
+      onFeedback: function () { openFeedbackModal(deps); },
     });
     if (header && brandHeader) header.appendChild(brandHeader.el);
 
@@ -805,6 +806,87 @@
     }
     bar.appendChild(btn);
     return bar;
+  }
+
+  // openFeedbackModal(deps) (2026-08-09) — the header's feedback icon (nav.js, personal-only)
+  // opens this: a small "contact us" popup, reusing the same .team-modal-* overlay/card CSS
+  // as the Delete-account modal (settings.js) and team.js's original openDeleteModal — the
+  // one established fixed-backdrop-centered-card pattern this app already uses everywhere,
+  // no new CSS needed for the shell. Posts to POST /api/feedback (routes/auth.js), which
+  // emails the message straight to the app owner via lib/mailer.js's sendFeedbackEmail.
+  function openFeedbackModal(deps) {
+    if (typeof document === 'undefined' || !deps.Api || typeof deps.Api.apiFetch !== 'function') return;
+    var overlay = document.createElement('div');
+    overlay.className = 'team-modal-overlay';
+    var modal = document.createElement('div');
+    modal.className = 'team-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-label', 'Contact us');
+
+    var title = document.createElement('div');
+    title.className = 'team-modal-title';
+    title.textContent = 'Contact us';
+    modal.appendChild(title);
+
+    var desc = document.createElement('p');
+    desc.className = 'team-modal-message';
+    desc.textContent = "Tell us what's wrong or what you'd like to see — we read every message.";
+    modal.appendChild(desc);
+
+    var textarea = document.createElement('textarea');
+    textarea.className = 'set-field-input';
+    textarea.rows = 5;
+    textarea.placeholder = 'Your message…';
+    textarea.style.width = '100%';
+    textarea.style.resize = 'vertical';
+    textarea.style.marginTop = '10px';
+    modal.appendChild(textarea);
+
+    var errMsg = document.createElement('p');
+    errMsg.className = 'team-modal-message set-field-error';
+    errMsg.style.display = 'none';
+    modal.appendChild(errMsg);
+
+    var actions = document.createElement('div');
+    actions.className = 'team-modal-actions';
+    var cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'set-btn set-btn--ghost';
+    cancel.textContent = 'Cancel';
+    var send = document.createElement('button');
+    send.type = 'button'; send.className = 'set-btn set-btn--primary';
+    send.textContent = 'Send';
+    actions.appendChild(cancel); actions.appendChild(send);
+    modal.appendChild(actions);
+    overlay.appendChild(modal);
+
+    function closeModal() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeModal(); });
+    cancel.addEventListener('click', closeModal);
+
+    send.addEventListener('click', function () {
+      var message = textarea.value.trim();
+      if (!message) { textarea.focus(); return; }
+      send.disabled = true; cancel.disabled = true;
+      errMsg.style.display = 'none';
+      deps.Api.apiFetch('/api/feedback', { method: 'POST', body: { message: message } })
+        .then(function () {
+          title.textContent = 'Thanks!';
+          desc.textContent = "We've got your message and will get back to you if needed.";
+          textarea.style.display = 'none';
+          send.style.display = 'none';
+          cancel.textContent = 'Close';
+          cancel.disabled = false;
+        })
+        .catch(function (err) {
+          var msg = (err && err.body && err.body.error) || 'Could not send your message. Please try again.';
+          errMsg.textContent = msg;
+          errMsg.style.display = '';
+          send.disabled = false; cancel.disabled = false;
+        });
+    });
+
+    document.body.appendChild(overlay);
+    textarea.focus();
   }
 
   // "Forgot password?" (2026-07-27) — personal-mode only. mode 'request' (email in,
