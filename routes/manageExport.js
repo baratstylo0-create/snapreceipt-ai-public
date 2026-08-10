@@ -203,7 +203,15 @@ module.exports = function mountManageExport(app) {
         const buf = await storage.fetchReceiptObject(e.receipt_url);
         if (buf) receipts[e.id] = { buffer: buf, ext: storage.extOf(buf) };
       }));
-      const { buffer } = await statementToPdf(model, { receipts });
+      // Bug fix (2026-08-10, Barat: "i want output like this" — a reference Statement PDF
+      // with the full "Receipt #N / Date / Vendor / Amount / Ref" card per photo): this call
+      // was missing receiptEvidence:true, so every personal "Export PDF" silently fell back to
+      // drawPlainReceiptPage (lib/statementPdf.js) — a bare, unlabeled image with no caption —
+      // instead of drawEvidencePage's bordered card. routes/statement.js (the business
+      // "Statement PDF" button) already passes this; personal's export never did. Confirmed via
+      // a real export: before this fix the evidence page had ZERO extractable text, only the
+      // photo — after, it carries the same Receipt #/Date/Vendor/Amount/Ref layout as business.
+      const { buffer } = await statementToPdf(model, { receipts, receiptEvidence: true });
       res.set('Content-Type', 'application/pdf');
       res.set('Content-Disposition', 'attachment; filename="ledger-evidence-pack.pdf"');
       return res.send(buffer);
