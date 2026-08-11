@@ -273,13 +273,6 @@
     // below that used to test bare `session` truthiness for that purpose now uses this instead.
     var isBusinessSession = !!(session && session.role !== 'owner');
     var submissionOn = !!(deps.config && deps.config.branch_submission);
-    // Export PDF Free/Pro gate (2026-07-28, Barat request) — personal accounts only (this
-    // button is already personal-only, see its own comment below). 'free' is the default for
-    // every account today since no billing is wired up yet (see routes/expenses.js's
-    // /api/config plan comment) — this is genuinely gating a real, growable column, not a
-    // decorative placeholder.
-    var plan = (deps.config && deps.config.plan) || 'free';
-    var isPro = plan === 'pro';
 
     var state = { rows: [], loaded: false, editMode: false, search: '', page: 1, submission: null, submissions: [], branchNames: {} };
 
@@ -319,56 +312,17 @@
     // that used to also be on business's toolbar before a 2026-07-13 de-clutter pass
     // removed it there. Business's own button set (managedExportButtons()) is untouched,
     // so grid.test.js's pinned business export set still holds exactly as before.
-    if (!isBusinessSession) exportButtons.push({ label: 'Export PDF', format: 'pdf', pro: true });
+    if (!isBusinessSession) exportButtons.push({ label: 'Export PDF', format: 'pdf' });
     exportButtons.forEach(function (cfg) {
-      // Pro-gated button (2026-07-28): still a real, clickable button (never truly disabled —
-      // a dead-looking control invites "is this broken?"), just visually lighter, with a small
-      // lock glyph, and its click shows the upgrade prompt instead of exporting.
-      var locked = !!cfg.pro && !isPro;
-      var b = el('button', 'ledger-btn ledger-btn--ghost' + (locked ? ' ledger-btn--locked' : ''));
+      var b = el('button', 'ledger-btn ledger-btn--ghost');
       b.type = 'button';
-      Escape.setText(b, (locked ? '🔒 ' : '') + cfg.label);
-      b.title = locked ? cfg.label + ' is a Pro feature' : cfg.label;
-      b.addEventListener('click', function () {
-        if (locked) { showExportPdfPaywall(); return; }
-        doManagedExport(cfg.format);
-      });
+      Escape.setText(b, cfg.label);
+      b.title = cfg.label;
+      b.addEventListener('click', function () { doManagedExport(cfg.format); });
       toolbar.appendChild(b);
       exportButtonEls.push(b);
     });
     wrap.appendChild(toolbar);
-
-    // Export PDF paywall (2026-07-28) — a real, dismissible overlay (not a dead-end alert),
-    // matching the app's existing centered-modal convention (activity.js's receipt drawer,
-    // team.js's credential panel: fixed backdrop + centered card). "See plans" navigates to
-    // Settings' already-built Plan & billing section (setttings.js) rather than duplicating
-    // pricing/payment-preview UI here — one place owns that content, not two.
-    function showExportPdfPaywall() {
-      var host = el('div', 'ledger-paywall-host');
-      var card = el('div', 'ledger-paywall-card');
-      var badge = el('div', 'ledger-paywall-badge'); badge.textContent = '🔒';
-      card.appendChild(badge);
-      card.appendChild(textEl('h2', 'ledger-paywall-title', 'Export PDF is a Pro feature'));
-      card.appendChild(textEl('p', 'ledger-paywall-sub', 'Free includes Export Excel. Pro adds Export PDF, unlimited receipts, and priority processing — RM 12.90/month or RM 99/year.'));
-      var actions = el('div', 'ledger-paywall-actions');
-      var seePlans = el('button', 'ledger-btn ledger-btn--primary');
-      Escape.setText(seePlans, 'See plans');
-      seePlans.type = 'button';
-      seePlans.addEventListener('click', function () {
-        document.body.removeChild(host);
-        if (switchView) switchView('settings');
-      });
-      var later = el('button', 'ledger-btn ledger-btn--ghost');
-      Escape.setText(later, 'Maybe later');
-      later.type = 'button';
-      later.addEventListener('click', function () { document.body.removeChild(host); });
-      actions.appendChild(seePlans);
-      actions.appendChild(later);
-      card.appendChild(actions);
-      host.appendChild(card);
-      host.addEventListener('click', function (ev) { if (ev.target === host) document.body.removeChild(host); });
-      document.body.appendChild(host);
-    }
 
     // statementMonth doubles as the table's own month filter (see currentFilteredIds/
     // filterByPeriod below), so it stays for personal too. The Petty Cash Statement label,

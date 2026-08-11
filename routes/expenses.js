@@ -12,7 +12,6 @@ const { getCapabilities } = require('../lib/account'); // ADR-010 flags (multiUs
 const { lookupSession, scopeForUser, guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // ADR-021 business identity
 const { GUEST_RECEIPT_CAP, countGuestExpenses } = require('../lib/ocr'); // Guest Mode (2026-07-28)
 const googleAuth = require('../lib/googleAuth'); // Google Sign-In (2026-07-30) — isConfigured() for /api/config
-const { countExpensesThisMonth, FREE_TIER_MONTHLY_CAP } = require('../lib/billing'); // plan_usage for /api/config (2026-08-08)
 
 // P6 abuse defense (§4.4): checkDash IS the auth gate for every dashboard/API route (they all
 // import it from here) — without a limit it's brute-forceable (guess DASHBOARD_TOKEN). Runs
@@ -497,17 +496,11 @@ module.exports = function mountExpenses(app) {
       const spec = await getFieldSpec();
       if (spec && Array.isArray(spec.categories) && spec.categories.length) categories = spec.categories;
     } catch (e) { console.error('[api/config] getFieldSpec failed, using default categories:', e.message); }
-    // plan (2026-07-28): Free/Pro gate for personal accounts (users.plan — see schema.sql).
-    // OPTIONAL auth: this route is called before login exists (boot()'s very first /api/config,
-    // pre-token), so a missing/invalid bearer just means 'free' — never a 401 here, this route
-    // must stay reachable unauthenticated. KNOWN GAP: after login/signup completes within the
-    // SAME page load, app.js reuses the config fetched at boot (pre-token) rather than
-    // refetching — so `plan` can be stale-'free' for one page load even for a real Pro account.
-    // Zero practical impact today (no code path ever sets plan='pro' yet — Curlec isn't wired),
-    // but flagged here so it isn't missed once real billing goes live (a page reload always
-    // gets it right either way, since the token exists before that /api/config call).
-    let plan = 'free';
-    let planUsage = null;
+    // account_info (2026-08-08): OPTIONAL auth — this route is called before login exists
+    // (boot()'s very first /api/config, pre-token), so a missing/invalid bearer just means
+    // "not signed in yet" — never a 401 here, this route must stay reachable unauthenticated.
+    // No paid plan exists (2026-08-11): every account is unlimited/free, so this no longer
+    // computes a plan or a monthly usage cap.
     let accountInfo = null;
     try {
       const a = req.get('Authorization') || '';
@@ -516,14 +509,7 @@ module.exports = function mountExpenses(app) {
         const sess = await lookupSession(presented);
         if (sess) {
           const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
-          if (rows[0] && rows[0].plan === 'pro') plan = 'pro';
           if (rows[0] && rows[0].role === 'owner') {
-            if (plan !== 'pro') {
-              try {
-                const used = await countExpensesThisMonth();
-                planUsage = { used, limit: FREE_TIER_MONTHLY_CAP };
-              } catch (e) { console.error('[api/config] plan usage lookup failed:', e.message); }
-            }
             accountInfo = { email: rows[0].username, created_at: rows[0].created_at };
             // Telegram connect status (2026-08-08) — Settings needs to show "Connected" /
             // "Not connected" + the connect link ANY time, not just once during onboarding
@@ -537,12 +523,10 @@ module.exports = function mountExpenses(app) {
           }
         }
       }
-    } catch (e) { console.error('[api/config] plan lookup failed, defaulting to free:', e.message); }
+    } catch (e) { console.error('[api/config] account_info lookup failed:', e.message); }
     res.json({
       auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories,
       multi_user: !!caps.multiUser,
-      plan,
-      plan_usage: planUsage,
       account_info: accountInfo,
       // personal_auth (2026-07-25): tells the frontend to show the real signup/login flow
       // (Onboarding's Create-account step) instead of the static token gate, for a personal
