@@ -7,7 +7,6 @@ const templates = require('../lib/templates');
 const pdf = require('../lib/pdf');
 const storage = require('../lib/storage');
 const { createRateLimiter } = require('../lib/ratelimit');
-const { checkFreeTierCap } = require('../lib/billing');
 
 const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
 
@@ -91,21 +90,6 @@ module.exports = function mountUpload(app, deps = {}) {
       }
       if (images.length > MAX_IMAGES) return res.status(413).json({ error: 'too many images (max ' + MAX_IMAGES + ')' });
       if (typeof extractReceipts !== 'function') return res.status(503).json({ error: 'mass upload not available yet' });
-
-      // Free-tier monthly cap (2026-07-30): mirrors lib/bot.js's check — a real personal
-      // owner account (never business, never guest) on the 'free' plan is capped at 20
-      // receipts/month. Checked here, before any OCR work starts, same reasoning as the
-      // Telegram path: a capped account shouldn't pay for a Groq call it's about to be
-      // refused for. req.scope's 'owner' branch carries no user_id (scopeForUser's frozen
-      // contract only adds that for guest) — req.user.user_id (the session's own id) is
-      // present for every checkDash-authenticated request regardless of role, so that's
-      // the one to use here.
-      if (req.user && req.user.user_id && req.scope && req.scope.role === 'owner') {
-        const capCheck = await checkFreeTierCap(req.user.user_id);
-        if (capCheck.capped) {
-          return res.status(402).json({ error: 'free_tier_cap_reached', message: 'You\'ve used all 20 free receipts this month. Upgrade to Pro for unlimited receipts.' });
-        }
-      }
 
       const buffers = images.map(s => Buffer.from(stripDataUri(s), 'base64'));
 
