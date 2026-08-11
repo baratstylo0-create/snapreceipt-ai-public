@@ -7,10 +7,14 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { subPagesFor, defaultSubPage } = require('../../public/js/components/manage');
 
-test('personal mode -> template only (the Data editor is business-only)', () => {
-  assert.deepStrictEqual(subPagesFor({}, false).map((p) => p.id), ['template']);
-  assert.deepStrictEqual(subPagesFor({ excel_lite_grid: true }, false).map((p) => p.id), ['template']);
-  assert.deepStrictEqual(subPagesFor().map((p) => p.id), ['template']); // no config, no business
+test('personal mode -> template + data editor (2026-07-24: Data editor is no longer business-only)', () => {
+  assert.deepStrictEqual(subPagesFor({}, false).map((p) => p.id), ['template', 'data']);
+  assert.deepStrictEqual(subPagesFor({ excel_lite_grid: true }, false).map((p) => p.id), ['template', 'data']);
+  assert.deepStrictEqual(subPagesFor().map((p) => p.id), ['template', 'data']); // no config, no business
+});
+
+test('personal mode + excel_lite_grid:false -> template only', () => {
+  assert.deepStrictEqual(subPagesFor({ excel_lite_grid: false }, false).map((p) => p.id), ['template']);
 });
 
 test('business + excel_lite_grid omitted/true -> both sub-pages, template first', () => {
@@ -39,8 +43,8 @@ test('defaultSubPage -> data editor whenever it exists (business, both roles)', 
   assert.strictEqual(defaultSubPage(subPagesFor({ excel_lite_grid: true }, true)), 'data');
 });
 
-test('defaultSubPage -> template when there is no Data editor (personal / grid off)', () => {
-  assert.strictEqual(defaultSubPage(subPagesFor({}, false)), 'template'); // personal
+test('defaultSubPage -> data editor for personal too (2026-07-24); template when grid is off', () => {
+  assert.strictEqual(defaultSubPage(subPagesFor({}, false)), 'data'); // personal now has a Data editor
   assert.strictEqual(defaultSubPage(subPagesFor({ excel_lite_grid: false }, true)), 'template'); // grid off
 });
 
