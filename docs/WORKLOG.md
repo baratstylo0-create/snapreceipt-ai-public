@@ -3,7 +3,7 @@
 ## 2026-08-13 · Codex · codex/android-capacitor-wrapper · Play Console privacy policy page
 
 - **Files:** added `public/privacy.html` and `tests/privacy.policy.test.js`; updated `public/index.html`, `public/css/app.css`, and this worklog.
-- **What changed:** added a public static Privacy Policy URL for Google Play Console at `/privacy.html`, linked it from the app footer, and styled it with the existing Treehouse design tokens.
+- **What changed:** added a public Privacy Policy URL for Google Play Console at `/privacypolicy`, linked it from the app footer, and styled it with the existing Treehouse design tokens.
 - **Policy coverage:** discloses SnapReceipt account data, receipt images, expense records, Telegram identifiers, Google sign-in data, support messages, diagnostics, OCR/AI processing, Supabase/Telegram/Google/provider sharing, retention, export/deletion, security, international transfers, children, and contact rights. Wording is intentionally accurate and qualified; no policy can truthfully guarantee that nobody can sue.
 - **Verified:** privacy policy tests `3/3`; full Node suite `2212/2212`.
 

@@ -81,6 +81,10 @@ module.exports = function mountMisc(app) {
     res.status(ok ? 200 : 503).json(body);
   });
 
+  app.get('/privacypolicy', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
+  });
+
   app.use(express.static(path.join(__dirname, '..', 'public')));
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 };
