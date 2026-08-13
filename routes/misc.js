@@ -85,6 +85,10 @@ module.exports = function mountMisc(app) {
     res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
   });
 
+  app.get('/accountdeletion', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'accountdeletion.html'));
+  });
+
   app.use(express.static(path.join(__dirname, '..', 'public')));
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 };

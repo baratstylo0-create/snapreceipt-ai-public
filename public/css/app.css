@@ -136,6 +136,11 @@ h1, h2, h3, h4,
   border-bottom-color: var(--accent);
 }
 
+.app-footer-sep {
+  color: var(--muted);
+  margin: 0 8px;
+}
+
 .app-main {
   padding: 12px 24px 32px;
   max-width: 1280px;
