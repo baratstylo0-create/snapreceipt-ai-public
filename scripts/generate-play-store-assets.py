@@ -43,6 +43,13 @@ def rounded(draw, box, radius, fill, outline=None, width=1):
     draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
 
 
+def rounded_line(draw, points, fill, width):
+    draw.line(points, fill=fill, width=width, joint="curve")
+    radius = width // 2
+    for x, y in (points[0], points[-1]):
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=fill)
+
+
 def label(draw, xy, value, size, fill, bold=False, serif=False, anchor=None):
     draw.text(xy, value, font=font(size, bold=bold, serif=serif), fill=fill, anchor=anchor)
 
@@ -214,10 +221,104 @@ def draw_desktop(base, x, y, width, height, variant):
 def make_icon(path):
     image = vertical_gradient((512, 512), COLORS["blue"], COLORS["blue_dark"])
     draw = ImageDraw.Draw(image)
-    draw.ellipse((-150, -120, 310, 340), fill=(255, 255, 255, 22))
-    draw.ellipse((260, 260, 670, 670), fill=(8, 36, 100, 45))
-    draw_receipt_mark(draw, 185, 128, 1.1, COLORS["white"], COLORS["blue"])
+    # Keep the mark legible at launcher size: a clean capture frame, not a generic
+    # checkmark, dollar sign, or oversized decorative background shape.
+    white = COLORS["white"]
+    accent = "#9fc0ff"
+    stroke = 20
+    left, top, right, bottom = 82, 82, 430, 430
+    corner = 88
+    bracket = "#dbeafe"
+    rounded_line(draw, ((left + corner, top), (left + 28, top)), bracket, stroke)
+    rounded_line(draw, ((left, top + 28), (left, top + corner)), bracket, stroke)
+    rounded_line(draw, ((right - corner, top), (right - 28, top)), bracket, stroke)
+    rounded_line(draw, ((right, top + 28), (right, top + corner)), bracket, stroke)
+    rounded_line(draw, ((left + corner, bottom), (left + 28, bottom)), bracket, stroke)
+    rounded_line(draw, ((left, bottom - 28), (left, bottom - corner)), bracket, stroke)
+    rounded_line(draw, ((right - corner, bottom), (right - 28, bottom)), bracket, stroke)
+    rounded_line(draw, ((right, bottom - 28), (right, bottom - corner)), bracket, stroke)
+
+    receipt_x, receipt_y, receipt_w, receipt_h = 154, 112, 204, 292
+    paper = [(receipt_x, receipt_y), (receipt_x + receipt_w - 54, receipt_y), (receipt_x + receipt_w, receipt_y + 54),
+             (receipt_x + receipt_w, receipt_y + receipt_h - 20), (receipt_x + receipt_w - 22, receipt_y + receipt_h),
+             (receipt_x + receipt_w - 46, receipt_y + receipt_h - 22), (receipt_x + receipt_w - 70, receipt_y + receipt_h),
+             (receipt_x + receipt_w - 94, receipt_y + receipt_h - 22), (receipt_x + receipt_w - 118, receipt_y + receipt_h),
+             (receipt_x + receipt_w - 142, receipt_y + receipt_h - 22), (receipt_x, receipt_y + receipt_h)]
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.polygon([(x + 8, y + 12) for x, y in paper], fill=(8, 23, 64, 70))
+    image = Image.alpha_composite(image, shadow.filter(ImageFilter.GaussianBlur(10)))
+    draw = ImageDraw.Draw(image)
+    draw.polygon(paper, fill=white)
+    draw.polygon([(receipt_x + receipt_w - 54, receipt_y), (receipt_x + receipt_w - 54, receipt_y + 54),
+                  (receipt_x + receipt_w, receipt_y + 54)], fill=accent)
+    rounded_line(draw, ((receipt_x + 34, receipt_y + 96), (receipt_x + 150, receipt_y + 96)), COLORS["blue"], 12)
+    rounded_line(draw, ((receipt_x + 34, receipt_y + 140), (receipt_x + 166, receipt_y + 140)), COLORS["blue_dark"], 12)
+    rounded_line(draw, ((receipt_x + 34, receipt_y + 184), (receipt_x + 148, receipt_y + 184)), COLORS["blue_dark"], 12)
+    rounded_line(draw, ((receipt_x + 34, receipt_y + 228), (receipt_x + 108, receipt_y + 228)), COLORS["blue"], 12)
     image.convert("RGB").save(path, "PNG", optimize=True)
+
+
+def make_adaptive_foreground(path, size):
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    scale = size / 512
+    draw = ImageDraw.Draw(image)
+    white = COLORS["white"]
+    accent = "#9fc0ff"
+    stroke = max(2, round(20 * scale))
+    left, top, right, bottom = [round(value * scale) for value in (82, 82, 430, 430)]
+    corner = round(88 * scale)
+    bracket = "#dbeafe"
+    rounded_line(draw, ((left + corner, top), (left + 28 * scale, top)), bracket, stroke)
+    rounded_line(draw, ((left, top + 28 * scale), (left, top + corner)), bracket, stroke)
+    rounded_line(draw, ((right - corner, top), (right - 28 * scale, top)), bracket, stroke)
+    rounded_line(draw, ((right, top + 28 * scale), (right, top + corner)), bracket, stroke)
+    rounded_line(draw, ((left + corner, bottom), (left + 28 * scale, bottom)), bracket, stroke)
+    rounded_line(draw, ((left, bottom - 28 * scale), (left, bottom - corner)), bracket, stroke)
+    rounded_line(draw, ((right - corner, bottom), (right - 28 * scale, bottom)), bracket, stroke)
+    rounded_line(draw, ((right, bottom - 28 * scale), (right, bottom - corner)), bracket, stroke)
+
+    receipt_x, receipt_y, receipt_w, receipt_h = [round(value * scale) for value in (154, 112, 204, 292)]
+    paper = [(receipt_x, receipt_y), (receipt_x + receipt_w - round(54 * scale), receipt_y),
+             (receipt_x + receipt_w, receipt_y + round(54 * scale)),
+             (receipt_x + receipt_w, receipt_y + receipt_h - round(20 * scale)),
+             (receipt_x + receipt_w - round(22 * scale), receipt_y + receipt_h),
+             (receipt_x + receipt_w - round(46 * scale), receipt_y + receipt_h - round(22 * scale)),
+             (receipt_x + receipt_w - round(70 * scale), receipt_y + receipt_h),
+             (receipt_x + receipt_w - round(94 * scale), receipt_y + receipt_h - round(22 * scale)),
+             (receipt_x + receipt_w - round(118 * scale), receipt_y + receipt_h),
+             (receipt_x + receipt_w - round(142 * scale), receipt_y + receipt_h - round(22 * scale)),
+             (receipt_x, receipt_y + receipt_h)]
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.polygon([(x + round(8 * scale), y + round(12 * scale)) for x, y in paper], fill=(8, 23, 64, 70))
+    image = Image.alpha_composite(image, shadow.filter(ImageFilter.GaussianBlur(max(1, round(10 * scale)))))
+    draw = ImageDraw.Draw(image)
+    draw.polygon(paper, fill=white)
+    fold = round(54 * scale)
+    draw.polygon([(receipt_x + receipt_w - fold, receipt_y),
+                  (receipt_x + receipt_w - fold, receipt_y + fold),
+                  (receipt_x + receipt_w, receipt_y + fold)], fill=accent)
+    for y, width, color in ((96, 116, COLORS["blue"]), (140, 132, COLORS["blue_dark"]),
+                            (184, 114, COLORS["blue_dark"]), (228, 74, COLORS["blue"])):
+        rounded_line(draw, ((receipt_x + round(34 * scale), receipt_y + round(y * scale)),
+                            (receipt_x + round((34 + width) * scale), receipt_y + round(y * scale))),
+                     color, max(2, round(12 * scale)))
+    image.save(path, "PNG", optimize=True)
+
+
+def make_android_icons():
+    resource_root = Path(__file__).resolve().parents[1] / "android" / "app" / "src" / "main" / "res"
+    sizes = {"mipmap-mdpi": 48, "mipmap-hdpi": 72, "mipmap-xhdpi": 96,
+             "mipmap-xxhdpi": 144, "mipmap-xxxhdpi": 192}
+    source = OUT / "icon" / "snapreceipt-icon-512.png"
+    with Image.open(source) as image:
+        for folder, size in sizes.items():
+            directory = resource_root / folder
+            resized = image.resize((size, size), Image.Resampling.LANCZOS)
+            for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                resized.save(directory / name, "PNG", optimize=True)
+            make_adaptive_foreground(directory / "ic_launcher_foreground.png", size)
 
 
 def make_wordmark(path, dark=False, scale=2):
@@ -291,6 +392,7 @@ def main():
         (OUT / folder).mkdir(parents=True, exist_ok=True)
 
     make_icon(OUT / "icon" / "snapreceipt-icon-512.png")
+    make_android_icons()
     make_wordmark(OUT / "snapreceipt-wordmark.png")
     make_wordmark(OUT / "snapreceipt-wordmark-dark.png", dark=True)
     make_feature_graphic(OUT / "feature-graphic" / "snapreceipt-feature-1024x500.png")

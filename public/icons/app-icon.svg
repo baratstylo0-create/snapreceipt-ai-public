@@ -1,19 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Receipt Analyser">
-  <!-- Full-bleed brand-green background: fills the whole canvas so a maskable crop
-       (circle/squircle) always shows the brand colour, never a transparent corner. -->
-  <rect width="512" height="512" fill="#5f7a47"/>
-  <!-- All foreground art stays inside the maskable safe zone (centre ~80%, i.e. 51–461). -->
-  <!-- Receipt body with a torn zig-zag bottom edge (paper colour). -->
-  <path fill="#f4efdf" d="M164 128 h184 a18 18 0 0 1 18 18
-    v206 l-25 -15 -25 15 -25 -15 -25 15 -25 -15 -25 15 -25 -15
-    v-206 a18 18 0 0 1 18 -18 z"/>
-  <!-- Receipt text lines. -->
-  <rect x="196" y="172" width="120" height="18" rx="9" fill="#5f7a47"/>
-  <rect x="196" y="210" width="120" height="15" rx="7.5" fill="#9db08c"/>
-  <rect x="196" y="244" width="82"  height="15" rx="7.5" fill="#9db08c"/>
-  <!-- "Analyser" magnifier over the receipt, bottom-right. -->
-  <circle cx="326" cy="330" r="52" fill="#e6e1ce" stroke="#2b332a" stroke-width="16"/>
-  <line x1="366" y1="370" x2="404" y2="408" stroke="#2b332a" stroke-width="22" stroke-linecap="round"/>
-  <!-- Checkmark inside the lens = analysed / captured. -->
-  <path d="M303 330 l16 16 30 -34" fill="none" stroke="#5f7a47" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SnapReceipt">
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <filter id="paper-shadow" x="-20%" y="-20%" width="160%" height="160%">
+      <feDropShadow dx="8" dy="12" stdDeviation="10" flood-color="#0b1730" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#field)"/>
+  <g fill="none" stroke="#dbeafe" stroke-width="20" stroke-linecap="round">
+    <path d="M170 82H110v60M342 82h60v60M170 430h-60v-60M342 430h60v-60"/>
+  </g>
+  <g filter="url(#paper-shadow)">
+    <path fill="#fff" d="M154 112h150l55 55v227l-22 20-24-22-24 22-24-22-24 22-24-22-63 22V130a18 18 0 0 1 18-18Z"/>
+    <path fill="#9fc0ff" d="M304 112v55h55z"/>
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-width="12">
+    <path stroke="#2563eb" d="M188 208h116M188 252h132M188 296h116M188 340h72"/>
+  </g>
 </svg>
