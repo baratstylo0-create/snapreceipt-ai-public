@@ -8,7 +8,11 @@
     "start": "node server.js",
     "setup-webhook": "node server.js --register-only",
     "setup-admin": "node setup/provision.js",
-    "test": "node --test"
+    "test": "node --test",
+    "mobile:doctor": "npx cap doctor",
+    "mobile:add:android": "npx cap add android",
+    "mobile:sync": "npx cap sync android",
+    "mobile:open:android": "npx cap open android"
   },
   "engines": {
     "node": ">=20"
@@ -23,5 +27,10 @@
   },
   "overrides": {
     "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
   }
 }

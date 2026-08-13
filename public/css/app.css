@@ -118,6 +118,29 @@ h1, h2, h3, h4,
   padding: 16px 20px;
 }
 
+.app-footer {
+  max-width: 1280px;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.app-footer-link {
+  color: var(--txt-soft);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.app-footer-link:hover {
+  color: var(--txt);
+  border-bottom-color: var(--accent);
+}
+
+.app-footer-sep {
+  color: var(--muted);
+  margin: 0 8px;
+}
+
 .app-main {
   padding: 12px 24px 32px;
   max-width: 1280px;
@@ -140,6 +163,104 @@ body.personal-mode .app-main {
   position: fixed;
   inset: 0;
   background: rgba(22, 26, 18, 0.45);
+}
+
+.privacy-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 22px 64px;
+}
+
+.privacy-back {
+  display: inline-flex;
+  align-items: center;
+  color: var(--txt-soft);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 800;
+  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 18px;
+}
+
+.privacy-back:hover { color: var(--txt); border-bottom-color: var(--accent); }
+
+.privacy-doc {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--panel-shadow);
+  padding: clamp(22px, 5vw, 54px);
+}
+
+.privacy-hero {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 22px;
+  margin-bottom: 26px;
+}
+
+.privacy-kicker {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.privacy-doc h1 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: clamp(34px, 8vw, 58px);
+  line-height: 1.02;
+}
+
+.privacy-updated {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.privacy-doc section {
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+  margin-top: 24px;
+}
+
+.privacy-doc section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.privacy-doc h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: clamp(22px, 4vw, 30px);
+  line-height: 1.15;
+}
+
+.privacy-doc p,
+.privacy-doc li {
+  color: var(--txt-soft);
+}
+
+.privacy-doc p {
+  margin: 0 0 12px;
+}
+
+.privacy-doc ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.privacy-doc li {
+  margin: 7px 0;
+}
+
+.privacy-doc a {
+  color: var(--accent);
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 /* --- theme (visual only; app.js toggles a body class + persists it) --- */

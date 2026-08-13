@@ -1,5 +1,20 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-08-13 · Codex · codex/android-capacitor-wrapper · Play Console privacy policy page
+
+- **Files:** added `public/privacy.html`, `public/accountdeletion.html`, and `tests/privacy.policy.test.js`; updated `public/index.html`, `public/css/app.css`, `routes/misc.js`, and this worklog.
+- **What changed:** added public Google Play URLs at `/privacypolicy` and `/accountdeletion`, linked them from the app footer, and styled them with the existing Treehouse design tokens.
+- **Policy coverage:** discloses SnapReceipt account data, receipt images, expense records, Telegram identifiers, Google sign-in data, support messages, diagnostics, OCR/AI processing, Supabase/Telegram/Google/provider sharing, retention, export/deletion, security, international transfers, children, and contact rights. Account deletion page explains in-app deletion, email deletion requests, and partial data deletion requests. Wording is intentionally accurate and qualified; no policy can truthfully guarantee that nobody can sue.
+- **Verified:** privacy policy tests `3/3`; full Node suite `2212/2212`.
+
+## 2026-08-13 · Codex · codex/android-capacitor-wrapper · Android packaging foundation
+
+- **Files:** added `capacitor.config.ts`, `android/`, `scripts/mobile-config.js`, `.env.mobile.example`, Android release/QA docs, and mobile configuration tests; updated `package.json`, `package-lock.json`, and `.gitignore`.
+- **What changed:** added a Capacitor 8 Android wrapper using the existing `public/` frontend and production server URL; fixed package ID `com.snapreceiptai.app`; configured API 36 target/compile SDK, API 24 minimum, version `1.0.0`, Internet-only permission, and environment-based Play upload signing.
+- **Safety:** release Gradle builds fail unless `CAPACITOR_SERVER_URL` is HTTPS, the generated Capacitor assets match that URL, and all four upload-key variables are present. Keystores, local properties, generated assets, APKs, AABs, and build directories are ignored.
+- **Verified:** focused mobile tests `6/6`; full Node suite `2209/2209`; `npx cap doctor` reports Android healthy; Gradle `assembleDebug` succeeds; debug APK installs on the local `Pixel_8` emulator under the correct package ID. Release AAB is intentionally pending the real production HTTPS URL and SnapReceipt upload keystore.
+- **Next:** set the deployed SnapReceipt URL and privately create/provide the upload keystore, run the commands in `android/RELEASE_BUILD.md`, then upload `android/app/build/outputs/bundle/release/app-release.aab` to Play Console internal testing.
+
 ## 2026-07-22 · Claude (Owner-authorized live VPS fix + code fix, via Barat's report) · Real 10-photo batch saved 0/10 silently — root cause was a stale duplicate `VISION_MODEL` env line, not the error-swallowing Barat suspected (fixed both)
 
 - **Context:** Barat sent a real 10-photo batch; bot replied "10 photos · 0 receipts · 0 saved" with no explanation. He traced it to `lib/openrouter.js`'s `callOpenRouter()` silently discarding any non-rate-limit API error (`if (!isRate) return empty`) and asked for it to be logged.
