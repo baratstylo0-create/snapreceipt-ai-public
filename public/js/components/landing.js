@@ -142,15 +142,13 @@
     return wrap;
   }
 
-  // buildWordmark() — the "SnapReceipt AI" text logo: "Snap" (ink) + "Receipt" (blue) +
-  // an "AI" badge (blue pill, white text). Plain spans + CSS, not an image, so it's crisp
-  // at any size/DPI and needs no asset file. Fixed brand text, not derived from any option.
+  // buildWordmark() — use the shared SVG brand asset so the website and downloadable logo
+  // cannot drift apart. The dark navigation variant keeps the supplied wordmark readable.
   function buildWordmark() {
-    var wrap = el('span', 'landing-wordmark');
-    wrap.appendChild(text('span', 'landing-wordmark-snap', 'Snap'));
-    wrap.appendChild(text('span', 'landing-wordmark-receipt', 'Receipt'));
-    wrap.appendChild(text('span', 'landing-wordmark-badge', 'AI'));
-    return wrap;
+    var logo = el('img', 'landing-wordmark');
+    logo.src = 'icons/snapreceipt-wordmark-dark.svg';
+    logo.alt = 'Snap Receipt AI';
+    return logo;
   }
 
   // mount(container, opts) -> { el, destroy }

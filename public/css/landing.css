@@ -47,32 +47,13 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
 }
 .landing-nav-brand { display: flex; align-items: center; gap: 10px; }
 
-/* Wordmark (2026-07-29): "Snap" + "Receipt" + an "AI" pill badge — the nav sits on the dark
-   navy bar, so "Snap" is white here (the reference wordmark's dark-ink version is for
-   light backgrounds — see .landing-wordmark--dark below for the light-bg contexts). */
+/* Shared brand asset: the supplied Snap Receipt AI wordmark is an SVG so it stays crisp
+   across desktop, mobile, and downloadable marketing surfaces. */
 .landing-wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 800;
-  font-size: 19px;
-  letter-spacing: -.01em;
-  line-height: 1;
+  display: block;
+  width: 184px;
+  height: auto;
 }
-.landing-wordmark-snap { color: #fff; }
-.landing-wordmark-receipt { color: var(--lp-blue); }
-.landing-wordmark-badge {
-  background: var(--lp-blue);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  border-radius: 6px;
-  padding: 3px 7px;
-  letter-spacing: 0;
-}
-/* Light-background variant (e.g. inside onboarding/dashboard headers) — "Snap" switches to
-   ink instead of white so it stays readable on white/paper. */
-.landing-wordmark--dark .landing-wordmark-snap { color: var(--lp-ink); }
 .landing-nav-actions { display: flex; align-items: center; gap: 10px; }
 .landing-nav-btn {
   font: inherit;
