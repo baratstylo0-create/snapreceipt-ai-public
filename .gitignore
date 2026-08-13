@@ -3,6 +3,12 @@
 *.env
 .env.personal
 !.env.example
+!.env.mobile.example
+
+# Android signing material and local build configuration
+**/*.jks
+**/*.keystore
+android/signing.properties
 # Auto-provisioned credential-encryption key (lib/credCrypto ensureCredKey) — server-only,
 # must never be committed. Survives redeploys on the box; regenerating it makes existing
 # encrypted branch passwords unreadable (they just need a one-time Reset).
