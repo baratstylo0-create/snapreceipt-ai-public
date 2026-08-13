@@ -9,7 +9,7 @@ if (!isAllowedServerUrl(appUrl)) {
 }
 
 const config: CapacitorConfig = {
-  appId: 'com.wsmllc.snapreceiptai',
+  appId: 'com.snapreceiptai.app',
   appName: 'SnapReceipt AI',
   webDir: 'public',
   server: {

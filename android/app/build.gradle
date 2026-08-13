@@ -22,7 +22,7 @@ def bundledServerUrl = {
 }
 
 android {
-    namespace = "com.wsmllc.snapreceiptai"
+    namespace = "com.snapreceiptai.app"
     compileSdk = rootProject.ext.compileSdkVersion
 
     if (releaseSigningConfigured) {
@@ -37,7 +37,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.wsmllc.snapreceiptai"
+        applicationId "com.snapreceiptai.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -41,4 +41,4 @@ The bundle is created at:
 android/app/build/outputs/bundle/release/app-release.aab
 ```
 
-Upload that `.aab` to the SnapReceipt internal-testing track. The package name must remain `com.wsmllc.snapreceiptai` for every future update.
+Upload that `.aab` to the SnapReceipt internal-testing track. The package name must remain `com.snapreceiptai.app` for every future update.

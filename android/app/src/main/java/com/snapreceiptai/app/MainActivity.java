@@ -1,4 +1,4 @@
-package com.wsmllc.snapreceiptai;
+package com.snapreceiptai.app;
 
 import com.getcapacitor.BridgeActivity;
 

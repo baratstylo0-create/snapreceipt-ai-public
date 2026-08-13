@@ -38,7 +38,7 @@ test('requires a production URL for release configuration', () => {
 
 test('declares the immutable Android identity and web source', () => {
   const config = fs.readFileSync(path.join(repoRoot, 'capacitor.config.ts'), 'utf8');
-  assert.match(config, /appId:\s*['"]com\.wsmllc\.snapreceiptai['"]/);
+  assert.match(config, /appId:\s*['"]com\.snapreceiptai\.app['"]/);
   assert.match(config, /appName:\s*['"]SnapReceipt AI['"]/);
   assert.match(config, /webDir:\s*['"]public['"]/);
 });

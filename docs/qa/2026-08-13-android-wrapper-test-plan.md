@@ -25,6 +25,6 @@ Install the debug APK on an available Android device or emulator and verify:
 
 - `CAPACITOR_SERVER_URL` is a real HTTPS production URL.
 - The bundle is signed with the SnapReceipt upload key.
-- Package name is `com.wsmllc.snapreceiptai`.
+- Package name is `com.snapreceiptai.app`.
 - Version code is greater than the last uploaded version for every update.
 - Internal-testing install works from the Play opt-in link before wider release.

@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Package ID is `com.wsmllc.snapreceiptai` and must never change after the first Play upload.
+- Package ID is `com.snapreceiptai.app` and must never change after the first Play upload.
 - New Google Play submissions must target Android API 36 from August 31, 2026.
 - `CAPACITOR_SERVER_URL` is required for a production release; localhost and emulator URLs are development-only.
 - Play App Signing remains enabled; the local upload keystore and passwords stay outside Git and chat.
@@ -30,7 +30,7 @@
 
 **Interfaces:**
 - Consumes: `CAPACITOR_SERVER_URL`, `CAPACITOR_DEBUG`, and the existing `public/index.html`.
-- Produces: Capacitor app identity `com.wsmllc.snapreceiptai`, app name `SnapReceipt AI`, and a server URL policy that distinguishes production HTTPS from local development.
+- Produces: Capacitor app identity `com.snapreceiptai.app`, app name `SnapReceipt AI`, and a server URL policy that distinguishes production HTTPS from local development.
 
 - [ ] Write tests asserting the config declares the fixed app ID/name, uses `public` as `webDir`, rejects an HTTP non-localhost URL, and permits `http://10.0.2.2:3001` for emulator development.
 - [ ] Run `node --test tests/capacitor.config.test.js` and observe failure because the config and helper do not exist.
@@ -49,7 +49,7 @@
 
 **Interfaces:**
 - Consumes: Task 1 Capacitor configuration and installed Capacitor packages.
-- Produces: a standard Capacitor Android project with API 24 minimum, compile/target SDK 36, package ID `com.wsmllc.snapreceiptai`, and a normal `MainActivity` bridge.
+- Produces: a standard Capacitor Android project with API 24 minimum, compile/target SDK 36, package ID `com.snapreceiptai.app`, and a normal `MainActivity` bridge.
 
 - [ ] Generate the Android project and run `npx cap sync android`.
 - [ ] Set `minSdkVersion = 24`, `compileSdkVersion = 36`, and `targetSdkVersion = 36`.
@@ -93,4 +93,3 @@
 - [ ] Check `adb devices`; install and launch on any available local device/emulator, otherwise record that device verification is pending.
 - [ ] Attempt `bundleRelease` only when a real production URL and private upload keystore are available; otherwise record the exact blocker and leave the project buildable.
 - [ ] Review the final diff for secrets, generated artifacts, unintended backend/UI behavior changes, and package ID consistency.
-
