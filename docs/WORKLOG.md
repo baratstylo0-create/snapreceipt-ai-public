@@ -1,5 +1,14 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-08-23 · Claude (frontend/Mugi lane) · merge/tour-refresh-fix-into-main-2026-08-23 · Handoff to Barat (Deputy) — new workflow rule + backend QA items
+
+- **For whoever picks up backend work next (Barat/Deputy persona, `docs/roles/BARAT.md`):** Barat (the Owner-side human, not the Deputy role file — confusing overlap, see note below) asked that going forward: **every edit gets pushed to GitHub, merged to `main` (via PR — direct pushes to `main` are hook-blocked anyway, SOP §1.5), and `docs/backend-issues.md` gets updated with an issue + fix summary whenever an item there is actually fixed.** Treat that file as a live log, same spirit as this WORKLOG — don't just fix silently.
+- **New file: `docs/backend-issues.md`** — seeded today with 6 issues from a live QA pass (Guest Mode auto-logout + no per-device cap, missing personal-account messaging in the bind-token flow, no post-trial reply restriction, duplicate-receipt detection not firing on re-upload, OCR misreading dates on clear photos, and the post-capture edit-message flow needing a redesign). All still OPEN, none fixed yet.
+- **Ownership note worth flagging before you start:** two of those six items (#4 duplicate detection, #5 OCR date parsing) are squarely in `lib/ocr.js` — your file per BARAT.md §2. The other four (#1, #2, #3, #6) are in `lib/bot.js`/`lib/account.js`/`routes/guest.js`, which aren't on your owned-file list in BARAT.md — confirm with Jeevan (Owner) whether those are yours to touch or need reassigning before editing, per the SOP §4.6 collision rule.
+- **Also merged today (PR #13, not yet merged to `main` as of this entry):** the auto-play onboarding tour, and a real frontend bug fix — the dashboard header's Refresh button was forcing a full `location.reload()` (killing Guest Mode / real sessions on every refresh); it now re-fetches just the current view's data. Reconciled against your Android/wordmark work already on `main` — 5 merge conflicts resolved by hand, full suite green (2281/2281) on the merged tree. Doesn't touch anything on your owned-file list.
+- **What's next:** review/merge PR #13 (Jeevan or named Deputy per SOP §2), then pick up the `docs/backend-issues.md` items — OCR ones first since they're unambiguously yours.
+- **Assumptions:** "backend developer" in this handoff means whichever Claude session next picks up `lib/`/`routes/` work under the Barat(Deputy)/BARAT.md brief — there was no other session reachable to message directly when this was written, hence landing it here per SOP §0.1.4 (WORKLOG is the sync ledger other Claudes read on startup).
+
 ## 2026-08-13 · Codex · codex/android-capacitor-wrapper · Play Console privacy policy page
 
 - **Files:** added `public/privacy.html`, `public/accountdeletion.html`, and `tests/privacy.policy.test.js`; updated `public/index.html`, `public/css/app.css`, `routes/misc.js`, and this worklog.

@@ -1,6 +1,8 @@
 # Backend Issues Log
 
-Backend/bot-logic issues reported but NOT fixed by Claude (frontend-only scope on this project — see project memory "Receipt SaaS: Frontend Only"). For Jeevan to review and fix. Records only — no general docs here.
+Backend/bot-logic issues reported but NOT fixed by Claude (frontend-only scope on this project — see project memory "Receipt SaaS: Frontend Only"). Records only — no general docs here.
+
+**Workflow rule (2026-08-23, from Barat):** whoever fixes an item below — push the fix to GitHub, open a PR to `main` (direct pushes are hook-blocked anyway), and update that item's entry here with what was actually changed and how, before considering it done. Don't fix silently. See `docs/WORKLOG.md`'s 2026-08-23 entry for the full handoff note, including a file-ownership flag on items #1/#2/#3/#6.
 
 ---
 
