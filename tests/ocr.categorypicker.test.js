@@ -3,7 +3,7 @@
 // 2026-07-03). No network — buildCategoryKeyboard/categoryPromptText are hermetic.
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCategoryKeyboard, categoryPromptText, editCategoryKeyboard, datePromptText, duplicateRejectedText, buildDuplicateKeyboard, PENDING_CATEGORY } = require('../lib/ocr');
+const { buildCategoryKeyboard, categoryPromptText, captureCardText, captureCardKeyboard, editFieldMenuKeyboard, datePromptText, duplicateRejectedText, buildDuplicateKeyboard, PENDING_CATEGORY } = require('../lib/ocr');
 const { CATEGORIES } = require('../lib/categorize');
 
 test('buildCategoryKeyboard: every real category gets a button, Others is always last on its own row', () => {
@@ -59,20 +59,52 @@ test('categoryPromptText: does not throw on a missing merchant', () => {
   assert.doesNotThrow(() => categoryPromptText({ amount: 10, currency: 'USD' }));
 });
 
-// --- editCategoryKeyboard (Owner request 2026-07-04): the single "Edit category" button
-// attached to the normal "Expense Captured" reply. ---
+// --- captureCardText/captureCardKeyboard/editFieldMenuKeyboard (2026-08-23, Barat
+// reference mockup): the "Expense Captured" card's Edit + Add Remark buttons, and the
+// field-picker submenu shown after tapping Edit. Replaces the old single-purpose
+// editCategoryKeyboard() (2026-07-04) — nothing else in the codebase called it. ---
 
-test('editCategoryKeyboard: exactly one button, correct callback_data prefix', () => {
-  const kb = editCategoryKeyboard('exp-5');
-  const flat = kb.inline_keyboard.flat();
-  assert.strictEqual(flat.length, 1);
-  assert.strictEqual(flat[0].callback_data, 'catedit:exp-5');
-  assert.match(flat[0].text, /Edit/i);
+test('captureCardText: renders every populated field, including remark when present', () => {
+  const text = captureCardText({ merchant: 'Shell', expense_date: '2026-08-20', amount: 50, currency: 'MYR', category: 'Fuel & Auto' });
+  assert.match(text, /Expense Captured/);
+  assert.match(text, /Shell/);
+  assert.match(text, /2026-08-20/);
+  assert.match(text, /RM50\.00/);
+  assert.match(text, /Fuel & Auto/);
+  assert.doesNotMatch(text, /Remark/);
 });
 
-test('editCategoryKeyboard: callback_data stays well under Telegram\'s 64-byte limit for a real UUID', () => {
-  const kb = editCategoryKeyboard('a'.repeat(36));
-  assert.ok(Buffer.byteLength(kb.inline_keyboard[0][0].callback_data, 'utf8') <= 64);
+test('captureCardText: shows a Remark line only when the expense actually has one', () => {
+  const text = captureCardText({ merchant: 'Shell', expense_date: '2026-08-20', amount: 50, currency: 'MYR', category: 'Fuel & Auto', remark: 'for the office van' });
+  assert.match(text, /Remark:\* for the office van/);
+});
+
+test('captureCardKeyboard: exactly two buttons — Edit and Add Remark, correct callback_data prefixes', () => {
+  const kb = captureCardKeyboard('exp-5');
+  const flat = kb.inline_keyboard.flat();
+  assert.strictEqual(flat.length, 2);
+  assert.strictEqual(flat[0].callback_data, 'editmenu:exp-5');
+  assert.match(flat[0].text, /Edit/i);
+  assert.strictEqual(flat[1].callback_data, 'addremark:exp-5');
+  assert.match(flat[1].text, /Remark/i);
+});
+
+test('captureCardKeyboard: callback_data stays well under Telegram\'s 64-byte limit for a real UUID', () => {
+  const kb = captureCardKeyboard('a'.repeat(36));
+  for (const row of kb.inline_keyboard) for (const btn of row) {
+    assert.ok(Buffer.byteLength(btn.callback_data, 'utf8') <= 64);
+  }
+});
+
+test('editFieldMenuKeyboard: Merchant/Date/Amount/Category/Back, Category routes to the existing catedit: branch', () => {
+  const kb = editFieldMenuKeyboard('exp-9');
+  const flat = kb.inline_keyboard.flat();
+  const byLabel = Object.fromEntries(flat.map((b) => [b.text.replace(/[^\w]/g, '').toLowerCase(), b.callback_data]));
+  assert.strictEqual(byLabel.merchant, 'editfield:merchant:exp-9');
+  assert.strictEqual(byLabel.date, 'editfield:date:exp-9');
+  assert.strictEqual(byLabel.amount, 'editfield:amount:exp-9');
+  assert.strictEqual(byLabel.category, 'catedit:exp-9'); // reuses the existing, already-tested category-repick flow
+  assert.strictEqual(byLabel.back, 'editback:exp-9');
 });
 
 // --- datePromptText (issue #149 part 2): the "I couldn't read the date clearly" ask,

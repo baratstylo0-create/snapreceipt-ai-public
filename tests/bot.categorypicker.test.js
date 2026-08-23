@@ -218,23 +218,31 @@ test('catedit: a deleted row is refused gracefully, no crash', async () => {
   assert.strictEqual(updateCalls.length, 0);
 });
 
-test('catedit -> catpick round trip: re-picking a category after Edit says "(updated)"', async () => {
+// 2026-08-23 (Barat reference mockup): a category pick — re-pick via "✏️ Edit" -> Category,
+// or a fresh uncertain-receipt resolution — now re-renders the FULL "Expense Captured" card
+// (captureCardText/captureCardKeyboard) instead of a terse "Saved as X (updated)" line, so
+// there's no separate "(updated)" wording to distinguish anymore — both paths look the same,
+// matching every other card-edit path's "the card re-renders in place" behavior.
+test('catedit -> catpick round trip: re-picking a category renders the full card with the NEW category', async () => {
   // Simulates the two-step flow: catedit resets status, THEN a category tap resolves it.
-  // After catedit, the row (as read back by the next catpick call) is awaiting_category
-  // again but its `category` field still holds the OLD real value (Fuel & Auto) — that's
-  // exactly the signal catpick uses to know this is a re-pick, not a fresh uncertain one.
   const idx = CATEGORIES.indexOf('Groceries');
   const rowAfterEdit = { ...SAVED_ROW, status: 'awaiting_category' }; // category still 'Fuel & Auto'
   const { deps, edited } = baseDeps({ sbSelect: async () => [rowAfterEdit] });
   await handleCallbackQuery({ id: 'cbEdit4', data: 'catpick:exp-20:' + idx, message: withMessageId(100, 900) }, deps);
-  assert.match(edited[0].text, /Groceries \(updated\)/);
+  assert.match(edited[0].text, /Expense Captured/);
+  assert.match(edited[0].text, /Groceries/);
+  assert.deepStrictEqual(edited[0].replyMarkup, { inline_keyboard: [[
+    { text: '✏️ Edit', callback_data: 'editmenu:exp-20' },
+    { text: '📝 Add Remark', callback_data: 'addremark:exp-20' },
+  ]] });
 });
 
-test('a fresh (never-before-categorized) receipt does NOT get "(updated)" wording', async () => {
+test('a fresh (never-before-categorized) receipt also renders the full card on its first pick', async () => {
   const idx = CATEGORIES.indexOf('Groceries');
   const { deps, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] }); // category is PENDING_CATEGORY, not a real one
   await handleCallbackQuery({ id: 'cbEdit5', data: 'catpick:exp-9:' + idx, message: withMessageId(100, 900) }, deps);
-  assert.ok(!/\(updated\)/.test(edited[0].text));
+  assert.match(edited[0].text, /Expense Captured/);
+  assert.match(edited[0].text, /Groceries/);
 });
 
 // --- business category set drives the picker (ADR-021 Phase 5) --------------------------
