@@ -17,14 +17,21 @@ function baseDeps(over = {}) {
   const sent = [];
   const answered = [];
   const updates = [];
+  // sbSelectGlobal (2026-08-22): bindWithToken's own token lookup now goes through
+  // sbSelectGlobal, not sbSelect (see lib/supabase.js's doc comment). Mirroring whatever
+  // `sbSelect` override a test passes keeps every existing token-lookup scenario working
+  // without touching each call site individually.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   return {
     deps: {
       tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
       tgAnswerCallback: async (id) => { answered.push(id); },
       sbSelect: async () => [],
+      sbSelectGlobal: async () => [],
       sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); return []; },
       getCapabilities: () => ({ multiUser: true }),
-      ...over,
+      ...resolvedOver,
     },
     sent, answered, updates,
   };
@@ -37,19 +44,19 @@ const msgUpdate = (chatId, text) => ({ message: { chat: { id: chatId }, from: { 
 test('resolveBinding: returns the active bot_bindings row for this chat', async () => {
   const row = { id: 'b1', chat_id: '100', branch_id: 'br-A', role: 'clerk', active: true };
   const seen = [];
-  const binding = await resolveBinding(100, { sbSelect: async (table, opts) => { seen.push({ table, opts }); return [row]; } });
+  const binding = await resolveBinding(100, { sbSelectGlobal: async (table, opts) => { seen.push({ table, opts }); return [row]; } });
   assert.deepStrictEqual(binding, row);
   assert.strictEqual(seen[0].table, 'bot_bindings');
   assert.deepStrictEqual(seen[0].opts.eq, { chat_id: '100', active: true });
 });
 
 test('resolveBinding: returns null when no active binding exists', async () => {
-  const binding = await resolveBinding(999, { sbSelect: async () => [] });
+  const binding = await resolveBinding(999, { sbSelectGlobal: async () => [] });
   assert.strictEqual(binding, null);
 });
 
 test('resolveBinding: fails CLOSED (returns null, never throws) on a lookup error', async () => {
-  const binding = await resolveBinding(1, { sbSelect: async () => { throw new Error('ECONNREFUSED internal'); } });
+  const binding = await resolveBinding(1, { sbSelectGlobal: async () => { throw new Error('ECONNREFUSED internal'); } });
   assert.strictEqual(binding, null);
 });
 
@@ -60,7 +67,7 @@ test('resolveBinding: a stale (31+ days inactive) OWNER binding is auto-unbound 
   const row = { id: 'ownerBind1', chat_id: '100', role: 'owner', active: true, last_active_at: staleAt };
   const updates = [];
   const binding = await resolveBinding(100, {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   });
   assert.strictEqual(binding, null);
@@ -74,7 +81,7 @@ test('resolveBinding: a RECENTLY active owner binding (within 30 days) is return
   const row = { id: 'ownerBind2', chat_id: '100', role: 'owner', active: true, last_active_at: recentAt };
   const updates = [];
   const binding = await resolveBinding(100, {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   });
   assert.deepStrictEqual(binding, row);
@@ -86,7 +93,7 @@ test('resolveBinding: a stale BUSINESS (clerk) binding is NEVER auto-unbound —
   const row = { id: 'clerkBind1', chat_id: '100', branch_id: 'br-A', role: 'clerk', active: true, last_active_at: staleAt };
   const updates = [];
   const binding = await resolveBinding(100, {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   });
   assert.deepStrictEqual(binding, row);
@@ -98,7 +105,7 @@ test('resolveBinding: a stale GUEST binding is NEVER auto-unbound by the inactiv
   const row = { id: 'guestBind1', chat_id: '100', role: 'guest', active: true, last_active_at: staleAt };
   const updates = [];
   const binding = await resolveBinding(100, {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   });
   assert.deepStrictEqual(binding, row);
@@ -112,7 +119,7 @@ test('bindWithToken: a valid, unbound token binds this chat and returns the role
   const row = { id: 'bind1', bind_token: 'tok123', role: 'clerk', chat_id: null, active: true,
     token_expires_at: new Date(Date.now() + 60000).toISOString() };
   const deps = {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   };
   const result = await bindWithToken('tok123', 555, deps);
@@ -126,7 +133,7 @@ test('bindWithToken: a valid, unbound token binds this chat and returns the role
 test('bindWithToken: an admin token returns role admin', async () => {
   const row = { id: 'bind2', bind_token: 'tokA', role: 'admin', chat_id: null, active: true,
     token_expires_at: new Date(Date.now() + 60000).toISOString() };
-  const result = await bindWithToken('tokA', 1, { sbSelect: async () => [row], sbUpdate: async () => {} });
+  const result = await bindWithToken('tokA', 1, { sbSelectGlobal: async () => [row], sbUpdate: async () => {} });
   assert.strictEqual(result.role, 'admin');
 });
 
@@ -135,7 +142,7 @@ test('bindWithToken: re-tapping the SAME chat\'s already-bound token is a harmle
   const row = { id: 'bind3', bind_token: 'tok3', role: 'clerk', chat_id: '555', active: true,
     token_expires_at: new Date(Date.now() + 60000).toISOString() };
   const result = await bindWithToken('tok3', 555, {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   });
   assert.strictEqual(result.ok, true);
@@ -146,7 +153,7 @@ test('bindWithToken: re-tapping the SAME chat\'s already-bound token is a harmle
 test('bindWithToken: a token already bound to a DIFFERENT chat is refused (used up)', async () => {
   const row = { id: 'bind4', bind_token: 'tok4', role: 'clerk', chat_id: '111', active: true,
     token_expires_at: new Date(Date.now() + 60000).toISOString() };
-  const result = await bindWithToken('tok4', 222, { sbSelect: async () => [row] });
+  const result = await bindWithToken('tok4', 222, { sbSelectGlobal: async () => [row] });
   assert.strictEqual(result.ok, false);
   assert.match(result.message, /already been used/i);
 });
@@ -154,7 +161,7 @@ test('bindWithToken: a token already bound to a DIFFERENT chat is refused (used 
 test('bindWithToken: an expired BUSINESS (clerk) token is still refused (2026-08-08 fix is scoped to owner only)', async () => {
   const row = { id: 'bind5', bind_token: 'tok5', role: 'clerk', chat_id: null, active: true,
     token_expires_at: new Date(Date.now() - 1000).toISOString() };
-  const result = await bindWithToken('tok5', 1, { sbSelect: async () => [row] });
+  const result = await bindWithToken('tok5', 1, { sbSelectGlobal: async () => [row] });
   assert.strictEqual(result.ok, false);
   assert.match(result.message, /expired/i);
 });
@@ -164,7 +171,7 @@ test('bindWithToken: an expired token is NOT enforced for a personal OWNER bindi
     token_expires_at: new Date(Date.now() - 1000).toISOString() };
   const updates = [];
   const result = await bindWithToken('tok5b', 1, {
-    sbSelect: async () => [row],
+    sbSelectGlobal: async () => [row],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
   });
   assert.strictEqual(result.ok, true);
@@ -174,20 +181,75 @@ test('bindWithToken: an expired token is NOT enforced for a personal OWNER bindi
 });
 
 test('bindWithToken: an unknown token is refused', async () => {
-  const result = await bindWithToken('nope', 1, { sbSelect: async () => [] });
+  const result = await bindWithToken('nope', 1, { sbSelectGlobal: async () => [] });
   assert.strictEqual(result.ok, false);
   assert.match(result.message, /isn't valid|not valid/i);
 });
 
 test('bindWithToken: empty/missing token is refused without a lookup', async () => {
-  const result = await bindWithToken('', 1, { sbSelect: async () => { throw new Error('should not be called'); } });
+  const result = await bindWithToken('', 1, { sbSelectGlobal: async () => { throw new Error('should not be called'); } });
   assert.strictEqual(result.ok, false);
 });
 
 test('bindWithToken: a lookup error never throws, friendly message', async () => {
-  const result = await bindWithToken('tok', 1, { sbSelect: async () => { throw new Error('ECONNREFUSED 10.0.0.5'); } });
+  const result = await bindWithToken('tok', 1, { sbSelectGlobal: async () => { throw new Error('ECONNREFUSED 10.0.0.5'); } });
   assert.strictEqual(result.ok, false);
   assert.ok(!/ECONNREFUSED|10\.0\.0\.5/.test(result.message));
+});
+
+// --- guest trial-ended gate (2026-08-22, QA report #3) --------------------------------
+// "If user try to chat with bot after their guest mode trial finish, I want bot show
+// message (access the app now...) don't reply other than that." Before this fix, only
+// the photo-capture path checked the cap; a capped guest's plain text or a stale button
+// tap fell through to the normal menu/reply logic.
+
+test('handleUpdate: a guest AT the receipt cap gets ONLY the cap-reached message for a plain text message', async () => {
+  const { GUEST_CAP_REACHED_MESSAGE } = require('../lib/ocr');
+  const binding = { id: 'g1', chat_id: '500', role: 'guest', user_id: 'guestUser1', active: true };
+  const { deps, sent } = baseDeps({
+    sbSelectGlobal: async () => [binding],
+    countGuestExpenses: async () => 4, // at GUEST_RECEIPT_CAP
+  });
+  await handleUpdate(msgUpdate(500, 'hi'), deps);
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].text, GUEST_CAP_REACHED_MESSAGE);
+});
+
+test('handleUpdate: a guest AT the receipt cap gets ONLY the cap-reached message for a callback-query button tap', async () => {
+  const { GUEST_CAP_REACHED_MESSAGE } = require('../lib/ocr');
+  const binding = { id: 'g2', chat_id: '501', role: 'guest', user_id: 'guestUser2', active: true };
+  const { deps, sent, answered } = baseDeps({
+    sbSelectGlobal: async () => [binding],
+    countGuestExpenses: async () => 5, // over cap
+  });
+  await handleUpdate({ callback_query: { id: 'cq1', message: { chat: { id: 501 } }, data: 'anything' } }, deps);
+  assert.deepStrictEqual(answered, ['cq1']);
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].text, GUEST_CAP_REACHED_MESSAGE);
+});
+
+test('handleUpdate: a guest UNDER the cap is routed normally, not gated', async () => {
+  const binding = { id: 'g3', chat_id: '502', role: 'guest', user_id: 'guestUser3', active: true };
+  const { deps, sent } = baseDeps({
+    sbSelectGlobal: async () => [binding],
+    countGuestExpenses: async () => 2, // under GUEST_RECEIPT_CAP (4)
+  });
+  await handleUpdate(msgUpdate(502, 'hi'), deps);
+  // Not gated: falls through to the normal (non-cap) reply, whatever that is — just
+  // confirming it's NOT the cap-reached message and the guest cap check didn't short-circuit.
+  const { GUEST_CAP_REACHED_MESSAGE } = require('../lib/ocr');
+  assert.ok(!sent.some((s) => s.text === GUEST_CAP_REACHED_MESSAGE));
+});
+
+test('handleUpdate: an OWNER binding is never subject to the guest cap check (countGuestExpenses not called)', async () => {
+  const binding = { id: 'o1', chat_id: '503', role: 'owner', user_id: 'ownerUser1', active: true };
+  let capCheckCalled = false;
+  const { deps, sent } = baseDeps({
+    sbSelectGlobal: async () => [binding],
+    countGuestExpenses: async () => { capCheckCalled = true; return 99; },
+  });
+  await handleUpdate(msgUpdate(503, 'hi'), deps);
+  assert.strictEqual(capCheckCalled, false);
 });
 
 // --- handleUpdate: the business-mode gate ---------------------------------------------
@@ -253,9 +315,10 @@ test('handleUpdate: multiUser ON, a BOUND chat falls through to normal routing (
     sbSelect: async () => [binding],
     sendExpenseSummary: async () => { summarized = true; },
   });
-  // sendExpenseSummary is called directly (not injected) inside handleUpdate's generic
-  // keyword branch in the real module, so assert via the reply path instead — the point is
-  // the message reaches PAST the unbound-gate (no BUSINESS_UNBOUND_MESSAGE sent).
+  // This test sends "🧭 Bot Guide" (not an expense-keyword message), so sendExpenseSummary
+  // (deps-injectable since 2026-08-21, see its own bug-fix comment in lib/bot.js) is never
+  // actually reached here — assert via the reply path instead: the point is the message
+  // reaches PAST the unbound-gate (no BUSINESS_UNBOUND_MESSAGE sent).
   await handleUpdate(msgUpdate(1, '🧭 Bot Guide'), deps);
   assert.notStrictEqual(sent[0].text, BUSINESS_UNBOUND_MESSAGE);
 });

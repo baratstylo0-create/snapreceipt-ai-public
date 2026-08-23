@@ -133,6 +133,10 @@ module.exports = function mountUpload(app, deps = {}) {
       // ADR-023 Phase 8: stamp the capturer's company beside their branch (multi-company clients),
       // from the same session source. Absent when the session carries no company (additive).
       if (req.user && req.user.company_id) meta.company_id = req.user.company_id;
+      // 2026-08-14 SECURITY FIX: without this, a dashboard upload from ANY per-account owner
+      // landed under the single shared default account_id instead of their own — see
+      // lib/ocr.js assembleExpense's matching doc comment.
+      if (req.user && req.user.account_id) meta.account_id = req.user.account_id;
       // Guest Mode (2026-07-28): scopeForUser's guest branch is the only one that carries a
       // user_id (lib/auth.js) — passed through so assembleExpense can tag + cap-check this
       // upload exactly like the Telegram path (lib/bot.js's bindingMeta does the same).

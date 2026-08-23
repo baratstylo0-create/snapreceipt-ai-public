@@ -41,12 +41,15 @@
 // layer simply isn't exercised there — no document).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../api'));
+    module.exports = factory(require('../escape'), require('../api'), require('../i18n'));
   } else {
-    root.Agent = factory(root.Escape, root.Api);
+    root.Agent = factory(root.Escape, root.Api, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Api) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Api, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   var MAX_MESSAGES = 20;
   var MAX_CHARS = 12000;
@@ -104,7 +107,7 @@
       if (name && seen.indexOf(name) === -1) seen.push(name);
     });
     if (!seen.length) return '';
-    return 'Tools used: ' + seen.join(', ');
+    return tp('agent.tools_used', seen.join(', '));
   }
 
   // ---- write-proposal helpers (ADR-019) -----------------------------------
@@ -140,10 +143,10 @@
   // Never throws.
   function agentErrorMessage(status) {
     switch (Number(status)) {
-      case 400: return "Sorry, I couldn't understand that request.";
-      case 413: return 'This conversation is too long — start a new one to continue.';
-      case 502: return 'The assistant is unavailable right now. Please try again in a moment.';
-      default:  return 'Something went wrong. Please try again.';
+      case 400: return t('agent.err_400');
+      case 413: return t('agent.err_413');
+      case 502: return t('agent.err_502');
+      default:  return t('agent.err_default');
     }
   }
 
@@ -233,11 +236,11 @@
 
     var confirmBtn = el('button', 'ag-confirm-yes');
     confirmBtn.type = 'button';
-    Escape.setText(confirmBtn, 'Confirm');
+    Escape.setText(confirmBtn, t('agent.confirm'));
 
     var cancelBtn = el('button', 'ag-confirm-no');
     cancelBtn.type = 'button';
-    Escape.setText(cancelBtn, 'Cancel');
+    Escape.setText(cancelBtn, t('agent.cancel'));
 
     confirmBtn.addEventListener('click', function () {
       handlers.onConfirm(card, [confirmBtn, cancelBtn], statusEl);
@@ -274,8 +277,6 @@
     var rootEl = el('div', 'ag-root');
     section.appendChild(rootEl);
 
-    rootEl.appendChild(msg('ag-intro muted', 'Ask about your expenses, or how to use the dashboard or Telegram bot.'));
-
     var list = el('div', 'ag-list');
     rootEl.appendChild(list);
 
@@ -284,24 +285,29 @@
 
     var form = el('form', 'ag-form');
 
-    var textarea = el('textarea', 'ag-input');
-    textarea.rows = 2;
-    textarea.setAttribute('placeholder', 'Ask about your expenses, or how to use this app…');
-    form.appendChild(textarea);
+    var inputRow = el('div', 'ag-input-row');
 
-    var actions = el('div', 'ag-actions');
+    var textarea = el('textarea', 'ag-input');
+    textarea.rows = 1;
+    textarea.setAttribute('placeholder', t('agent.input_placeholder'));
+    inputRow.appendChild(textarea);
 
     var sendBtn = el('button', 'ag-send');
     sendBtn.type = 'submit';
-    Escape.setText(sendBtn, 'Send');
-    actions.appendChild(sendBtn);
+    sendBtn.setAttribute('aria-label', t('agent.send'));
+    var sendIcon = el('span', 'ag-send-icon');
+    sendIcon.setAttribute('aria-hidden', 'true');
+    sendIcon.textContent = '↑'; // static glyph, not user data — plain textContent is fine
+    sendBtn.appendChild(sendIcon);
+    inputRow.appendChild(sendBtn);
+
+    form.appendChild(inputRow);
 
     var clearBtn = el('button', 'ag-clear');
     clearBtn.type = 'button';
-    Escape.setText(clearBtn, 'New conversation');
-    actions.appendChild(clearBtn);
+    Escape.setText(clearBtn, t('agent.new_conversation'));
+    form.appendChild(clearBtn);
 
-    form.appendChild(actions);
     rootEl.appendChild(form);
 
     // Client owns the running transcript; the server is stateless. Restored from
@@ -334,8 +340,46 @@
       Escape.setText(noticeEl, text || '');
     }
 
+    function triggerSubmit() {
+      if (typeof form.requestSubmit === 'function') form.requestSubmit();
+      else form.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
+
+    // Before the first real message, the transcript is empty — show a welcome
+    // bubble (same look as an assistant reply) plus a few tappable suggestion
+    // chips so a new user isn't staring at a blank box. Chip text is fixed,
+    // developer-authored copy from i18n (not user data), same as the welcome
+    // line itself.
+    var SUGGESTION_KEYS = ['agent.suggestions.upload', 'agent.suggestions.spend', 'agent.suggestions.telegram'];
+    function renderWelcome() {
+      var wrap = el('div', 'ag-msg ag-msg--assistant');
+      var bubble = el('div', 'ag-msg-bubble');
+      Escape.setText(bubble, t('agent.intro'));
+      wrap.appendChild(bubble);
+      list.appendChild(wrap);
+
+      var chips = el('div', 'ag-suggestions');
+      SUGGESTION_KEYS.forEach(function (key) {
+        var chip = el('button', 'ag-chip');
+        chip.type = 'button';
+        var text = t(key);
+        Escape.setText(chip, text);
+        chip.addEventListener('click', function () {
+          if (busy || proposalPending) return;
+          textarea.value = text;
+          triggerSubmit();
+        });
+        chips.appendChild(chip);
+      });
+      list.appendChild(chips);
+    }
+
     function renderTranscript(lastToolsLabel) {
       clear(list);
+      if (!transcript.length) {
+        renderWelcome();
+        return;
+      }
       transcript.forEach(function (m, i) {
         var isLast = i === transcript.length - 1;
         renderBubble(list, m, isLast ? lastToolsLabel : '');
@@ -347,9 +391,9 @@
       transcript = [];
       clearPersistedTranscript();
       setNotice('');
-      clear(list);
       textarea.value = '';
       setProposalPending(false);
+      renderTranscript();
     }
 
     // Render the confirm card for a pending write proposal and lock input until
@@ -361,7 +405,7 @@
       renderConfirmCard(list, proposal, {
         onConfirm: function (card, buttons, statusEl) {
           buttons.forEach(function (b) { b.disabled = true; }); // no double-click
-          Escape.setText(statusEl, 'Applying…');
+          Escape.setText(statusEl, t('agent.applying'));
           apiFetch('/api/agent/confirm', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -371,18 +415,18 @@
               // Replace the interactive card content with a short done line.
               clear(card);
               var kindLabel = res.kind ? ' (' + str(res.kind) + ')' : '';
-              card.appendChild(msg('ag-confirm-done', 'Done.' + kindLabel));
+              card.appendChild(msg('ag-confirm-done', t('agent.done') + kindLabel));
             } else {
               // Server returned { ok:false, error } — error is already a safe,
               // sanitized string. Show it and let the user try again.
-              Escape.setText(statusEl, (res && res.error) || 'Something went wrong. Please try again.');
+              Escape.setText(statusEl, (res && res.error) || t('agent.err_default'));
               buttons.forEach(function (b) { b.disabled = false; });
             }
             setProposalPending(false);
           }).catch(function () {
             // Network/transport failure: never surface raw internals; re-enable
             // so the user can retry or ask something else.
-            Escape.setText(statusEl, 'Something went wrong. Please try again.');
+            Escape.setText(statusEl, t('agent.err_default'));
             buttons.forEach(function (b) { b.disabled = false; });
             setProposalPending(false);
           });
@@ -395,8 +439,9 @@
       });
     }
 
-    // Show whatever was restored from sessionStorage (if anything) right away.
-    if (transcript.length) renderTranscript();
+    // Show whatever was restored from sessionStorage, or the welcome bubble
+    // + suggestion chips when there's no prior conversation.
+    renderTranscript();
 
     clearBtn.addEventListener('click', function () {
       if (busy) return;
@@ -412,9 +457,7 @@
 
       var capCheck = exceedsCaps(next);
       if (!capCheck.ok) {
-        setNotice(capCheck.reason === 'messages'
-          ? 'This conversation is too long — start a new one to continue.'
-          : 'This conversation is too long — start a new one to continue.');
+        setNotice(t('agent.conversation_too_long'));
         return;
       }
 
@@ -424,7 +467,7 @@
       textarea.value = '';
       renderTranscript();
 
-      var thinking = msg('ag-msg ag-msg--assistant ag-thinking muted', 'Thinking…');
+      var thinking = msg('ag-msg ag-msg--assistant ag-thinking muted', t('agent.thinking'));
       list.appendChild(thinking);
       list.scrollTop = list.scrollHeight;
 
@@ -463,8 +506,7 @@
     textarea.addEventListener('keydown', function (ev) {
       if (ev.key === 'Enter' && !ev.shiftKey) {
         ev.preventDefault();
-        if (typeof form.requestSubmit === 'function') form.requestSubmit();
-        else form.dispatchEvent(new Event('submit', { cancelable: true }));
+        triggerSubmit();
       }
     });
 

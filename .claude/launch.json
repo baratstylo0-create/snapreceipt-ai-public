@@ -18,6 +18,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],
       "autoPort": true
+    },
+    {
+      "name": "receipt-analyser-saas-static",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [".claude/static-preview-server.js"],
+      "port": 4173
     }
   ]
 }

@@ -116,16 +116,17 @@ test('handleUpdate: CRITICAL — with NO pending remark, /start still works exac
 });
 
 test('handleUpdate: CRITICAL — with NO pending remark, "show expenses" still routes to sendExpenseSummary (not the generic fallback, not treated as a remark)', async () => {
-  // sendExpenseSummary is not deps-injectable (pre-existing, unrelated to this change) — it
-  // calls the REAL sbSelect/tgSend directly, so nothing lands in the deps.tgSend fake here
-  // either way. What this test actually proves: the pending-remark check (which IS
-  // deps-injected) does not intercept/consume this message — no sbUpdate call, and the
-  // deps.tgSend fake sees NOTHING (confirming handleUpdate did not also send its own
-  // generic fallback reply on top of routing to sendExpenseSummary).
+  // 2026-08-21: sendExpenseSummary is now deps-injectable (both sbSelect and tgSend — see its
+  // own bug-fix comment in lib/bot.js), so its own reply now correctly lands in this test's
+  // deps.tgSend fake instead of hitting the real network. What this test proves: the
+  // pending-remark check (also deps-injected) does not intercept/consume this message (no
+  // sbUpdate call), and handleUpdate sends EXACTLY sendExpenseSummary's own reply — never
+  // ALSO the generic fallback stacked on top of it.
   const { deps, sent, updateCalls } = baseDeps({ sbSelect: async () => [] });
   await handleUpdate({ message: { chat: { id: 1 }, from: { first_name: 'A' }, text: 'show expenses' } }, deps);
   assert.strictEqual(updateCalls.length, 0, 'must not be mistaken for a remark and written to the DB');
-  assert.strictEqual(sent.length, 0, 'must not ALSO send the generic fallback via deps.tgSend on top of routing to sendExpenseSummary');
+  assert.strictEqual(sent.length, 1, 'exactly sendExpenseSummary\'s own reply — no generic fallback stacked on top');
+  assert.match(sent[0].text, /No expenses logged yet/, 'this is sendExpenseSummary\'s empty-state reply, not the generic fallback');
 });
 
 test('handleUpdate: CRITICAL — with NO pending remark, delete-intent keywords still route correctly', async () => {

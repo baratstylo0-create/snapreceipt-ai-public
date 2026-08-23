@@ -5,7 +5,7 @@
 // clobbering. Values only — no column changes (v1 scope).
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildCellPatch, EDITABLE, filterRows, filterByPeriod, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, managedExportButtons, statementExportButtons, ledgerTableClass, submissionPeriod, submissionState, readyToCloseRows } = require('../../public/js/components/grid');
+const { buildCellPatch, EDITABLE, filterRows, filterByPeriod, periodLabel, paginate, escapeCSVValue, rowsToCSV, blankTemplateCSV, statementExportUrl, statementBranchOptions, managedExportButtons, statementExportButtons, ledgerTableClass, submissionPeriod, submissionState, readyToCloseRows } = require('../../public/js/components/grid');
 
 test('submissionPeriod returns the local YYYY-MM month used by the submit signal', () => {
   assert.strictEqual(submissionPeriod(new Date(2026, 6, 13)), '2026-07');
@@ -123,6 +123,23 @@ test('filterByPeriod: empty/invalid period returns every row unchanged (no filte
 test('filterByPeriod: garbage rows/list never throw', () => {
   assert.deepStrictEqual(filterByPeriod(null, '2026-07'), []);
   assert.deepStrictEqual(filterByPeriod([null, undefined, { id: 'x' }], '2026-07'), []); // no expense_date -> excluded, not thrown
+});
+
+// --- periodLabel: human-readable label for the Month filter, sent to the server so the
+// exported XLSX title reflects the picked FILTER, not the exported rows' own dates.
+test('periodLabel: formats a YYYY-MM period as "Month, Year"', () => {
+  assert.strictEqual(periodLabel('2026-08'), 'August, 2026');
+  assert.strictEqual(periodLabel('2026-01'), 'January, 2026');
+  assert.strictEqual(periodLabel('2026-12'), 'December, 2026');
+});
+
+test('periodLabel: empty/invalid period returns "" (caller falls back to server default)', () => {
+  assert.strictEqual(periodLabel(''), '');
+  assert.strictEqual(periodLabel(undefined), '');
+  assert.strictEqual(periodLabel('garbage'), '');
+  assert.strictEqual(periodLabel('2026-7'), ''); // not zero-padded
+  assert.strictEqual(periodLabel('2026-13'), ''); // out-of-range month
+  assert.strictEqual(periodLabel('2026-00'), ''); // out-of-range month
 });
 
 // --- paginate: client-side pagination ---

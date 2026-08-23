@@ -74,7 +74,10 @@ function harness({ multiUser = true, staffByBranch = {}, db = makeDb() } = {}) {
     getCapabilities: () => ({ multiUser }),
     setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, debounceMs: 1,
     // real DB
-    sbSelect: db.sbSelect, sbUpdate: db.sbUpdate, sbInsert: db.sbInsert,
+    // sbSelectGlobal (2026-08-22): bindWithToken's own token lookup now goes through
+    // sbSelectGlobal, not sbSelect (see lib/supabase.js's doc comment). This in-memory fake
+    // sbSelect never applied an account_id filter of its own, so it's already a correct stand-in.
+    sbSelect: db.sbSelect, sbSelectGlobal: db.sbSelect, sbUpdate: db.sbUpdate, sbInsert: db.sbInsert,
     // Telegram sink
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
     tgEditMessage: async (chatId, messageId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup, edited: true }); },

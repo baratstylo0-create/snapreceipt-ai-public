@@ -38,12 +38,15 @@
 // layer simply isn't exercised there — no document / FileReader).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../api'));
+    module.exports = factory(require('../escape'), require('../api'), require('../i18n'));
   } else {
-    root.Templates = factory(root.Escape, root.Api);
+    root.Templates = factory(root.Escape, root.Api, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Api) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Api, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   // ---- pure helpers -------------------------------------------------------
 
@@ -192,8 +195,8 @@
   function errorMessage(status, body, context) {
     var ctx = context === 'load' ? 'load' : 'save';
     var generic = ctx === 'load'
-      ? 'Could not load the template. Please try again.'
-      : 'Could not save the template. Please try again.';
+      ? t('templates.load_failed')
+      : t('templates.save_failed');
 
     if (Number(status) === 400) {
       var reason = isPlainObject(body) ? body.error : null;
@@ -227,9 +230,9 @@
 
     var actions = el('div', 'tp-confirm-actions');
     var cancelBtn = el('button', 'tp-confirm-cancel'); cancelBtn.type = 'button';
-    Escape.setText(cancelBtn, 'Cancel');
+    Escape.setText(cancelBtn, t('templates.cancel'));
     var confirmBtn = el('button', 'tp-confirm-ok'); confirmBtn.type = 'button';
-    Escape.setText(confirmBtn, confirmLabel || 'Confirm');
+    Escape.setText(confirmBtn, confirmLabel || t('templates.confirm'));
     actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
     card.appendChild(actions);
@@ -252,11 +255,11 @@
     var wrap = el('div', 'tp-spec');
 
     var meta = el('p', 'tp-spec-meta muted');
-    Escape.setText(meta, vm.count + ' field(s)' + (vm.updatedAt ? ' — last updated ' + str(vm.updatedAt) : ' — showing the default field set'));
+    Escape.setText(meta, tp('templates.field_count', vm.count) + (vm.updatedAt ? tp('templates.last_updated', str(vm.updatedAt)) : t('templates.showing_default')));
     wrap.appendChild(meta);
 
     if (!vm.columns.length) {
-      wrap.appendChild(msg('tp-empty', 'No template imported yet — showing the default field set.'));
+      wrap.appendChild(msg('tp-empty', t('templates.no_template_imported')));
       return wrap;
     }
 
@@ -266,7 +269,7 @@
     // Non-technical staff only ever see the human-readable field name — the machine `key`
     // (e.g. "and_how_much") is intentionally NOT shown here. It's still used under the hood
     // for OCR/DB; this view is for people, not engineers.
-    ['Field', 'Type', 'Required'].forEach(function (h) {
+    [t('templates.col_field'), t('templates.col_type'), t('templates.col_required')].forEach(function (h) {
       var th = el('th');
       Escape.setText(th, h);
       headRow.appendChild(th);
@@ -292,7 +295,7 @@
 
       var tdReq = el('td');
       var badge = el('span', 'tp-badge ' + (col.required ? 'tp-badge--required' : 'tp-badge--optional'));
-      Escape.setText(badge, col.required ? 'Required' : 'Optional');
+      Escape.setText(badge, col.required ? t('templates.required') : t('templates.optional'));
       tdReq.appendChild(badge);
       tr.appendChild(tdReq);
 
@@ -355,10 +358,10 @@
 
     var moveWrap = el('div', 'tp-fb-move');
     var upBtn = el('button', 'tp-fb-move-btn'); upBtn.type = 'button';
-    upBtn.setAttribute('aria-label', 'Move field up'); upBtn.title = 'Move up';
+    upBtn.setAttribute('aria-label', t('templates.move_field_up')); upBtn.title = t('templates.move_up');
     Escape.setText(upBtn, '▲');
     var downBtn = el('button', 'tp-fb-move-btn'); downBtn.type = 'button';
-    downBtn.setAttribute('aria-label', 'Move field down'); downBtn.title = 'Move down';
+    downBtn.setAttribute('aria-label', t('templates.move_field_down')); downBtn.title = t('templates.move_down');
     Escape.setText(downBtn, '▼');
     upBtn.addEventListener('click', function () { onMove(rowApi, -1); });
     downBtn.addEventListener('click', function () { onMove(rowApi, 1); });
@@ -367,7 +370,7 @@
 
     var nameInput = el('input', 'tp-fb-name');
     nameInput.type = 'text';
-    nameInput.setAttribute('placeholder', 'Field name, e.g. Vendor');
+    nameInput.setAttribute('placeholder', t('templates.field_name_placeholder'));
     nameInput.value = typeof seed.label === 'string' ? seed.label : (typeof seed.name === 'string' ? seed.name : '');
     row.appendChild(nameInput);
 
@@ -387,18 +390,18 @@
     reqCheckbox.checked = !!seed.required;
     reqLabel.appendChild(reqCheckbox);
     var reqText = el('span');
-    Escape.setText(reqText, 'Required');
+    Escape.setText(reqText, t('templates.required'));
     reqLabel.appendChild(reqText);
     row.appendChild(reqLabel);
 
     var removeBtn = el('button', 'tp-fb-remove');
     removeBtn.type = 'button';
-    Escape.setText(removeBtn, 'Remove');
+    Escape.setText(removeBtn, t('templates.remove'));
     removeBtn.addEventListener('click', function () {
       var name = nameInput.value.trim();
       showConfirmDialog(
-        name ? 'Remove the field "' + name + '"?' : 'Remove this field?',
-        'Remove field',
+        name ? tp('templates.remove_field_named', name) : t('templates.remove_field_generic'),
+        t('templates.remove_field'),
         function () { onRemove(rowApi); }
       );
     });
@@ -432,10 +435,10 @@
 
     var moveWrap = el('div', 'tp-fb-move');
     var upBtn = el('button', 'tp-fb-move-btn'); upBtn.type = 'button';
-    upBtn.setAttribute('aria-label', 'Move category up'); upBtn.title = 'Move up';
+    upBtn.setAttribute('aria-label', t('templates.move_category_up')); upBtn.title = t('templates.move_up');
     Escape.setText(upBtn, '▲');
     var downBtn = el('button', 'tp-fb-move-btn'); downBtn.type = 'button';
-    downBtn.setAttribute('aria-label', 'Move category down'); downBtn.title = 'Move down';
+    downBtn.setAttribute('aria-label', t('templates.move_category_down')); downBtn.title = t('templates.move_down');
     Escape.setText(downBtn, '▼');
     upBtn.addEventListener('click', function () { onMove(rowApi, -1); });
     downBtn.addEventListener('click', function () { onMove(rowApi, 1); });
@@ -444,18 +447,18 @@
 
     var nameInput = el('input', 'tp-fb-name');
     nameInput.type = 'text';
-    nameInput.setAttribute('placeholder', 'Category name, e.g. Petrol/Diesel');
+    nameInput.setAttribute('placeholder', t('templates.category_name_placeholder'));
     nameInput.value = typeof initialName === 'string' ? initialName : '';
     row.appendChild(nameInput);
 
     var removeBtn = el('button', 'tp-fb-remove');
     removeBtn.type = 'button';
-    Escape.setText(removeBtn, 'Remove');
+    Escape.setText(removeBtn, t('templates.remove'));
     removeBtn.addEventListener('click', function () {
       var name = nameInput.value.trim();
       showConfirmDialog(
-        name ? 'Remove the category "' + name + '"?' : 'Remove this category?',
-        'Remove category',
+        name ? tp('templates.remove_category_named', name) : t('templates.remove_category_generic'),
+        t('templates.remove_category'),
         function () { onRemove(rowApi); }
       );
     });
@@ -489,7 +492,7 @@
     section.appendChild(rootEl);
 
     if (!categoryOnly) {
-      rootEl.appendChild(msg('tp-intro muted', 'Import a CSV or a real Excel (.xlsx) file to define your field template, or view the current one.'));
+      rootEl.appendChild(msg('tp-intro muted', t('templates.intro')));
     }
 
     // Current FieldSpec area.
@@ -501,7 +504,7 @@
 
     var textareaLabel = el('label', 'tp-form-label');
     textareaLabel.setAttribute('for', 'tp-csv-textarea');
-    Escape.setText(textareaLabel, 'Paste CSV (header row = your field names)');
+    Escape.setText(textareaLabel, t('templates.paste_csv_label'));
     form.appendChild(textareaLabel);
 
     var textarea = el('textarea', 'tp-csv-textarea');
@@ -511,7 +514,7 @@
 
     var fileLabel = el('label', 'tp-form-label');
     fileLabel.setAttribute('for', 'tp-csv-file');
-    Escape.setText(fileLabel, 'Or choose a CSV or Excel (.xlsx) file');
+    Escape.setText(fileLabel, t('templates.choose_file_label'));
     form.appendChild(fileLabel);
 
     // QA report #1b: give the CSV file picker the same drag-and-drop affordance
@@ -519,7 +522,7 @@
     var fileZone = el('div', 'tp-file-zone');
     fileZone.setAttribute('role', 'button');
     fileZone.setAttribute('tabindex', '0');
-    fileZone.appendChild(msg('tp-file-zone-text muted', 'Drop a CSV or Excel file here, or choose one below'));
+    fileZone.appendChild(msg('tp-file-zone-text muted', t('templates.drop_file_here')));
 
     var fileInput = el('input', 'tp-csv-file');
     fileInput.type = 'file';
@@ -530,7 +533,7 @@
 
     var nameLabel = el('label', 'tp-form-label');
     nameLabel.setAttribute('for', 'tp-name-input');
-    Escape.setText(nameLabel, 'Template name (optional)');
+    Escape.setText(nameLabel, t('templates.template_name_label'));
     form.appendChild(nameLabel);
 
     var nameInput = el('input', 'tp-name-input');
@@ -541,7 +544,7 @@
 
     var submitBtn = el('button', 'tp-submit');
     submitBtn.type = 'submit';
-    Escape.setText(submitBtn, 'Import template');
+    Escape.setText(submitBtn, t('templates.import_template'));
     form.appendChild(submitBtn);
 
     var statusEl = msg('tp-status muted', '');
@@ -563,14 +566,13 @@
       if (!file) return;
       if (isNonCsvFile(file)) {
         pendingExcelFile = null;
-        Escape.setText(statusEl, 'That looks like a ' + (str(file.name).split('.').pop() || 'unsupported') +
-          ' file. Please use a CSV, or a real Excel (.xlsx) file, instead.');
+        Escape.setText(statusEl, tp('templates.unsupported_file', str(file.name).split('.').pop() || t('templates.unsupported_fallback')));
         return;
       }
       if (isExcelFile(file)) {
         pendingExcelFile = file;
         textarea.value = '';
-        Escape.setText(statusEl, '"' + str(file.name) + '" ready — click Import template to read its columns.');
+        Escape.setText(statusEl, tp('templates.file_ready', str(file.name)));
         return;
       }
       pendingExcelFile = null;
@@ -578,7 +580,7 @@
         Escape.setText(statusEl, '');
         textarea.value = text;
       }).catch(function () {
-        Escape.setText(statusEl, 'Could not read that file. Please paste the CSV text instead.');
+        Escape.setText(statusEl, t('templates.could_not_read_file'));
       });
     }
     textarea.addEventListener('input', function () { pendingExcelFile = null; });
@@ -611,7 +613,7 @@
     function loadCurrent() {
       if (!apiFetch) return;
       clear(specArea);
-      specArea.appendChild(msg('tp-loading muted', 'Loading current template…'));
+      specArea.appendChild(msg('tp-loading muted', t('templates.loading_current')));
       return apiFetch('/api/templates').then(function (spec) {
         renderSpec(spec);
         return spec;
@@ -632,18 +634,18 @@
       if (!apiFetch) return;
       var built = buildImportBody(csv, name);
       if (!built.ok) {
-        Escape.setText(statusTarget, 'Please add at least one named field before saving.');
+        Escape.setText(statusTarget, t('templates.add_named_field'));
         return;
       }
       setBusyFn(true);
-      Escape.setText(statusTarget, 'Saving…');
+      Escape.setText(statusTarget, t('templates.saving'));
       apiFetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { csv: built.csv, name: built.name },
       }).then(function (spec) {
         setBusyFn(false);
-        Escape.setText(statusTarget, 'Template saved.');
+        Escape.setText(statusTarget, t('templates.template_saved'));
         renderSpec(spec);
         if (typeof onSuccess === 'function') onSuccess(spec);
       }).catch(function (err) {
@@ -661,7 +663,7 @@
     function submitCategories(names, name, statusTarget, setBusyFn, onSuccess) {
       if (!apiFetch) return;
       setBusyFn(true);
-      Escape.setText(statusTarget, 'Saving…');
+      Escape.setText(statusTarget, t('templates.saving'));
       var trimmedName = str(name).trim();
       apiFetch('/api/templates', {
         method: 'POST',
@@ -669,7 +671,7 @@
         body: { name: trimmedName !== '' ? trimmedName : 'default', categories: names },
       }).then(function (spec) {
         setBusyFn(false);
-        Escape.setText(statusTarget, 'Categories saved.');
+        Escape.setText(statusTarget, t('templates.categories_saved'));
         if (typeof onSuccess === 'function') onSuccess(spec);
       }).catch(function (err) {
         setBusyFn(false);
@@ -687,9 +689,9 @@
       if (!apiFetch) return;
       var trimmedName = str(name).trim() || 'default';
       setBusyFn(true);
-      Escape.setText(statusTarget, 'Reading Excel file…');
+      Escape.setText(statusTarget, t('templates.reading_excel'));
       readFileAsArrayBuffer(file).then(function (buffer) {
-        Escape.setText(statusTarget, 'Saving…');
+        Escape.setText(statusTarget, t('templates.saving'));
         return apiFetch('/api/templates?name=' + encodeURIComponent(trimmedName), {
           method: 'POST',
           headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
@@ -697,7 +699,7 @@
         });
       }).then(function (spec) {
         setBusyFn(false);
-        Escape.setText(statusTarget, 'Template saved.');
+        Escape.setText(statusTarget, t('templates.template_saved'));
         renderSpec(spec);
         if (typeof onSuccess === 'function') onSuccess(spec);
       }).catch(function (err) {
@@ -705,7 +707,7 @@
         // A FileReader failure rejects with a plain Error (no .status); an
         // apiFetch failure rejects with a { status, body } pair.
         if (err instanceof Error) {
-          Escape.setText(statusTarget, 'Could not read that Excel file. Please try again, or use a CSV instead.');
+          Escape.setText(statusTarget, t('templates.could_not_read_excel'));
           return;
         }
         var status = err && typeof err === 'object' ? err.status : 0;
@@ -729,22 +731,14 @@
     var builderWrap = el('div', 'tp-fb');
 
     var fbTitleRow = el('div', 'view-title-row');
-    fbTitleRow.appendChild(msg('tp-fb-title', 'Or build your fields visually'));
+    fbTitleRow.appendChild(msg('tp-fb-title', t('templates.build_visually_title')));
     if (opts.Render && opts.Render.buildInfoIcon) {
-      var fbIcon = opts.Render.buildInfoIcon(
-        'An alternative to pasting CSV text above: add one row per field (e.g. Merchant, Date, Amount), pick a type, ' +
-        'then save. It builds the exact same field template — just without needing to know CSV formatting.',
-        'What does this section do?'
-      );
+      var fbIcon = opts.Render.buildInfoIcon(t('templates.build_visually_info'), t('templates.what_does_this_do'));
       if (fbIcon) fbTitleRow.appendChild(fbIcon);
     }
     builderWrap.appendChild(fbTitleRow);
-    builderWrap.appendChild(msg('tp-fb-sub muted',
-      'No CSV knowledge needed — add a row per field, then save. This builds the same CSV header the paste box above sends.'));
-    builderWrap.appendChild(msg('tp-fb-note muted',
-      'Note: Type and Required below are a preview of your intent for this form. The current save endpoint only stores field ' +
-      'names as a CSV header row — the server infers Type/Required from recognised names (e.g. "Date", "Amount") and defaults ' +
-      'everything else to text / not required. They are not guaranteed to be saved exactly as chosen here.'));
+    builderWrap.appendChild(msg('tp-fb-sub muted', t('templates.build_visually_sub')));
+    builderWrap.appendChild(msg('tp-fb-note muted', t('templates.build_visually_note')));
 
     var rowsWrap = el('div', 'tp-fb-rows');
     builderWrap.appendChild(rowsWrap);
@@ -795,7 +789,7 @@
 
     var addRowBtn = el('button', 'tp-fb-add');
     addRowBtn.type = 'button';
-    Escape.setText(addRowBtn, 'Add field');
+    Escape.setText(addRowBtn, t('templates.add_field'));
     addRowBtn.addEventListener('click', function () {
       addRow();
       var last = rows[rows.length - 1];
@@ -805,7 +799,7 @@
 
     var fbSaveBtn = el('button', 'tp-fb-save');
     fbSaveBtn.type = 'button';
-    Escape.setText(fbSaveBtn, 'Save template');
+    Escape.setText(fbSaveBtn, t('templates.save_template'));
     builderWrap.appendChild(fbSaveBtn);
 
     var fbStatusEl = msg('tp-status muted', '');
@@ -824,7 +818,7 @@
       var can = canSaveBuilder(fields);
       fbSaveBtn.disabled = fbBusy || !can;
       if (!can) {
-        Escape.setText(fbStatusEl, rows.length ? 'Add at least one field with a name to save.' : 'Add a field to get started.');
+        Escape.setText(fbStatusEl, rows.length ? t('templates.add_one_field') : t('templates.add_field_get_started'));
       } else if (!fbBusy) {
         Escape.setText(fbStatusEl, '');
       }
@@ -838,7 +832,7 @@
       if (fbBusy) return;
       var fields = rows.map(function (r) { return r.getField(); });
       if (!canSaveBuilder(fields)) {
-        Escape.setText(fbStatusEl, 'Add at least one field with a name to save.');
+        Escape.setText(fbStatusEl, t('templates.add_one_field'));
         return;
       }
       var csv = buildCsvHeader(fields);
@@ -855,18 +849,13 @@
     var catWrap = el('div', 'tp-fb tp-cat');
 
     var catTitleRow = el('div', 'view-title-row');
-    catTitleRow.appendChild(msg('tp-fb-title', 'Category list (chart of accounts)'));
+    catTitleRow.appendChild(msg('tp-fb-title', t('templates.category_list_title')));
     if (opts.Render && opts.Render.buildInfoIcon) {
-      var catIcon = opts.Render.buildInfoIcon(
-        'The categories shown in the receipt dropdown, the Telegram bot’s category picker, and the ' +
-        'Petty Cash Statement export (categories are numbered in this order there). Saving here never changes ' +
-        'your field columns above. “Others” is always kept as a fallback even if you remove it here.',
-        'What does this section do?'
-      );
+      var catIcon = opts.Render.buildInfoIcon(t('templates.category_list_info'), t('templates.what_does_this_do'));
       if (catIcon) catTitleRow.appendChild(catIcon);
     }
     catWrap.appendChild(catTitleRow);
-    catWrap.appendChild(msg('tp-fb-sub muted', 'Add, remove, or reorder categories, then save.'));
+    catWrap.appendChild(msg('tp-fb-sub muted', t('templates.category_list_sub')));
 
     var catRowsWrap = el('div', 'tp-fb-rows');
     catWrap.appendChild(catRowsWrap);
@@ -908,7 +897,7 @@
 
     var addCatBtn = el('button', 'tp-fb-add');
     addCatBtn.type = 'button';
-    Escape.setText(addCatBtn, 'Add category');
+    Escape.setText(addCatBtn, t('templates.add_category'));
     addCatBtn.addEventListener('click', function () {
       addCatRow();
       var last = catRows[catRows.length - 1];
@@ -918,7 +907,7 @@
 
     var catSaveBtn = el('button', 'tp-fb-save');
     catSaveBtn.type = 'button';
-    Escape.setText(catSaveBtn, 'Save categories');
+    Escape.setText(catSaveBtn, t('templates.save_categories'));
     catWrap.appendChild(catSaveBtn);
 
     var catStatusEl = msg('tp-status muted', '');
@@ -952,7 +941,7 @@
       return apiFetch('/api/config').then(function (cfg) {
         reseedCatRows(isPlainObject(cfg) && Array.isArray(cfg.categories) ? cfg.categories : []);
       }).catch(function () {
-        Escape.setText(catStatusEl, 'Could not load categories. Please try again.');
+        Escape.setText(catStatusEl, t('templates.could_not_load_categories'));
       });
     }
 

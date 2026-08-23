@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { orChat } = require('../lib/openrouter');
+const { orChat, orChatTools } = require('../lib/openrouter');
 const { cfg } = require('../lib/config');
 
 // Stub global.fetch so orChat -> hreq -> fetch never hits the network.
@@ -133,4 +133,94 @@ test('a successful call never logs an error', async () => {
     console.error = realError;
     s.restore();
   }
+});
+
+// --- orChatTools (2026-08-19, Falc moved off Groq — the account's only GROQ_KEY was
+// invalid, a full outage for every user). Mirrors lib/groq.js's groqChatTools contract
+// byte-for-byte: same call shape, returns the FULL assistant message (incl. tool_calls),
+// defaults to a blank assistant stub on failure — see tests/groq.test.js's equivalent suite.
+
+test('orChatTools forwards tools/tool_choice and returns the full assistant message on a plain-text reply', async () => {
+  const s = stubOpenRouter(() => ({ choices: [{ message: { role: 'assistant', content: 'the total is $42' } }] }));
+  try {
+    const tools = [{ type: 'function', function: { name: 'getReport', parameters: {} } }];
+    const msg = await orChatTools([{ role: 'user', content: 'how much did I spend?' }], { model: 'meta-llama/llama-3.3-70b-instruct', tools, tool_choice: 'auto' });
+    assert.strictEqual(msg.role, 'assistant');
+    assert.strictEqual(msg.content, 'the total is $42');
+    assert.strictEqual(msg.tool_calls, undefined);
+    assert.deepStrictEqual(s.sent().tools, tools);
+    assert.strictEqual(s.sent().tool_choice, 'auto');
+  } finally { s.restore(); }
+});
+
+test('orChatTools returns tool_calls when the model emits them', async () => {
+  const toolCalls = [{ id: 'call_1', type: 'function', function: { name: 'getReport', arguments: '{"period":"month"}' } }];
+  const s = stubOpenRouter(() => ({ choices: [{ message: { role: 'assistant', content: null, tool_calls: toolCalls } }] }));
+  try {
+    const msg = await orChatTools([{ role: 'user', content: 'monthly report please' }], { model: 'meta-llama/llama-3.3-70b-instruct', tools: [{ type: 'function', function: { name: 'getReport' } }] });
+    assert.deepStrictEqual(msg.tool_calls, toolCalls);
+  } finally { s.restore(); }
+});
+
+test('orChatTools does not send tools/tool_choice when not provided', async () => {
+  const s = stubOpenRouter(() => ({ choices: [{ message: { role: 'assistant', content: 'hi' } }] }));
+  try {
+    await orChatTools([{ role: 'user', content: 'hi' }], { model: 'meta-llama/llama-3.3-70b-instruct' });
+    assert.strictEqual('tools' in s.sent(), false);
+    assert.strictEqual('tool_choice' in s.sent(), false);
+  } finally { s.restore(); }
+});
+
+test('orChatTools degrades safely on malformed/empty responses (no throw)', async () => {
+  const shapes = [
+    {},                                          // no choices, no error
+    { choices: [] },                             // empty choices array
+    { choices: [{}] },                           // choice present but no message
+    { error: { message: 'invalid_api_key' } },   // a non-429 error shape
+  ];
+  for (const shape of shapes) {
+    const realFetch = global.fetch;
+    global.fetch = async () => ({ text: async () => JSON.stringify(shape) });
+    try {
+      const msg = await orChatTools([{ role: 'user', content: 'x' }], { model: 'meta-llama/llama-3.3-70b-instruct' });
+      assert.strictEqual(msg.role, 'assistant', `role fallback for ${JSON.stringify(shape)}`);
+      assert.strictEqual(msg.content, '', `content fallback for ${JSON.stringify(shape)}`);
+      assert.strictEqual(msg.tool_calls, undefined);
+    } finally { global.fetch = realFetch; }
+  }
+});
+
+test('orChatTools sends provider.ignore when avoidProviders is given (steers OpenRouter away from a confirmed-bad backend)', async () => {
+  const s = stubOpenRouter(() => ({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }));
+  try {
+    await orChatTools([{ role: 'user', content: 'x' }], { model: 'meta-llama/llama-3.3-70b-instruct', avoidProviders: ['DeepInfra'] });
+    assert.deepStrictEqual(s.sent().provider, { ignore: ['DeepInfra'] });
+  } finally { s.restore(); }
+});
+
+test('orChatTools omits provider entirely when avoidProviders is absent/empty (default OpenRouter routing, unchanged)', async () => {
+  const s = stubOpenRouter(() => ({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }));
+  try {
+    await orChatTools([{ role: 'user', content: 'x' }], { model: 'meta-llama/llama-3.3-70b-instruct' });
+    assert.strictEqual('provider' in s.sent(), false);
+    s.restore();
+    const s2 = stubOpenRouter(() => ({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }));
+    await orChatTools([{ role: 'user', content: 'x' }], { model: 'meta-llama/llama-3.3-70b-instruct', avoidProviders: [] });
+    assert.strictEqual('provider' in s2.sent(), false);
+    s2.restore();
+  } finally { /* both already restored */ }
+});
+
+test('orChatTools logs (not silently swallows) a non-rate API error, same as orChat', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => ({ text: async () => JSON.stringify({ error: { message: 'Invalid API Key', code: 'invalid_api_key' } }) });
+  const realError = console.error;
+  const errored = [];
+  console.error = (line) => errored.push(line);
+  try {
+    await orChatTools([{ role: 'user', content: 'x' }], { model: 'meta-llama/llama-3.3-70b-instruct' });
+    assert.strictEqual(errored.length, 1);
+    const rec = JSON.parse(errored[0]);
+    assert.ok(rec.msg.includes('Invalid API Key'));
+  } finally { console.error = realError; global.fetch = realFetch; }
 });

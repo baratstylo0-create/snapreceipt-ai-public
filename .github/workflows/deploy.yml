@@ -1,17 +1,25 @@
-name: Deploy (Premala VPS)
+name: Deploy (SnapReceipt AI VPS)
 
-# Auto-deploys to the live Premala instance on every push to main (i.e. every
-# merge). Tests run again here as a hard gate — a red suite never reaches the
-# VPS, even if something upstream was mis-tagged green. Packaging uses
+# Auto-deploys the live PERSONAL SnapReceipt AI instance (snapreceiptai.friction.com.my,
+# pm2 process "snapreceipt-ai", /opt/snapreceipt-ai, port 3104) on every push to main
+# (i.e. every merge). Tests run again here as a hard gate — a red suite never reaches
+# the VPS, even if something upstream was mis-tagged green. Packaging uses
 # `git archive`, which only ever includes files git tracks — .env and
 # node_modules are gitignored, so they structurally cannot end up in the
 # deployed artifact, no --exclude flags to forget.
 #
+# 2026-08-12 fix: this workflow was copied from the separate Premala (business)
+# repo's deploy.yml and never repointed — it was deploying to /opt/receipt-analyser
+# (a different, unrelated pm2 process on port 3005), never touching the actual live
+# snapreceipt-ai app, and had no VPS_DEPLOY_SSH_KEY/VPS_HOST secrets configured for
+# THIS repo at all, so it always failed at the SSH-key step. Fixed to target the
+# real live directory/process and use this repo's own secrets.
+#
 # Runs as the unprivileged `deploy` VPS user (own pm2 daemon, chown'd only to
-# /opt/receipt-analyser, zero sudo) — never root. See /opt/README.md on the
+# /opt/snapreceipt-ai, zero sudo) — never root. See /opt/README.md on the
 # VPS for the shared-tenancy rule this account respects by construction: it
-# cannot touch Barat's frictionai/quote-server/health-monitor even if this
-# workflow had a bug.
+# cannot touch Barat's frictionai/quote-server/health-monitor/receipt-analyser
+# even if this workflow had a bug.
 
 on:
   push:
@@ -62,10 +70,10 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key deploy@${{ secrets.VPS_HOST }} '
             set -e
-            tar -xzf /tmp/deploy-${{ github.run_id }}.tar.gz -C /opt/receipt-analyser
+            tar -xzf /tmp/deploy-${{ github.run_id }}.tar.gz -C /opt/snapreceipt-ai
             rm -f /tmp/deploy-${{ github.run_id }}.tar.gz
-            cd /opt/receipt-analyser && npm ci --omit=dev
-            pm2 restart receipt-analyser --update-env
+            cd /opt/snapreceipt-ai && npm ci --omit=dev
+            pm2 restart snapreceipt-ai --update-env
           '
 
       - name: Verify — health + readiness must both be green post-deploy

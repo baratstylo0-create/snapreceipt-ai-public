@@ -11,7 +11,7 @@ const { sbSelect, sbInsertReturning, sbInsert, sbHardDelete } = require('../lib/
 const { mintSession, lookupSession } = require('../lib/auth');
 const { getCapabilities } = require('../lib/account');
 const { genBindingToken, BIND_TTL_MS } = require('../lib/personalAuth');
-const { createRateLimiter } = require('../lib/ratelimit');
+const { createRateLimiter, clientKey } = require('../lib/ratelimit');
 
 // A guest session lives at most 24h (matches the safety-net sweep below) — even if the
 // close-tab beacon (POST /api/guest/end) never fires, the session itself can't outlive it.
@@ -55,6 +55,22 @@ module.exports = function mountGuest(app) {
     if (!caps.guestMode || !caps.personalAuth) return res.status(404).json({ error: 'not found' });
     await sweepStaleGuests();
     try {
+      // One-guest-trial-per-device gate (2026-08-22, QA report #2): "guest mode only access
+      // once ... same user want try guest mode again means pop message, tell sign up."
+      // guest_ip_log (schema.sql) is NEVER touched by the sweep above or by /api/guest/end
+      // below — those delete the `users` row (and cascade), which would otherwise silently
+      // reset this block every time a guest's 24h-old data gets cleaned up. clientKey (same
+      // helper lib/ratelimit.js's own limiter uses) trusts Express's req.ip, which server.js's
+      // `trust proxy` setting resolves correctly behind the real proxy in production. Its
+      // documented fallback is the single literal string 'unknown' when no IP can be
+      // determined at all — that shared bucket must never gate real users against each other,
+      // so it's explicitly exempted rather than trusted as a real per-device signal.
+      const ip = clientKey(req);
+      if (ip && ip !== 'unknown') {
+        const existing = await sbSelect('guest_ip_log', { eq: { ip_address: ip }, limit: 1 });
+        if (existing.length) return res.status(403).json({ error: 'guest_already_used' });
+      }
+
       const user = await sbInsertReturning('users', {
         branch_id: null,
         company_id: null,
@@ -78,6 +94,12 @@ module.exports = function mountGuest(app) {
       });
 
       const token = await mintSession(user, GUEST_SESSION_TTL_MS);
+      // Logged only on a CONFIRMED successful signup — a mid-flow failure above must not
+      // burn the device's one trial for nothing.
+      if (ip && ip !== 'unknown') {
+        try { await sbInsert('guest_ip_log', { ip_address: ip }); }
+        catch (e) { console.error('[guest start] ip log failed:', e.message); } // best-effort only
+      }
       return res.status(201).json({ token, role: 'guest', bind_token: bindToken });
     } catch (e) {
       console.error('[guest start]', e.message);

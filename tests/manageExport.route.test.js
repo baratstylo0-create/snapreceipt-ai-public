@@ -92,6 +92,42 @@ test('manage export Excel: includes clickable receipt hyperlinks', async () => {
   });
 });
 
+test('manage export Excel: period_label from the Month picker drives the title, not the rows\' own dates', async () => {
+  await withStubs(async () => {
+    // ROWS e1/e2/e3 all fall in July 2026 — exactly the case that used to fool dateSpan()
+    // into printing a single day instead of the picked month once the visible set narrowed
+    // to one date. period_label is the frontend's ready-made override (grid.js periodLabel()).
+    const r = await callExport('xlsx', { ids: ['e1'], period_label: 'August, 2026' });
+    assert.strictEqual(r.status, 200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(r.buf);
+    const title = wb.worksheets[0].getRow(1).getCell(1).value;
+    assert.strictEqual(title, 'EXPENSES RECORD OF August, 2026');
+  });
+});
+
+test('manage export Excel: no period_label (older cached frontend) falls back to dateSpan(rows), unchanged', async () => {
+  await withStubs(async () => {
+    const r = await callExport('xlsx', { ids: ['e1', 'e2'] }); // no period_label key at all
+    assert.strictEqual(r.status, 200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(r.buf);
+    const title = wb.worksheets[0].getRow(1).getCell(1).value;
+    assert.strictEqual(title, 'EXPENSES RECORD OF 2026-07-01 to 2026-07-02');
+  });
+});
+
+test('manage export Excel: a blank/whitespace-only period_label is treated as absent, falls back to dateSpan(rows)', async () => {
+  await withStubs(async () => {
+    const r = await callExport('xlsx', { ids: ['e1'], period_label: '   ' });
+    assert.strictEqual(r.status, 200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(r.buf);
+    const title = wb.worksheets[0].getRow(1).getCell(1).value;
+    assert.strictEqual(title, 'EXPENSES RECORD OF 2026-07-01');
+  });
+});
+
 test('manage export PDF: reuses the statement PDF engine and appends receipt evidence pages', async () => {
   await withStubs(async () => {
     const r = await callExport('pdf', { ids: ['e1', 'e2'] });

@@ -35,6 +35,47 @@ test('signupOwner: token_expires_at is null on the created bot_bindings row (per
   } finally { restore(); }
 });
 
+// 2026-08-14 SECURITY FIX regression lock: before this, account_id was never set on signup,
+// so it fell back to the `users` table's DB column default ('default') — the SAME value for
+// every personal account, which is what let two real owner accounts see each other's
+// receipts (lib/auth.js scopeForUser gives 'owner' no filter beyond account_id). Every new
+// signup must now get its own unique account_id, stamped on BOTH the users row and its
+// bot_bindings row (lib/bot.js's bindingMeta() reads the binding's copy).
+test('signupOwner: stamps a fresh, unique account_id on both the users row and its bot_bindings row', async () => {
+  const { calls, restore } = stubFetch((call) => {
+    if (call.url.includes('/users') && call.method === 'GET') return [];
+    if (call.url.includes('/users') && call.method === 'POST') return [{ id: 'u1', username: 'a@b.com', account_id: call.body.account_id }];
+    if (call.url.includes('/bot_bindings') && call.method === 'POST') return [];
+    return [];
+  });
+  try {
+    await signupOwner({ email: 'a@b.com', password: 'correcthorsebattery1' });
+    const userInsert = calls.find(c => c.url.includes('/users') && c.method === 'POST');
+    const bindingInsert = calls.find(c => c.url.includes('/bot_bindings') && c.method === 'POST');
+    assert.ok(userInsert.body.account_id, 'users row must carry a real account_id, not fall back to the DB default');
+    assert.notStrictEqual(userInsert.body.account_id, 'default', 'must not be the shared literal default');
+    assert.strictEqual(bindingInsert.body.account_id, userInsert.body.account_id, 'binding must match the user row exactly');
+  } finally { restore(); }
+});
+
+test('signupOwner: two separate signups get two DIFFERENT account_ids (isolation)', async () => {
+  const ids = [];
+  for (const email of ['a@b.com', 'c@d.com']) {
+    const { calls, restore } = stubFetch((call) => {
+      if (call.url.includes('/users') && call.method === 'GET') return [];
+      if (call.url.includes('/users') && call.method === 'POST') return [{ id: 'u_' + email, username: email, account_id: call.body.account_id }];
+      if (call.url.includes('/bot_bindings') && call.method === 'POST') return [];
+      return [];
+    });
+    try {
+      await signupOwner({ email, password: 'correcthorsebattery1' });
+      const userInsert = calls.find(c => c.url.includes('/users') && c.method === 'POST');
+      ids.push(userInsert.body.account_id);
+    } finally { restore(); }
+  }
+  assert.notStrictEqual(ids[0], ids[1], 'each signup must get its own account_id');
+});
+
 test('signupOwnerDirect: creates the account AND binds chat_id + last_active_at in one step (no link-tap needed)', async () => {
   const { calls, restore } = stubFetch((call) => {
     if (call.url.includes('/users') && call.method === 'GET') return [];

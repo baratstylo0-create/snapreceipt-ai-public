@@ -97,6 +97,38 @@ test('groqChatTools degrades safely on malformed/empty responses (no throw)', as
   }
 });
 
+// 2026-08-19 production incident: Falc returned a blank answer for EVERY question, from
+// EVERY user — live root cause was an invalid Groq API key. The response shape hitting this
+// exact branch (a non-429 `{error:{...}}` body) used to be swallowed with ZERO trace anywhere
+// — no log, no thrown error — so the whole outage was invisible in pm2 logs. Confirms the new
+// console.error actually fires for this shape, with the error detail included (so it's
+// grep-able), while a shape with NO error field at all stays silent (nothing to report).
+test('groqChatTools console.error\'s a non-rate API error (previously swallowed with no trace)', async () => {
+  const origError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args.join(' '));
+  try {
+    const stub = stubGroq(() => ({ error: { message: 'Invalid API Key', code: 'invalid_api_key' } }));
+    try {
+      await groqChatTools([{ role: 'user', content: 'x' }]);
+    } finally { stub.restore(); }
+    assert.ok(logged.some((l) => l.includes('[groq]') && l.includes('Invalid API Key')), 'the auth failure must be logged, not silent');
+  } finally { console.error = origError; }
+});
+
+test('groqChatTools does NOT log when the response simply has no choices and no error field', async () => {
+  const origError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args.join(' '));
+  try {
+    const stub = stubGroq(() => ({}));
+    try {
+      await groqChatTools([{ role: 'user', content: 'x' }]);
+    } finally { stub.restore(); }
+    assert.strictEqual(logged.filter((l) => l.includes('[groq]')).length, 0, 'nothing to report when there is no error field at all');
+  } finally { console.error = origError; }
+});
+
 // QA (Tier-2, adversarial): a persistent 429-shaped body must retry exactly 4 times
 // (attempts 0..3) and then rethrow '429' — proves the backoff isn't silently dropped
 // and the loop doesn't swallow a permanent rate-limit into a bogus empty success.

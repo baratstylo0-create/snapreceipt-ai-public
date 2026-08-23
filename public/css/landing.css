@@ -38,8 +38,13 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
 .landing-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
 /* --- nav --- */
+/* 2026-08-14 (Barat: exact reference screenshot — plain white bar, ink "Snap", blue
+   "Receipt"/AI badge, no navy): was var(--lp-navy) (dark). A light nav needs its own
+   bottom border since the page body is ALSO --lp-paper — without one the nav would have
+   no visible edge at all. */
 .landing-nav {
-  background: var(--lp-navy);
+  background: var(--lp-paper);
+  border-bottom: 1px solid var(--lp-line);
   padding: 18px 32px;
   display: flex;
   align-items: center;
@@ -63,18 +68,20 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
   font-weight: 600;
   font-size: 14px;
 }
+/* 2026-08-14: flipped for the light nav (were white-on-transparent, for the old navy
+   bar — invisible against light paper). */
 .landing-nav-btn--login {
   background: transparent;
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.3);
+  color: var(--lp-ink);
+  border: 1px solid var(--lp-line);
 }
-.landing-nav-btn--login:hover { border-color: #fff; }
+.landing-nav-btn--login:hover { border-color: var(--lp-ink); }
 .landing-nav-btn--register {
   background: transparent;
-  color: #b9c2d4;
+  color: var(--lp-thermal);
   border: none;
 }
-.landing-nav-btn--register:hover { color: #fff; }
+.landing-nav-btn--register:hover { color: var(--lp-ink); }
 
 /* --- hero --- */
 .landing-hero {
