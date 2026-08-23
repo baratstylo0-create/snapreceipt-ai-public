@@ -22,12 +22,14 @@
 // Google icon), UMD shim.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'));
+    module.exports = factory(require('../escape'), require('../i18n'));
   } else {
-    root.Landing = factory(root.Escape);
+    root.Landing = factory(root.Escape, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
 
   function hasDom() { return typeof document !== 'undefined'; }
   function el(tag, className) { var n = document.createElement(tag); if (className) n.className = className; return n; }
@@ -99,9 +101,9 @@
     var readingMsg = el('div', 'tg-msg');
     var readingIcon = text('span', 'tg-msg-icon', '📄');
     readingMsg.appendChild(readingIcon);
-    readingMsg.appendChild(document.createTextNode(' Reading your receipt…'));
+    readingMsg.appendChild(document.createTextNode(' ' + t('landing.tg_reading')));
     readingMsg.appendChild(document.createElement('br'));
-    readingMsg.appendChild(document.createTextNode('Please hold on a moment 🙏'));
+    readingMsg.appendChild(document.createTextNode(t('landing.tg_reading_2')));
     readingMsg.appendChild(text('div', 'tg-msg-time', '4:47 PM'));
     readingRow.appendChild(readingMsg);
     body.appendChild(readingRow);
@@ -110,10 +112,10 @@
     var successRow = el('div', 'tg-msg-row');
     var successMsg = el('div', 'tg-msg tg-msg--success');
     successMsg.appendChild(text('span', 'tg-msg-icon', '✅'));
-    successMsg.appendChild(document.createTextNode(' Got it — '));
+    successMsg.appendChild(document.createTextNode(' ' + t('landing.tg_success_prefix')));
     var strong = el('strong', ''); Escape.setText(strong, 'Groceries');
     successMsg.appendChild(strong);
-    successMsg.appendChild(document.createTextNode(', RM 320.00 saved to your dashboard.'));
+    successMsg.appendChild(document.createTextNode(t('landing.tg_success_suffix')));
     successMsg.appendChild(text('div', 'tg-msg-time', '4:48 PM'));
     successRow.appendChild(successMsg);
     body.appendChild(successRow);
@@ -125,12 +127,12 @@
   function stepStrip() {
     var wrap = el('div', 'landing-steps');
     wrap.id = 'landing-how';
-    wrap.appendChild(text('h2', 'landing-steps-title', 'How it works'));
+    wrap.appendChild(text('h2', 'landing-steps-title', t('landing.how_it_works')));
     var list = el('div', 'landing-steps-list');
     [
-      ['01', 'Connect Telegram', 'One tap to link your account to the bot — done once.'],
-      ['02', 'Send a receipt', 'Snap a photo, or drag a file into Upload.'],
-      ['03', 'See it update', 'Totals, trends, and categories update automatically.'],
+      ['01', t('landing.step1_title'), t('landing.step1_desc')],
+      ['02', t('landing.step2_title'), t('landing.step2_desc')],
+      ['03', t('landing.step3_title'), t('landing.step3_desc')],
     ].forEach(function (s) {
       var card = el('div', 'landing-step-card');
       card.appendChild(text('div', 'landing-step-num', s[0]));
@@ -146,7 +148,11 @@
   // an "AI" badge (blue pill, white text). Plain spans + CSS, not an image, so it's crisp
   // at any size/DPI and needs no asset file. Fixed brand text, not derived from any option.
   function buildWordmark() {
-    var wrap = el('span', 'landing-wordmark');
+    // 2026-08-14 (Barat: exact reference colour — light nav, ink "Snap", blue "Receipt"/badge):
+    // the nav bar itself switched from dark navy to light paper (landing.css), so the wordmark
+    // now always needs the light-background variant — see landing.css's own
+    // .landing-wordmark--dark rule and its doc comment for why this modifier exists.
+    var wrap = el('span', 'landing-wordmark landing-wordmark--dark');
     wrap.appendChild(text('span', 'landing-wordmark-snap', 'Snap'));
     wrap.appendChild(text('span', 'landing-wordmark-receipt', 'Receipt'));
     wrap.appendChild(text('span', 'landing-wordmark-badge', 'AI'));
@@ -172,10 +178,10 @@
     nav.appendChild(navLeft);
 
     var navRight = el('div', 'landing-nav-actions');
-    var loginBtn = text('button', 'landing-nav-btn landing-nav-btn--login', 'Login');
+    var loginBtn = text('button', 'landing-nav-btn landing-nav-btn--login', t('landing.login'));
     loginBtn.type = 'button';
     loginBtn.addEventListener('click', function () { if (typeof opts.onLogin === 'function') opts.onLogin(); });
-    var registerBtn = text('button', 'landing-nav-btn landing-nav-btn--register', 'Register');
+    var registerBtn = text('button', 'landing-nav-btn landing-nav-btn--register', t('landing.register'));
     registerBtn.type = 'button';
     registerBtn.addEventListener('click', function () { if (typeof opts.onRegister === 'function') opts.onRegister(); });
     navRight.appendChild(loginBtn);
@@ -186,21 +192,21 @@
     // --- hero ---
     var hero = el('div', 'landing-hero');
     var heroCopy = el('div', 'landing-hero-copy');
-    var eyebrow = el('div', 'landing-eyebrow'); eyebrow.textContent = 'Snap · Scan · Sorted';
+    var eyebrow = el('div', 'landing-eyebrow'); eyebrow.textContent = t('landing.eyebrow');
     heroCopy.appendChild(eyebrow);
     var title = el('h1', 'landing-hero-title');
-    title.appendChild(document.createTextNode('Turn any receipt into '));
-    var em = el('em', ''); Escape.setText(em, 'structured data');
+    title.appendChild(document.createTextNode(t('landing.hero_title_1')));
+    var em = el('em', ''); Escape.setText(em, t('landing.hero_title_em'));
     title.appendChild(em);
-    title.appendChild(document.createTextNode(', instantly.'));
+    title.appendChild(document.createTextNode(t('landing.hero_title_2')));
     heroCopy.appendChild(title);
-    heroCopy.appendChild(text('p', 'landing-hero-sub', 'Send a photo on Telegram — totals, categories, and trends appear automatically. No spreadsheets, no manual entry, no shoebox of paper.'));
+    heroCopy.appendChild(text('p', 'landing-hero-sub', t('landing.hero_sub')));
 
     var ctaRow = el('div', 'landing-cta-row');
-    var tryBtn = text('button', 'landing-btn landing-btn--primary', 'Try for Free');
+    var tryBtn = text('button', 'landing-btn landing-btn--primary', t('landing.try_free'));
     tryBtn.type = 'button';
     tryBtn.addEventListener('click', function () { if (typeof opts.onRegister === 'function') opts.onRegister(); });
-    var learnBtn = text('button', 'landing-btn landing-btn--secondary', 'Learn More');
+    var learnBtn = text('button', 'landing-btn landing-btn--secondary', t('landing.learn_more'));
     learnBtn.type = 'button';
     learnBtn.addEventListener('click', function () {
       var target = root.querySelector('#landing-how');
@@ -213,7 +219,7 @@
 
     var visual = el('div', 'landing-hero-visual');
     visual.appendChild(buildTelegramWindow());
-    visual.appendChild(text('div', 'landing-hero-caption', 'One photo in — a categorized ledger out.'));
+    visual.appendChild(text('div', 'landing-hero-caption', t('landing.hero_caption')));
     hero.appendChild(visual);
     root.appendChild(hero);
 

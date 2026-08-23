@@ -26,8 +26,8 @@ function stubSession(session) {
   global.fetch = async (url, opt = {}) => {
     const u = String(url);
     if (!u.includes('/rest/v1/')) return realFetch(url, opt);
-    if (u.includes('/sessions')) return { text: async () => JSON.stringify(session ? [session] : []) };
-    return { text: async () => JSON.stringify([]) };
+    const body = u.includes('/sessions') ? JSON.stringify(session ? [session] : []) : JSON.stringify([]);
+    return { ok: true, status: 200, text: async () => body, arrayBuffer: async () => Buffer.from(body) };
   };
   return { restore: () => { global.fetch = realFetch; } };
 }

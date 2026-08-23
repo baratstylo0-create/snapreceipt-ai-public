@@ -11,10 +11,12 @@
 // TWO layers: a PURE `rateModel` (unit-tested, no DOM) + a render layer (browser only).
 // UMD shim: window.RateMeter in the browser; require()-able in Node.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('../escape'), require('../api'));
-  else root.RateMeter = factory(root.Escape, root.Api);
-})(typeof self !== 'undefined' ? self : this, function (Escape, Api) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../escape'), require('../api'), require('../i18n'));
+  else root.RateMeter = factory(root.Escape, root.Api, root.I18n);
+})(typeof self !== 'undefined' ? self : this, function (Escape, Api, I18n) {
   'use strict';
+
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   // ---- pure helper --------------------------------------------------------
   // rate = { limit, remaining, reset } (numbers) -> view model, or null when there's
@@ -36,8 +38,8 @@
   // A short human label for the chip. ok = quiet count; warn/critical = adds the reset hint.
   function label(model) {
     if (!model) return '';
-    if (model.level === 'ok') return 'Rate ' + model.remaining + '/' + model.limit;
-    return model.remaining + ' of ' + model.limit + ' left · resets in ' + model.reset + 's';
+    if (model.level === 'ok') return tp('ratemeter.rate_ok', model.remaining, model.limit);
+    return tp('ratemeter.rate_low', model.remaining, model.limit, model.reset);
   }
 
   // ---- render layer (browser only) ---------------------------------------

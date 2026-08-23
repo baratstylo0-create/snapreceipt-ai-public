@@ -13,6 +13,8 @@ const { cfg } = require('../lib/config');
 const { getCapabilities } = require('../lib/account'); // business-mode gate (multiUser), QA 2026-07-30
 const { CATEGORIES } = require('../lib/categorize');
 const { buildWorkbook, receiptTypeLabel } = require('../lib/excel');
+const { tgFileUrl } = require('../lib/telegram');
+const { hreq } = require('../lib/http');
 const { buildStatementModel } = require('../lib/statement');
 const { statementToPdf } = require('../lib/statementPdf');
 const { checkDash, dashOrigin } = require('./expenses');
@@ -145,7 +147,15 @@ module.exports = function mountManageExport(app) {
       const rows = await scopedRowsForIds(ids, req.scope);
       if (!rows.length) return res.status(400).json({ error: 'no exportable rows' });
       const [fieldSpec, maps] = await Promise.all([templates.getFieldSpec(), lookupNames()]);
-      const rangeLabel = dateSpan(rows);
+      // 2026-08-19 bug fix: the title used to be derived from the exported ROWS' own
+      // min/max expense_date (dateSpan below) instead of what the user actually picked in
+      // the Month dropdown — when every visible row happened to share one date, dateSpan()
+      // returned that single day instead of the picked month. The frontend (grid.js
+      // periodLabel()) now sends a ready-made label alongside the ids; period_label is
+      // optional so an older cached frontend bundle (no such field in its POST body) still
+      // falls back to the old dateSpan(rows) behavior, unchanged.
+      const rangeLabel = (req.body && typeof req.body.period_label === 'string'
+        && req.body.period_label.trim()) || dateSpan(rows);
       const receiptLinks = {};
       for (const row of rows) {
         const link = receiptLink(row);
@@ -180,7 +190,7 @@ module.exports = function mountManageExport(app) {
       const categories = (fieldSpec && Array.isArray(fieldSpec.categories) && fieldSpec.categories.length)
         ? fieldSpec.categories : CATEGORIES;
       const model = buildStatementModel({
-        companyName: process.env.STATEMENT_COMPANY_NAME || 'Expense Evidence Pack',
+        companyName: process.env.STATEMENT_COMPANY_NAME || 'SnapReceipt AI',
         title: business ? undefined : PERSONAL_TITLE,
         showBranchLabel: business,
         branchLabel: branchLabel(rows, maps),
@@ -199,8 +209,20 @@ module.exports = function mountManageExport(app) {
         padRows: 0,
       });
       const receipts = {};
-      await Promise.all(rows.filter((e) => e && e.receipt_url).map(async (e) => {
-        const buf = await storage.fetchReceiptObject(e.receipt_url);
+      await Promise.all(rows.filter((e) => e && (e.receipt_url || e.receipt_file_id)).map(async (e) => {
+        let buf = null;
+        if (e.receipt_url) {
+          buf = await storage.fetchReceiptObject(e.receipt_url);
+        }
+        if (!buf && e.receipt_file_id) {
+          try {
+            const file = await tgFileUrl(e.receipt_file_id);
+            if (file && file.url) {
+              buf = await hreq({ url: file.url, encoding: 'arraybuffer', timeout: 15000 });
+              if (Buffer.isBuffer(buf) && !buf.length) buf = null;
+            }
+          } catch (err) { console.error('[export] telegram file fallback:', err.message); }
+        }
         if (buf) receipts[e.id] = { buffer: buf, ext: storage.extOf(buf) };
       }));
       // Bug fix (2026-08-10, Barat: "i want output like this" — a reference Statement PDF

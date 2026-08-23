@@ -17,7 +17,7 @@ const FIELD_SPEC = {
 // getCell instead, which returns `null` for a blank cell — so "blank cell"
 // assertions (=== null) hold for trailing empty columns too.
 //
-// Row 1 is now a title ("Expenses — <rangeLabel>"), row 2 is the header, and
+// Row 1 is now a title ("EXPENSES RECORD OF <rangeLabel>"), row 2 is the header, and
 // data starts at row 3 — HEADER_ROW is the single offset both helpers key off.
 const HEADER_ROW = 2;
 function headerRow(workbook) {
@@ -239,14 +239,14 @@ test('buildWorkbook: both sheets get print-ready page setup (fit-to-width, heade
 test('buildWorkbook: Expenses sheet has a bold title row (row 1) naming the report period', () => {
   const wb = buildWorkbook([], FIELD_SPEC, { rangeLabel: 'This week' });
   const s = wb.worksheets[0];
-  assert.strictEqual(s.getRow(1).getCell(1).value, 'Expenses — This week');
+  assert.strictEqual(s.getRow(1).getCell(1).value, 'EXPENSES RECORD OF This week');
   assert.strictEqual(s.getRow(1).getCell(1).font.bold, true);
   assert.deepStrictEqual(headerRow(wb), ['Vendor', 'Date', 'Total', 'Qty']); // header is unaffected, just shifted to row 2
 });
 
 test('buildWorkbook: Expenses sheet defaults the title to "All time" when no rangeLabel given', () => {
   const wb = buildWorkbook([], FIELD_SPEC);
-  assert.strictEqual(wb.worksheets[0].getRow(1).getCell(1).value, 'Expenses — All time');
+  assert.strictEqual(wb.worksheets[0].getRow(1).getCell(1).value, 'EXPENSES RECORD OF All time');
 });
 
 test('buildWorkbook: Expenses sheet ends with a bold Total row summing every currency column', () => {

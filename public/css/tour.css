@@ -1,0 +1,229 @@
+/* tour.css — Auto-Play "Movie" Onboarding Tour (2026-08-22). A fake cursor moves
+   itself around the REAL dashboard, clicks real buttons, and a spotlight+tooltip
+   explain what's happening — nothing here renders a duplicate UI, it only dims/frames
+   the existing app. Built entirely from app.css's own tokens (--panel, --txt,
+   --accent, --radius*, --shadow, etc.) so it re-skins automatically with every theme
+   (default/dark/warm/ocean/ocean-dark). Strict CSP: no inline styles are used
+   anywhere in tour.js; this file is the only source of tour presentation. */
+
+/* Catches stray clicks outside the spotlighted target; the dim effect itself comes
+   from the spotlight's giant box-shadow, not from this layer's background. */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: transparent;
+  cursor: default;
+}
+
+/* Positioned exactly over the current target. The 9999px spread box-shadow paints
+   everything OUTSIDE this box, which is what actually dims the rest of the page. */
+.tour-spotlight {
+  position: fixed;
+  z-index: 200;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 9999px rgba(20, 22, 18, 0.6);
+  pointer-events: none;
+  transition: top 0.32s cubic-bezier(0.4, 0, 0.2, 1), left 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.32s cubic-bezier(0.4, 0, 0.2, 1), height 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spotlight { transition: none; }
+}
+
+/* Applied to the real target element for the duration of a step — lifts it above
+   both the overlay and the spotlight's shadow so it stays visible and clickable. */
+.tour-target {
+  position: relative;
+  z-index: 201;
+}
+
+.tour-tooltip {
+  position: fixed;
+  z-index: 202;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  background: var(--panel);
+  color: var(--txt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px 16px;
+  font-family: var(--font-body);
+  transition: top 0.32s cubic-bezier(0.4, 0, 0.2, 1), left 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-tooltip { transition: none; }
+}
+
+.tour-tooltip-arrow {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+/* Only the two edges facing the target should show a border, per placement side —
+   otherwise the arrow reads as a diamond instead of a seamless pointer. */
+.tour-tooltip[data-placement="bottom"] .tour-tooltip-arrow { top: -8px; border-right: none; border-bottom: none; }
+.tour-tooltip[data-placement="top"] .tour-tooltip-arrow { bottom: -8px; border-left: none; border-top: none; }
+.tour-tooltip[data-placement="right"] .tour-tooltip-arrow { left: -8px; border-top: none; border-right: none; }
+.tour-tooltip[data-placement="left"] .tour-tooltip-arrow { right: -8px; border-bottom: none; border-left: none; }
+
+.tour-tooltip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.tour-tooltip-step {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.tour-tooltip-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px;
+  margin: -4px -4px -4px 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tour-tooltip-close:hover { color: var(--txt); background: var(--accent-bg); }
+.tour-tooltip-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tour-tooltip-title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--txt);
+  text-wrap: balance;
+}
+
+.tour-tooltip-desc {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--txt-soft);
+}
+
+/* Fills over the step's `duration` and auto-advances when full — replaces the old
+   manual Next button as the tour's only forward motion. */
+.tour-progress-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  overflow: hidden;
+  margin: 0 0 16px;
+}
+.tour-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.tour-tooltip-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tour-tooltip-skip {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 4px;
+  margin-right: auto;
+}
+.tour-tooltip-skip:hover { color: var(--txt-soft); text-decoration: underline; }
+.tour-tooltip-skip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.tour-tooltip-pause {
+  appearance: none;
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 16px;
+  cursor: pointer;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--txt-soft);
+}
+.tour-tooltip-pause:hover { background: var(--accent-bg); color: var(--txt); }
+.tour-tooltip-pause:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .tour-tooltip { width: calc(100vw - 32px); padding: 16px 16px 14px; }
+}
+
+/* --- Fake auto-play cursor ---------------------------------------------------
+   A fixed-position pointer that glides between step targets and "clicks" them for
+   real (target.click()) — the whole reason this tour needs no user input. Sits
+   above the tooltip (203) so it's never occluded mid-flight. */
+.tour-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 203;
+  width: 30px;
+  height: 30px;
+  pointer-events: none;
+  transform: translate(-4px, -4px);
+  transition: top 0.6s cubic-bezier(0.65, 0, 0.35, 1), left 0.6s cubic-bezier(0.65, 0, 0.35, 1);
+  filter: drop-shadow(0 2px 4px rgba(20, 22, 18, 0.35));
+}
+.tour-cursor svg { display: block; width: 100%; height: 100%; }
+.tour-cursor-arrow { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; }
+
+.tour-cursor.is-clicking { animation: tour-cursor-click 0.4s ease-out; }
+@keyframes tour-cursor-click {
+  0% { transform: translate(-4px, -4px) scale(1); }
+  40% { transform: translate(-4px, -4px) scale(0.8); }
+  100% { transform: translate(-4px, -4px) scale(1); }
+}
+
+/* Expanding ring at the click point, timed to the cursor's own click animation. */
+.tour-cursor-ripple {
+  position: fixed;
+  z-index: 203;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  animation: tour-ripple 0.5s ease-out forwards;
+}
+@keyframes tour-ripple {
+  0% { transform: scale(0.3); opacity: 0.9; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-cursor { transition: none; }
+  .tour-cursor.is-clicking { animation: none; }
+  .tour-cursor-ripple { animation: none; display: none; }
+}
