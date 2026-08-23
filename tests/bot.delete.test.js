@@ -15,13 +15,20 @@ function baseDeps(over = {}) {
   const edited = [];
   const answered = [];
   const softDeleteCalls = [];
+  // sbSelectGlobal (2026-08-23): handleCallbackQuery's del: lookup now goes through
+  // sbSelectGlobal (see lib/bot.js's doc comment); handleDeleteIntent itself still uses
+  // sbSelect (rep_chat_id-keyed, not yet migrated). Mirroring keeps both paths' existing
+  // test scenarios working without touching each one individually.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
     tgEditMessage: async (chatId, messageId, text) => { edited.push({ chatId, messageId, text }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
+    sbSelectGlobal: async () => [],
     sbSoftDelete: async (table, { id }) => { softDeleteCalls.push({ table, id }); },
-    ...over,
+    ...resolvedOver,
   };
   return { deps, sent, edited, answered, softDeleteCalls };
 }

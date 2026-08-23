@@ -12,12 +12,16 @@ function baseDeps(over = {}) {
   const sent = [];
   const answered = [];
   const updates = [];
+  // sbSelectGlobal (2026-08-23): see lib/bot.js's handleCallbackQuery doc comment.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
+    sbSelectGlobal: async () => [],
     sbUpdate: async (table, where, patch) => { updates.push({ table, where, patch }); },
-    ...over,
+    ...resolvedOver,
   };
   return { deps, sent, answered, updates };
 }

@@ -19,17 +19,24 @@ function baseDeps(over = {}) {
   const sent = [];
   const answered = [];
   const deleted = [];
+  // sbSelectGlobal (2026-08-23): tryResolveBillDelete's { eq: { id } } lookup now goes
+  // through sbSelectGlobal, not sbSelect (see lib/bot.js's doc comment); handleTodayBills'
+  // own account-wide query still uses sbSelect via branchEq(binding), unaffected. Mirroring
+  // whatever `sbSelect` override a test passes keeps every existing dispatch scenario working.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   return {
     deps: {
       tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
       tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
       sbSoftDelete: async (table, where) => { deleted.push({ table, where }); },
       sbSelect: async () => [],
+      sbSelectGlobal: async () => [],
       pendingBillDelete: new Map(),
       // fixed clock so the header date is deterministic
       todayISO: () => '2026-07-08',
       dayBounds: () => ({ startUTC: '2026-07-07T16:00:00.000Z', endUTC: '2026-07-08T16:00:00.000Z' }),
-      ...over,
+      ...resolvedOver,
     },
     sent, answered, deleted,
   };
@@ -126,7 +133,10 @@ test('typing a valid number deletes the RIGHT bill (own submission) and confirms
   });
   const handled = await tryResolveBillDelete('900', '2', deps);
   assert.strictEqual(handled, true);
-  assert.deepStrictEqual(deleted, [{ table: 'expenses', where: { id: 'e2' } }]);
+  // scope: { account_id: row.account_id } (2026-08-23) — see lib/bot.js's doc comment on
+  // handleCallbackQuery's selectGlobal fix; BILLS fixtures here carry no account_id, so it's
+  // undefined, which is the correct/expected shape for this test's fixture data.
+  assert.deepStrictEqual(deleted, [{ table: 'expenses', where: { id: 'e2', scope: { account_id: undefined } } }]);
   assert.match(sent[0].text, /Bill deleted/);
   assert.match(sent[0].text, /Shell/);
   assert.strictEqual(pendingBillDelete.get('900').armed, false); // disarmed after a delete
@@ -211,8 +221,8 @@ test('typing a LIST "1, 2" deletes both listed bills in one go and summarizes ea
   const handled = await tryResolveBillDelete('900', '1, 2', deps);
   assert.strictEqual(handled, true);
   assert.deepStrictEqual(deleted, [
-    { table: 'expenses', where: { id: 'e1' } },
-    { table: 'expenses', where: { id: 'e2' } },
+    { table: 'expenses', where: { id: 'e1', scope: { account_id: undefined } } },
+    { table: 'expenses', where: { id: 'e2', scope: { account_id: undefined } } },
   ]);
   assert.match(sent[0].text, /Taco Bell/);
   assert.match(sent[0].text, /Shell/);
@@ -232,7 +242,7 @@ test('a list with a mix of valid/invalid/not-owned numbers reports each outcome 
   // 1 = own bill (deletes), 3 = someone else's (refused), 9 = out of range
   const handled = await tryResolveBillDelete('900', '1, 3, 9', deps);
   assert.strictEqual(handled, true);
-  assert.deepStrictEqual(deleted, [{ table: 'expenses', where: { id: 'e1' } }]);
+  assert.deepStrictEqual(deleted, [{ table: 'expenses', where: { id: 'e1', scope: { account_id: undefined } } }]);
   assert.match(sent[0].text, /Taco Bell/);
   assert.match(sent[0].text, /only the submitter/i);
   assert.match(sent[0].text, /no such bill/i);
