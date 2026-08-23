@@ -77,6 +77,35 @@ test('duplicate: different branches of the same chain are NOT matched (Tesco Ext
   assert.strictEqual(has(r, 'duplicate'), false);
 });
 
+// 2026-08-23 (issue #4 hardening): a genuinely unparseable/missing date on EITHER side
+// used to bail the whole comparison out, letting an obvious merchant+amount duplicate
+// through unflagged. Now it falls back to merchant+amount alone in that case.
+test('duplicate: still caught when the NEW expense has an unparseable date', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '2026-06-01' }];
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: 'not-a-date' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), true);
+  assert.strictEqual(r.duplicateOf && r.duplicateOf.id, 'a1');
+});
+
+test('duplicate: still caught when the EXISTING history row has a missing date', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: null }];
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '2026-06-02' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), true);
+  assert.strictEqual(r.duplicateOf && r.duplicateOf.id, 'a1');
+});
+
+test('duplicate: both dates missing still matches on merchant+amount alone', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: '' }];
+  const r = await detectAnomalies({ merchant: 'Shell', amount: 50, expense_date: '' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), true);
+});
+
+test('duplicate: a missing date does not create a false positive against a different merchant', async () => {
+  const history = [{ id: 'a1', merchant: 'Shell', amount: 50, expense_date: null }];
+  const r = await detectAnomalies({ merchant: 'KFC', amount: 50, expense_date: '2026-06-02' }, { history, useLLM: false });
+  assert.strictEqual(has(r, 'duplicate'), false);
+});
+
 test('outlier: amount >> median for the merchant is flagged', async () => {
   const history = ['a', 'b', 'c', 'd'].map((id, i) => ({ id, merchant: 'Cafe', amount: 10 + i, expense_date: '2026-06-0' + (i + 1) }));
   const r = await detectAnomalies({ merchant: 'Cafe', amount: 500, expense_date: '2026-06-10' }, { history, useLLM: false });

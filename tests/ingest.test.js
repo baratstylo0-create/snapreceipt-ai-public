@@ -586,3 +586,23 @@ test('account_id: absent from the row when the caller supplies none (business/le
   await assembleExpense(goodInput(), deps({ insertExpense: async (row) => { inserted.push(row); } }));
   assert.ok(!('account_id' in inserted[0]), 'must not fabricate the column when not supplied — lib/supabase.js stampScope owns the fallback');
 });
+
+// 2026-08-23 (issue #4 root cause): loadHistory() used to be called with no account_id at
+// all, which made lib/anomaly.js's duplicate/outlier checks compare every new receipt
+// against an EMPTY history for any migrated personal account (their real rows live under
+// their own unique account_id — the same one just stamped onto THIS row above — never
+// under the old shared default). assembleExpense must thread the same account_id through
+// to loadHistory that it stamps onto the row, so the account's real past receipts are what
+// gets compared against.
+test('account_id: the same value stamped onto the row is also passed to loadHistory (duplicate detection sees the right account\'s history)', async () => {
+  let seenAccountId = 'not-called';
+  const input = { ...goodInput(), account_id: 'p_abc123' };
+  await assembleExpense(input, deps({ loadHistory: async (accountId) => { seenAccountId = accountId; return []; } }));
+  assert.strictEqual(seenAccountId, 'p_abc123');
+});
+
+test('account_id: loadHistory is called with undefined when the caller supplies none (business/legacy path, unchanged default lookup)', async () => {
+  let seenAccountId = 'not-called';
+  await assembleExpense(goodInput(), deps({ loadHistory: async (accountId) => { seenAccountId = accountId; return []; } }));
+  assert.strictEqual(seenAccountId, undefined);
+});
