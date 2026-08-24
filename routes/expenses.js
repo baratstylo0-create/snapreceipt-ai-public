@@ -9,7 +9,8 @@ const { getFieldSpec } = require('../lib/templates'); // read-only: the account'
 const { createRateLimiter } = require('../lib/ratelimit');
 const { sanitizeExpensePatch } = require('../lib/expenseValidation');
 const { getCapabilities } = require('../lib/account'); // ADR-010 flags (multiUser)
-const { lookupSession, scopeForUser, guestVisibilityExtra, mergeExtra } = require('../lib/auth'); // ADR-021 business identity
+const { lookupSession, scopeForUser, guestVisibilityExtra, mergeExtra, tokenHash } = require('../lib/auth'); // ADR-021 business identity
+const { touchDevice, deviceFromRequest } = require('../lib/deviceSessions'); // P-02a (#35): last-seen bookkeeping
 const { GUEST_RECEIPT_CAP, countGuestExpenses } = require('../lib/ocr'); // Guest Mode (2026-07-28)
 const googleAuth = require('../lib/googleAuth'); // Google Sign-In (2026-07-30) — isConfigured() for /api/config
 
@@ -143,6 +144,13 @@ async function checkDashSession(req, res, next) {
     if (!sess) return deny();
     req.user = sess;
     req.scope = scopeForUser(sess); // frozen contract; throws only on a corrupt session row
+    // P-02a (#35, Codex cross-lane pre-review finding on #48): best-effort "last seen"
+    // bookkeeping for the device list. Fire-and-forget (NOT awaited) so it can never add
+    // latency to the hot auth path that every dashboard/API request goes through --
+    // touchDevice already throttles itself to one write per session per
+    // SESSION_TOUCH_INTERVAL_MS and never throws, so this cannot change this function's
+    // outcome. Session RESOLUTION/AUTHORIZATION semantics above are unchanged.
+    touchDevice(tokenHash(presented), deviceFromRequest(req));
     return next();
   } catch (e) {
     console.error('[checkDash session]', e.message);

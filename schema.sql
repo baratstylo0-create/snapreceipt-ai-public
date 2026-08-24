@@ -701,3 +701,62 @@ create index if not exists email_challenges_expiry_idx on email_challenges (expi
 
 alter table email_challenges enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+-- ============================================================================
+-- Migration: device sessions and auth events (P-02a, 2026-08-24)
+-- Program: docs/FULL_APP_EXECUTION_PLAN.md Gate 1 (trust foundation), issue #35.
+--
+-- P-02 asks for cookie sessions, CSRF, device management, step-up auth and
+-- suspicious-login events. This migration is the FIRST slice only: the durable
+-- record needed to answer "which devices are signed in as me, and when did
+-- someone last sign in?" It deliberately does NOT change how a session is
+-- resolved -- the bearer contract is untouched, so every existing client keeps
+-- working byte-for-byte. The cookie/CSRF transport switch is P-02b and needs
+-- W-01 and M-02 to agree the session contract first.
+--
+-- Why `id` is added rather than reusing the primary key: sessions is keyed by
+-- token_hash, and a device list has to be addressable from the browser
+-- ("revoke THAT device"). Exposing token_hash as the handle would put a value
+-- derived from a live credential into URLs, logs and history -- so a separate,
+-- meaningless surrogate id is generated for addressing. Changing the primary
+-- key itself would be a breaking rewrite of lib/auth.js's whole lookup path,
+-- so the PK is left exactly as it is.
+--
+-- Privacy (PDPA, C-02): the raw client IP is NEVER stored. `ip_hash` is a
+-- salted sha-256 -- enough to answer "is this the same network as last time?"
+-- for new-device detection, without retaining a location-bearing identifier.
+-- user_agent IS stored, truncated, because a device list that cannot say
+-- "Chrome on Windows" is useless to the person reading it.
+-- ============================================================================
+alter table sessions add column if not exists id uuid not null default gen_random_uuid();
+alter table sessions add column if not exists last_seen_at timestamptz;
+alter table sessions add column if not exists user_agent text;
+alter table sessions add column if not exists ip_hash text;
+create unique index if not exists sessions_id_idx on sessions (id);
+
+-- Stamped whenever a password changes (reset today; a future change-password
+-- endpoint too). Revocation itself is still a hard DELETE of the user's session
+-- rows -- this column is the audit answer to "when did this account's
+-- credentials last change?", which a device list and an incident review both need.
+alter table users add column if not exists password_changed_at timestamptz;
+
+-- auth_events: the security timeline for one account. Powers new-device
+-- detection and the "was this you?" surface W-06 will render.
+--
+-- Deliberately NOT a general audit log: it records only authentication outcomes,
+-- never what the user then did, and never a token, password, code or receipt
+-- value. Retention is P-07's job (these should not live forever).
+create table if not exists auth_events (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  user_id     uuid        references users(id) on delete cascade,  -- null for a failure against an unknown account
+  event       text        not null
+    check (event in ('login_ok', 'login_fail', 'logout', 'session_revoked', 'password_changed', 'new_device')),
+  ip_hash     text,                                 -- salted hash, never the raw IP
+  user_agent  text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists auth_events_user_idx on auth_events (account_id, user_id, created_at desc);
+create index if not exists auth_events_created_idx on auth_events (created_at);
+
+alter table auth_events enable row level security;
+-- service_role bypasses RLS; no anon policy -> anon denied (SEC-8, same as every table).

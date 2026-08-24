@@ -9,6 +9,7 @@
 const express = require('express');
 const { sbSelect, sbInsertReturning, sbInsert, sbHardDelete } = require('../lib/supabase');
 const { mintSession, lookupSession } = require('../lib/auth');
+const { deviceFromRequest, recordAuthEvent } = require('../lib/deviceSessions'); // P-02a (#35)
 const { getCapabilities } = require('../lib/account');
 const { genBindingToken, BIND_TTL_MS } = require('../lib/personalAuth');
 const { createRateLimiter, clientKey } = require('../lib/ratelimit');
@@ -93,7 +94,13 @@ module.exports = function mountGuest(app) {
         active: true,
       });
 
-      const token = await mintSession(user, GUEST_SESSION_TTL_MS);
+      // P-02a (#35, Codex cross-lane pre-review finding on #48): guest starts previously
+      // minted a session with no device metadata and no timeline entry. No new-device
+      // check here -- a guest identity is single-use and ephemeral (<=24h), so "is this a
+      // new device" has no meaningful prior session to compare against.
+      const device = deviceFromRequest(req);
+      const token = await mintSession(user, GUEST_SESSION_TTL_MS, device);
+      await recordAuthEvent({ userId: user.id, event: 'login_ok', device });
       // Logged only on a CONFIRMED successful signup — a mid-flow failure above must not
       // burn the device's one trial for nothing.
       if (ip && ip !== 'unknown') {

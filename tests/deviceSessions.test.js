@@ -1,0 +1,247 @@
+'use strict';
+// lib/deviceSessions.js — P-02a device sessions and the authentication timeline (issue #35).
+//
+// The properties worth defending here are: the raw IP never reaches storage, the device list
+// never leaks credential-derived values, one account cannot revoke another's device, and
+// "sign out everywhere else" genuinely spares the caller's own session.
+const test = require('node:test');
+const assert = require('node:assert');
+
+const { createFakePostgrest } = require('./fixtures/fakePostgrest');
+const ds = require('../lib/deviceSessions');
+const { tokenHash } = require('../lib/auth');
+
+const NOW = Date.parse('2026-08-24T12:00:00.000Z');
+const HOUR = 60 * 60 * 1000;
+// Expiry fixtures are anchored to the REAL clock, not to NOW: listDevices filters against
+// Date.now() (correctly — it reports what is live right now, it is not a pure function). A
+// fixed literal here compares two different timelines and the filter silently proves nothing.
+const FUTURE = new Date(Date.now() + 12 * HOUR).toISOString();
+const PAST = new Date(Date.now() - HOUR).toISOString();
+
+function session(over = {}) {
+  return {
+    id: 's-1', account_id: 'default', token_hash: tokenHash('tok-1'), user_id: 'u-1',
+    role: 'owner', branch_id: null, created_at: new Date(NOW - HOUR).toISOString(),
+    expires_at: FUTURE, last_seen_at: null, user_agent: 'Mozilla/5.0 (Windows NT 10.0)',
+    ip_hash: ds.hashIp('203.0.113.5'), ...over,
+  };
+}
+
+async function withDb(seed, fn) {
+  const fake = createFakePostgrest(seed);
+  fake.install();
+  try { return await fn(fake); } finally { fake.restore(); }
+}
+
+// ---- privacy ---------------------------------------------------------------
+
+test('hashIp: never returns anything reversible to the address', () => {
+  const ip = '203.0.113.5';
+  const h = ds.hashIp(ip);
+  assert.match(h, /^[0-9a-f]{64}$/, 'a sha-256 hex digest');
+  assert.ok(!h.includes(ip), 'the raw address must not survive anywhere in the output');
+  assert.ok(!h.includes('203'), 'not even an octet of it');
+  assert.strictEqual(ds.hashIp(ip), h, 'stable, so "same network as last time?" is answerable');
+  assert.notStrictEqual(ds.hashIp('203.0.113.6'), h, 'and distinguishes different addresses');
+  assert.strictEqual(ds.hashIp(''), null);
+  assert.strictEqual(ds.hashIp(null), null);
+});
+
+test('hashIp: the salt is not a shared constant across deployments', () => {
+  // A fixed salt would make every deployment's hashes identical for the same IP, and the
+  // whole IPv4 space is brute-forceable against an unsalted hash in seconds.
+  const saved = process.env.SESSION_IP_SALT;
+  try {
+    process.env.SESSION_IP_SALT = 'salt-a';
+    const a = ds.hashIp('198.51.100.1');
+    process.env.SESSION_IP_SALT = 'salt-b';
+    const b = ds.hashIp('198.51.100.1');
+    assert.notStrictEqual(a, b, 'the same IP must hash differently under different salts');
+  } finally {
+    if (saved === undefined) delete process.env.SESSION_IP_SALT;
+    else process.env.SESSION_IP_SALT = saved;
+  }
+});
+
+test('cleanUserAgent: keeps it readable, strips control characters, caps the length', () => {
+  assert.strictEqual(ds.cleanUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'),
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'spaces and punctuation must survive');
+  // CR/LF in a UA would otherwise inject extra lines into any log that echoes it.
+  assert.strictEqual(ds.cleanUserAgent('Chrome\r\nX-Injected: yes'), 'ChromeX-Injected: yes');
+  assert.strictEqual(ds.cleanUserAgent('a\u0000b\u007fc'), 'abc', 'NUL and DEL are stripped');
+  assert.strictEqual(ds.cleanUserAgent('x'.repeat(500)).length, ds.UA_MAX);
+  assert.strictEqual(ds.cleanUserAgent(''), null);
+  assert.strictEqual(ds.cleanUserAgent(undefined), null);
+});
+
+test('deviceFromRequest: hashes the IP rather than carrying it forward', () => {
+  const req = { ip: '203.0.113.9', get: (h) => (h === 'User-Agent' ? 'Firefox/1.0' : undefined) };
+  const d = ds.deviceFromRequest(req);
+  assert.strictEqual(d.user_agent, 'Firefox/1.0');
+  assert.strictEqual(d.ip_hash, ds.hashIp('203.0.113.9'));
+  assert.ok(!JSON.stringify(d).includes('203.0.113.9'), 'the raw IP must not appear in the result');
+});
+
+// ---- the device list --------------------------------------------------------
+
+test('listDevices: never returns token_hash or ip_hash', () => withDb({ sessions: [session()] }, async () => {
+  const [d] = await ds.listDevices('u-1', tokenHash('tok-1'));
+  const keys = Object.keys(d).sort();
+  assert.deepStrictEqual(keys, ['created_at', 'current', 'expires_at', 'id', 'last_seen_at', 'user_agent']);
+  const blob = JSON.stringify(d);
+  assert.ok(!blob.includes(tokenHash('tok-1')), 'a credential-derived value must never reach the client');
+  assert.ok(!blob.includes(ds.hashIp('203.0.113.5')), 'nor a stable per-network identifier');
+}));
+
+test('listDevices: marks the caller\'s own row as current', () => withDb({
+  sessions: [session(), session({ id: 's-2', token_hash: tokenHash('tok-2') })],
+}, async () => {
+  const list = await ds.listDevices('u-1', tokenHash('tok-2'));
+  assert.strictEqual(list.length, 2);
+  assert.strictEqual(list.find((d) => d.id === 's-2').current, true);
+  assert.strictEqual(list.find((d) => d.id === 's-1').current, false);
+}));
+
+test('listDevices: hides expired sessions', () => withDb({
+  sessions: [session(), session({ id: 's-old', token_hash: tokenHash('old'), expires_at: PAST })],
+}, async () => {
+  const list = await ds.listDevices('u-1', tokenHash('tok-1'));
+  assert.deepStrictEqual(list.map((d) => d.id), ['s-1'], 'an expired row is not a signed-in device');
+}));
+
+test('listDevices: only ever shows the asking user\'s own sessions', () => withDb({
+  sessions: [session(), session({ id: 's-other', token_hash: tokenHash('other'), user_id: 'u-2' })],
+}, async () => {
+  const list = await ds.listDevices('u-1', tokenHash('tok-1'));
+  assert.deepStrictEqual(list.map((d) => d.id), ['s-1']);
+}));
+
+// ---- revocation -------------------------------------------------------------
+
+test('revokeDevice: removes the row and reports that it did', () => withDb({ sessions: [session()] }, async (fake) => {
+  assert.strictEqual(await ds.revokeDevice('u-1', 's-1'), true);
+  assert.strictEqual(fake.db.sessions.length, 0);
+}));
+
+test('revokeDevice: CANNOT revoke another account\'s device', () => withDb({
+  sessions: [session({ id: 's-victim', user_id: 'u-victim' })],
+}, async (fake) => {
+  // The user_id filter is folded into the DELETE itself, so guessing a session id is useless.
+  const removed = await ds.revokeDevice('u-attacker', 's-victim');
+  assert.strictEqual(removed, false, 'the attempt must not succeed');
+  assert.strictEqual(fake.db.sessions.length, 1, "and the victim's session must survive");
+}));
+
+test('revokeDevice: a miss reports false rather than a silent success', () => withDb({ sessions: [session()] }, async () => {
+  assert.strictEqual(await ds.revokeDevice('u-1', 'no-such-id'), false);
+  assert.strictEqual(await ds.revokeDevice('u-1', ''), false);
+  assert.strictEqual(await ds.revokeDevice(null, 's-1'), false);
+}));
+
+test('revokeOtherDevices: signs out every other device but SPARES the caller', () => withDb({
+  sessions: [
+    session({ id: 's-1', token_hash: tokenHash('mine') }),
+    session({ id: 's-2', token_hash: tokenHash('phone') }),
+    session({ id: 's-3', token_hash: tokenHash('laptop') }),
+  ],
+}, async (fake) => {
+  const n = await ds.revokeOtherDevices('u-1', tokenHash('mine'));
+  assert.strictEqual(n, 2);
+  assert.deepStrictEqual(fake.db.sessions.map((s) => s.id), ['s-1'],
+    'logging the user out of the device they are securing the account from would be harmful');
+}));
+
+test('revokeOtherDevices: never reaches across accounts', () => withDb({
+  sessions: [
+    session({ id: 's-mine', token_hash: tokenHash('mine') }),
+    session({ id: 's-theirs', token_hash: tokenHash('theirs'), user_id: 'u-2' }),
+  ],
+}, async (fake) => {
+  await ds.revokeOtherDevices('u-1', tokenHash('mine'));
+  assert.ok(fake.db.sessions.some((s) => s.id === 's-theirs'), "another account's session is untouched");
+}));
+
+// ---- the timeline -----------------------------------------------------------
+
+test('recordAuthEvent: writes the event without the raw IP', () => withDb({ auth_events: [] }, async (fake) => {
+  const req = { ip: '203.0.113.77', get: () => 'Safari/1.0' };
+  await ds.recordAuthEvent({ userId: 'u-1', event: 'login_ok', req });
+  assert.strictEqual(fake.db.auth_events.length, 1);
+  const row = fake.db.auth_events[0];
+  assert.strictEqual(row.event, 'login_ok');
+  assert.strictEqual(row.ip_hash, ds.hashIp('203.0.113.77'));
+  assert.ok(!JSON.stringify(row).includes('203.0.113.77'));
+}));
+
+test('recordAuthEvent: records a failure against an unknown account with a null user', () => withDb({ auth_events: [] }, async (fake) => {
+  await ds.recordAuthEvent({ userId: null, event: 'login_fail', req: { ip: '1.2.3.4', get: () => 'x' } });
+  assert.strictEqual(fake.db.auth_events[0].user_id, null,
+    'spray against non-existent addresses is exactly what an incident review needs to see');
+}));
+
+test('recordAuthEvent: rejects an event name outside the allowed set', () => withDb({ auth_events: [] }, async (fake) => {
+  await ds.recordAuthEvent({ userId: 'u-1', event: 'something_invented', req: { ip: '1.2.3.4', get: () => 'x' } });
+  assert.strictEqual(fake.db.auth_events.length, 0, 'the schema CHECK would reject it anyway; fail before the round-trip');
+}));
+
+test('recordAuthEvent: NEVER throws — observability must not be able to fail a login', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('database is down'); };
+  try {
+    await ds.recordAuthEvent({ userId: 'u-1', event: 'login_ok', req: { ip: '1.2.3.4', get: () => 'x' } });
+    // Reaching here without throwing IS the assertion.
+    assert.ok(true);
+  } finally { global.fetch = realFetch; }
+});
+
+test('recentEvents: newest first, capped, and scoped to the one user', () => withDb({
+  auth_events: [
+    { id: 'e1', user_id: 'u-1', event: 'login_ok', created_at: '2026-08-01T00:00:00.000Z' },
+    { id: 'e2', user_id: 'u-1', event: 'login_fail', created_at: '2026-08-03T00:00:00.000Z' },
+    { id: 'e3', user_id: 'u-2', event: 'login_ok', created_at: '2026-08-04T00:00:00.000Z' },
+  ],
+}, async () => {
+  const rows = await ds.recentEvents('u-1');
+  assert.deepStrictEqual(rows.map((r) => r.id), ['e2', 'e1']);
+  assert.deepStrictEqual(await ds.recentEvents(null), []);
+}));
+
+// ---- new-device heuristic ---------------------------------------------------
+
+test('isNewDevice: false for the very first session, true for an unfamiliar one', () => withDb({ sessions: [] }, async (fake) => {
+  const known = { user_agent: 'Mozilla/5.0 (Windows NT 10.0)', ip_hash: ds.hashIp('203.0.113.5') };
+  assert.strictEqual(await ds.isNewDevice('u-1', known), false,
+    'the first ever sign-in is not a "new device" worth alarming someone about');
+
+  fake.db.sessions.push(session());
+  assert.strictEqual(await ds.isNewDevice('u-1', known), false, 'the same device again is not new');
+  assert.strictEqual(await ds.isNewDevice('u-1', { user_agent: 'Chrome/2', ip_hash: ds.hashIp('198.51.100.9') }), true);
+}));
+
+test('isNewDevice: fails quiet rather than inventing an alarming notification', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('database is down'); };
+  try {
+    assert.strictEqual(await ds.isNewDevice('u-1', { user_agent: 'x', ip_hash: 'y' }), false);
+  } finally { global.fetch = realFetch; }
+});
+
+// ---- last-seen bookkeeping --------------------------------------------------
+
+test('touchDevice: throttles so a busy dashboard is not one write per fetch', () => withDb({ sessions: [session()] }, async (fake) => {
+  const h = tokenHash('throttle-probe');
+  fake.db.sessions[0].token_hash = h;
+  assert.strictEqual(await ds.touchDevice(h, null, NOW), true, 'the first touch writes');
+  assert.strictEqual(await ds.touchDevice(h, null, NOW + 1000), false, 'an immediate second does not');
+  assert.strictEqual(await ds.touchDevice(h, null, NOW + ds.TOUCH_INTERVAL_MS + 1), true, 'a later one does');
+  assert.ok(fake.db.sessions[0].last_seen_at, 'and last_seen_at is actually updated');
+}));
+
+test('touchDevice: never throws — bookkeeping must not fail the request that triggered it', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async () => { throw new Error('database is down'); };
+  try {
+    assert.strictEqual(await ds.touchDevice(tokenHash('unique-' + Date.now()), null, Date.now()), false);
+  } finally { global.fetch = realFetch; }
+});
