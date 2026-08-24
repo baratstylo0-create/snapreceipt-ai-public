@@ -45,13 +45,21 @@ function withEnv(vars, fn) {
 // anything else (the test's own probe request) to the real fetch.
 function stubGuestStart() {
   const realFetch = global.fetch;
-  const calls = { sessions: [], auth_events: [] };
+  const calls = { sessions: [], auth_events: [], guest_ip_log: [] };
   let nextId = 1;
   global.fetch = async (url, opt = {}) => {
     const u = String(url);
     const method = (opt.method || 'GET').toUpperCase();
     const body = () => (opt.body ? JSON.parse(opt.body) : null);
 
+    // guest_ip_log: the pre-existing "one trial per IP" gate, unrelated to P-02a but merged
+    // into the same function -- GET is the "already used?" check (empty = never used), POST
+    // is the confirmed-success log write this test also asserts nothing else broke.
+    if (u.includes('/guest_ip_log') && method === 'GET') return { text: async () => '[]' };
+    if (u.includes('/guest_ip_log') && method === 'POST') {
+      calls.guest_ip_log.push(body());
+      return { text: async () => '[]' };
+    }
     if (u.includes('/users?') && method === 'GET') return { text: async () => '[]' }; // sweep: nothing stale
     if (u.includes('/users') && method === 'POST') {
       const row = { id: 'guest-' + nextId++, role: 'guest', active: true, ...body() };
@@ -105,6 +113,12 @@ test('guest start: mints a session carrying device metadata and records login_ok
       assert.strictEqual(event.event, 'login_ok');
       assert.strictEqual(event.user_id, json.token ? stub.calls.sessions[0].user_id : null,
         'the timeline entry belongs to the SAME guest user the session was minted for');
+
+      // Confirms the rebase merge of this branch's device/timeline work against main's
+      // separately-landed one-trial-per-IP gate kept BOTH behaviours -- not just that this
+      // one doesn't crash the other, but that the log write genuinely still happens.
+      assert.strictEqual(stub.calls.guest_ip_log.length, 1,
+        'the pre-existing one-trial-per-IP log must still be written after a successful start');
     } finally { stub.restore(); }
   });
 });
