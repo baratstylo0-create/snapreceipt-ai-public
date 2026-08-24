@@ -760,3 +760,73 @@ create index if not exists auth_events_created_idx on auth_events (created_at);
 
 alter table auth_events enable row level security;
 -- service_role bypasses RLS; no anon policy -> anon denied (SEC-8, same as every table).
+-- ============================================================================
+-- Migration: shared (multi-instance) rate limiting (P-04a, 2026-08-24)
+-- Program: docs/FULL_APP_EXECUTION_PLAN.md Gate 1, issue #37.
+--
+-- The problem this fixes: lib/ratelimit.js is a per-PROCESS Map. It was honest
+-- about that ("Single-process v1 ... a multi-instance deploy would move this to
+-- a shared store"), but the gap is now load-bearing -- P-01's OTP endpoints and
+-- P-02a's revoke endpoints both lean on rate limiting, and the 2026-08-24 gap
+-- audit lists single-process limiting as a P0 launch blocker. Two instances
+-- behind a load balancer today means an attacker gets N times the budget, and a
+-- restart resets every counter to zero.
+--
+-- Deliberately Postgres rather than Redis: the no-new-dependency rule is real,
+-- and this codebase already reaches Supabase on every request anyway. The cost
+-- is one extra round-trip on the ABUSE-CRITICAL endpoints only -- never on the
+-- ordinary dashboard read path, which keeps its in-memory limiter untouched.
+--
+-- bucket_key is a SALTED HASH of the client identifier, never a raw IP. A rate
+-- limiter is not a reason to start retaining addresses (PDPA / C-02).
+-- ============================================================================
+create table if not exists rate_limits (
+  bucket_key   text        not null,          -- salted hash of "<name>|<client>"; never a raw IP
+  window_start timestamptz not null,          -- start of the fixed window this row counts
+  count        int         not null default 0,
+  expires_at   timestamptz not null,          -- when this row may be swept (P-07 retention)
+  primary key (bucket_key, window_start)
+);
+create index if not exists rate_limits_expiry_idx on rate_limits (expires_at);
+
+alter table rate_limits enable row level security;
+-- service_role bypasses RLS; no anon policy -> anon denied (SEC-8, same as every table).
+
+-- bump_rate_limit(key, window_ms) -> the count INCLUDING this request.
+--
+-- The whole point is that this is ONE statement: INSERT .. ON CONFLICT DO UPDATE
+-- is atomic, so N concurrent requests across N instances produce N distinct
+-- counts with no lost updates. A read-then-write from the application could not
+-- provide that, which is exactly the weakness of the in-memory limiter it backs up.
+create or replace function bump_rate_limit(p_key text, p_window_ms int)
+returns int language plpgsql as $$
+declare
+  v_window_start timestamptz;
+  v_count        int;
+begin
+  -- Floor "now" to the start of its fixed window, so every instance agrees on
+  -- which bucket a given moment belongs to without any coordination.
+  v_window_start := to_timestamp(
+    floor(extract(epoch from now()) * 1000 / p_window_ms) * p_window_ms / 1000.0
+  );
+  insert into rate_limits (bucket_key, window_start, count, expires_at)
+  values (p_key, v_window_start, 1,
+          v_window_start + ((p_window_ms * 2) || ' milliseconds')::interval)
+  on conflict (bucket_key, window_start)
+  do update set count = rate_limits.count + 1
+  returning count into v_count;
+  return v_count;
+end;
+$$;
+
+-- sweep_rate_limits() -> rows removed. Expired buckets are pure garbage; nothing
+-- reads them once their window has passed. P-07 owns scheduling this.
+create or replace function sweep_rate_limits()
+returns int language plpgsql as $$
+declare v_n int;
+begin
+  delete from rate_limits where expires_at < now();
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
