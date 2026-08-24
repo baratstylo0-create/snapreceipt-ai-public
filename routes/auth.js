@@ -15,6 +15,8 @@ const { cfg } = require('../lib/config');
 const {
   requestVerification, confirmByCode, confirmByToken, verificationState, issueChallenge,
 } = require('../lib/emailChallenge');
+// P-02a (#35): device metadata on the session row + the authentication timeline.
+const { deviceFromRequest, recordAuthEvent, isNewDevice } = require('../lib/deviceSessions');
 
 // Brute-force defense on the credential endpoint (§7.2). Per-IP fixed window.
 const loginLimiter = createRateLimiter({ max: Number(process.env.LOGIN_RATE_MAX) || 20 });
@@ -87,7 +89,9 @@ module.exports = function mountAuth(app) {
     const { email, password } = req.body || {};
     try {
       const { user, bindToken } = await signupOwner({ email, password });
-      const token = await mintSession(user);
+      const device = deviceFromRequest(req);
+      const token = await mintSession(user, undefined, device);
+      await recordAuthEvent({ userId: user.id, event: 'login_ok', device });
       // Issue + mail the challenge. Wrapped so a mail/DB hiccup here can NEVER fail a signup
       // that already succeeded — the account exists and the session is valid; the user can
       // always ask for a fresh code via /api/verify-email/request.
@@ -131,9 +135,21 @@ module.exports = function mountAuth(app) {
       const user = rows[0];
       // Always verify (dummy hash for unknown user) to keep timing uniform.
       const ok = await verifyPassword(password, user && user.password_hash ? user.password_hash : DUMMY_HASH);
+      const device = deviceFromRequest(req);
       // staff never log in (no username/hash), and a null-hash row can't authenticate.
-      if (!user || !ok || user.role === 'staff') return res.status(401).json({ error: 'invalid credentials' });
-      const token = await mintSession(user);
+      if (!user || !ok || user.role === 'staff') {
+        // Failures are recorded too, including against addresses with no account (user_id
+        // null) — "someone is spraying logins at addresses that don't exist" is precisely the
+        // pattern an incident review needs. recordAuthEvent never throws, so this cannot turn
+        // a clean 401 into a 502, and the response is unchanged either way.
+        await recordAuthEvent({ userId: user ? user.id : null, event: 'login_fail', device });
+        return res.status(401).json({ error: 'invalid credentials' });
+      }
+      // Checked BEFORE the new row is written, or it would always match itself and never fire.
+      const newDevice = await isNewDevice(user.id, device);
+      const token = await mintSession(user, undefined, device);
+      await recordAuthEvent({ userId: user.id, event: 'login_ok', device });
+      if (newDevice) await recordAuthEvent({ userId: user.id, event: 'new_device', device });
       return res.json({
         token,
         role: user.role,
@@ -229,7 +245,10 @@ module.exports = function mountAuth(app) {
     const token = a.startsWith('Bearer ') ? a.slice(7) : '';
     try {
       const sess = await lookupSession(token);
-      if (sess) await revokeSessionsForUser(sess.user_id);
+      if (sess) {
+        await revokeSessionsForUser(sess.user_id);
+        await recordAuthEvent({ userId: sess.user_id, event: 'logout', req });
+      }
       return res.json({ ok: true });
     } catch (e) {
       console.error('[logout]', e.message);

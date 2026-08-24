@@ -14,6 +14,7 @@ const { logError } = require('./lib/log'); // #12 structured error logging
 
 const mountWebhook = require('./routes/webhook');
 const mountAuth = require('./routes/auth');       // ADR-021 business login (multiUser only)
+const mountSessions = require('./routes/sessions'); // P-02a device sessions + auth timeline (#35)
 const mountBranches = require('./routes/branches'); // ADR-021 Phase 2 provisioning (multiUser only)
 const mountCompanies = require('./routes/companies'); // ADR-023 Phase 8 company dimension (companyDimension only)
 const mountSubmissions = require('./routes/submissions'); // ADR-022 Phase 7 Send-to-Admin (branchSubmission only)
@@ -62,6 +63,7 @@ app.use(corsPreflight);
 app.use(securityEvents);
 mountWebhook(app);
 mountAuth(app);
+mountSessions(app);   // P-02a: /api/sessions* — device list, timeline, revoke (#35)
 mountBranches(app);
 mountCompanies(app);
 mountSubmissions(app);
