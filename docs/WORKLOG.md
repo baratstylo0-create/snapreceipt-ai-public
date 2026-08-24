@@ -1,5 +1,73 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-08-24 · Claude (Barat/web lane, W-01) · feature/tour-premium-redesign-2026-08-23 · Email-verification UI built against Jeevan/Claude-P's P-01 contract + a real Google-OAuth-error bug fixed
+
+- **Context:** Jeevan pushed a full-app team-restructure plan today (`codex/full-app-team-plan`,
+  not yet merged — see `docs/FULL_APP_EXECUTION_PLAN.md` on that branch) assigning Barat/this
+  Claude the "Web/Product" lane (W-01 through W-08). Started on **W-01: complete login/
+  register/verification/recovery UI**.
+- **Researched before building anything** (per BARAT.md's own rule — "if an API is missing,
+  file a platform task, do not invent a client-only contract"): found Jeevan/Claude-P had
+  *already* pushed `feature/claude-p-P-01-verified-email-challenge` today — a fully tested
+  (2266/2266, mutation-tested), documented email-OTP/magic-link backend service, with a frozen
+  API contract at `docs/security/P-01-email-verification-contract.md` on that branch. Built the
+  frontend against that exact contract instead of inventing one. **Not merged into `main` yet**,
+  so this cannot be tested end-to-end live until both branches land — verified instead via a
+  DB-free static-preview harness with a fake `Api` object standing in for the real endpoints
+  (mirrors the same technique used for the tour.js fix earlier today), covering every path the
+  contract specifies: resend cooldown, code-entry fallback (success + the server's verbatim
+  generic failure message), magic-link confirm screen (success + failure), and the full boot()
+  → header-banner injection wiring, not just the component in isolation.
+- **New file:** `public/js/components/emailverify.js` — `mount()` for the `?verify_token=`
+  magic-link landing screen (auto-confirms on load, shows the server's own generic message
+  verbatim per the contract's account-enumeration defense — never invents a more specific
+  explanation), `buildBanner()` for a persistent dashboard header banner (mirrors app.js's
+  existing `buildTelegramBanner` shape) with a resend button (client-side-only 60s cooldown —
+  contract §3 says the server enforces the real one silently) and an inline code-entry fallback.
+- **`public/js/app.js` changes:**
+  - Wires `EmailVerify` into `dep()`/boot deps (optional, like ResetPassword/Tour).
+  - Strips `?verify_token=` from the URL immediately after reading it (contract §3 — it's a
+    live single-use credential and must not linger in browser history).
+  - After `enterApp`, fires a best-effort `GET /api/verify-email/status` for owner sessions and
+    appends the banner if unverified — silently no-ops today since the endpoint isn't live on
+    `main` yet (this is by design: the code is future-proofed to activate itself the moment
+    P-01 merges, no follow-up frontend change needed).
+  - **Real bug found and fixed while researching this** (unrelated to P-01 but found along the
+    way): `routes/googleAuth.js` has redirected failed Google sign-ins back here with
+    `#gauth_error=<code>` since 2026-07-30, but nothing on this end ever read it — a user whose
+    Google login failed saw the screen reload with zero explanation. Fixed to map the known
+    codes (`denied`/`account_type`/`not_configured`) to real copy, with a generic fallback for
+    anything else (`state_mismatch`, `failed`, or an unrecognized future code). **First attempt
+    at this fix was itself wrong** — wired the message into the `decision === 'login'` branch,
+    which only fires for business/multiUser mode; but Google sign-in only exists for personal
+    accounts, and a personal account with no stored token *always* resolves to `'signup'`
+    (→ the marketing Landing page), confirmed by reading `authgate.js`'s `authState()` directly.
+    Caught via live testing (not just reading the code), fixed by short-circuiting straight to
+    `mountLogin` with the same `onRegister`/`onForgotPassword`/`onGoogleLogin` opts Landing's own
+    `onLogin` callback uses elsewhere in this file, verified live for all 4 error codes plus a
+    regression check that the normal successful `gauth_token` path is unaffected.
+- **`public/css/app.css`, `public/js/i18n.js` (EN+MS):** new banner/screen copy and the
+  code-entry form's compact styling (reuses `.guest-banner`/`.onboard-*` tokens — no new design
+  language introduced).
+- **Verified:** full suite **2327/2327** (`.env` moved aside/restored). New pure-logic tests in
+  `tests/frontend/emailverify.test.js` (`validateCode` + no-DOM safety). DOM/interaction paths
+  verified live per above, not just unit-tested.
+- **Still TODO for W-01** (not started, flagging rather than silently deferring): dedicated test
+  coverage for `onboarding.js`/`resetpassword.js` (currently zero, a pre-existing gap found
+  during this same research pass); the two product-decision items flagged to Barat separately
+  (silent Google-account-linking vs. an explicit confirm step; whether the current generic
+  rate-limit message is enough for the plan's "locked" state acceptance criterion, or something
+  more specific is wanted).
+- **Branching note:** intended to branch this off current `snapreceipt/main` per the new SOP
+  (`docs/roles/BARAT.md` §B.2), but `git checkout -b ... snapreceipt/main` failed on this
+  machine with a filesystem permission error unrelated to this change (`promptfoo/samples`,
+  some other project's untracked directory, locked by another process during the tree switch).
+  Recovered safely (stash + targeted file restore, verified byte-identical via `git diff`
+  before dropping the stash — nothing lost) but landed this commit on the already-open
+  `feature/tour-premium-redesign-2026-08-23` (PR #14) instead of a clean new branch. Flagging
+  for whoever reviews: this PR now bundles two unrelated pieces of work; split if that matters
+  for review, or merge as one — both are independently tested and verified.
+
 ## 2026-08-24 · Claude (frontend/Mugi lane) · feature/tour-premium-redesign-2026-08-23 · Tour spotlight bug fixed live; caption redesigned; still pending merge
 
 - **Bug found in live QA (Barat's screenshot) and fixed:** the 2026-08-23 premium-tour spotlight's accent border/glow (`box-shadow`) was listed AFTER the 9999px dim shadow, so per CSS's own paint-order rule the dim painted OVER the border — every spotlighted element rendered as a bare white hole with no visible frame ("white rectangle" bug). Fixed by reordering the shadow list (glow/border first, dim last) and thickening the border to 2px. Root-caused via computed-style inspection, not guesswork — confirmed the box-shadow order was the sole cause before touching anything.

@@ -54,6 +54,7 @@
         if (name === 'Manage') return require('./components/manage');
         if (name === 'Landing') return require('./components/landing');
         if (name === 'ResetPassword') return require('./components/resetpassword');
+        if (name === 'EmailVerify') return require('./components/emailverify');
         if (name === 'Tour') return require('./components/tour');
       } catch (e) { return null; }
     }
@@ -684,6 +685,24 @@
       header.appendChild(buildTelegramBanner(deps, acctInfo));
     }
 
+    // Email-verification banner (2026-08-24, W-01, P-01 contract) — async unlike the two
+    // banners above because /api/verify-email/status (contract §2: "the single source both
+    // clients render their banner from") isn't part of /api/config, so it can't be decided
+    // synchronously here. Best-effort like Falc/RateMeter: on ANY failure (the P-01 backend
+    // not deployed yet, a network hiccup, an old cached bundle without deps.EmailVerify) this
+    // silently shows nothing rather than breaking boot — the banner is a reminder, not a gate.
+    // `header` is captured in this closure and still the live DOM node the promise resolves
+    // against, exactly like buildTelegramBanner's own "survives every select() call" comment.
+    if (header && deps.session && deps.session.role === 'owner' && acctInfo && acctInfo.email
+      && deps.EmailVerify && typeof deps.EmailVerify.buildBanner === 'function'
+      && deps.Api && typeof deps.Api.apiFetch === 'function') {
+      deps.Api.apiFetch('/api/verify-email/status').then(function (status) {
+        if (status && status.verification_required && !status.verified) {
+          header.appendChild(deps.EmailVerify.buildBanner(deps, acctInfo.email));
+        }
+      }).catch(function () { /* endpoint not live yet, or a transient failure — stay silent */ });
+    }
+
     // QA report #1: after a dashboard upload, the user had no way to jump to what was
     // just saved. `select` (below) is the real switcher (updates the nav pill + lazy-
     // loads the target view's data) — shared with every mounted view via `deps` so e.g.
@@ -1111,6 +1130,20 @@
     });
   }
 
+  // Email-verification magic-link landing screen (2026-08-24, W-01) — reached via
+  // ?verify_token=<token>, already stripped from the URL by boot() before this runs.
+  // Unauthenticated (same reasoning as mountResetPassword's 'reset' mode): whatever
+  // token/session was already stored (or wasn't) is untouched by this; "Continue" just
+  // re-runs boot() so the normal gate decides where a real user lands next.
+  function mountEmailVerify(deps, token) {
+    var mount = document.getElementById('app');
+    deps.EmailVerify && deps.EmailVerify.mount(mount, {
+      token: token,
+      Api: deps.Api,
+      onContinue: function () { boot(); },
+    });
+  }
+
   // Boot sequence: apply persisted theme, probe /api/config, run the gate.
   function boot() {
     if (typeof document === 'undefined') return;
@@ -1130,6 +1163,9 @@
       Landing: dep('Landing'),
       // "Forgot password?" flow (2026-07-27), personal-mode only.
       ResetPassword: dep('ResetPassword'),
+      // Email-verification UI (2026-08-24, W-01) — optional like ResetPassword/Tour, so
+      // an older cached bundle without it simply never shows the verify screen/banner.
+      EmailVerify: dep('EmailVerify'),
       // Interactive guided onboarding tour (2026-08-22). Optional, like Falc/RateMeter —
       // an older cached bundle without it simply never offers/auto-starts the tour.
       Tour: dep('Tour'),
@@ -1174,6 +1210,12 @@
     // fragment is scrubbed via replaceState immediately either way, so a token never sits
     // visible in the address bar or browser history, success or failure.
     var gauth = null;
+    // Bug fix (2026-08-24, found while researching W-01): routes/googleAuth.js redirects
+    // back here with `#gauth_error=<code>` on every failure path (denied, state_mismatch,
+    // account_type collision, not_configured, or a generic failed) — but until now nothing
+    // on this end ever read it. A user whose Google sign-in failed saw the login screen
+    // reappear with zero explanation, as if the click had done nothing at all.
+    var gauthErrorMsg = null;
     try {
       if (root && root.location && root.location.hash && root.location.hash.length > 1) {
         var hashParams = new URLSearchParams(root.location.hash.slice(1));
@@ -1185,6 +1227,17 @@
             isNew: hashParams.get('gauth_new') === '1',
             bindToken: hashParams.get('gauth_bind') || null,
           };
+        } else {
+          var gauthError = hashParams.get('gauth_error');
+          if (gauthError) {
+            // Only 'denied', 'account_type', and 'not_configured' get their own copy —
+            // anything else (state_mismatch, failed, or a future code this build doesn't
+            // know about yet) falls back to the generic message rather than surfacing an
+            // internal code name to the user.
+            var key = (gauthError === 'denied' || gauthError === 'account_type' || gauthError === 'not_configured')
+              ? 'app.gauth_error_' + gauthError : 'app.gauth_error_failed';
+            gauthErrorMsg = deps.t ? deps.t(key) : key;
+          }
         }
         if (root.history && root.history.replaceState) {
           root.history.replaceState(null, '', root.location.pathname + root.location.search);
@@ -1263,6 +1316,19 @@
         return;
       }
 
+      // Bug fix (2026-08-24, W-01): a gauth_error lands here with NO token, so the block
+      // above never runs. Left alone, boot() would fall through to the normal AuthGate
+      // decision — which for a personal-auth deployment with no stored token is ALWAYS
+      // 'signup' (see authgate.js's authState()), landing on the marketing Landing page,
+      // not the login form. The error would never reach mountLogin at all: Landing's own
+      // onLogin callback (used 3x elsewhere in this file) is the ONLY path that actually
+      // mounts Login for a personal account, so a failed Google sign-in must go straight
+      // there instead of waiting for a second click through Landing first.
+      if (gauthErrorMsg && cfg && cfg.personal_auth) {
+        mountLogin(deps, gauthErrorMsg, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined });
+        return;
+      }
+
       var resetToken = null;
       try {
         var rtQs = root && root.location && new URLSearchParams(root.location.search);
@@ -1273,6 +1339,27 @@
         return;
       }
 
+      // Email-verification magic link (2026-08-24, W-01, P-01 contract §3: "strip
+      // ?verify_token= from the URL immediately after reading it" — it's a live,
+      // single-use credential, and unlike reset_token it must not be left sitting in
+      // the address bar/history even after a successful confirm). Unauthenticated by
+      // design (contract §2 — the link IS the credential, and may open in a mail
+      // client with no session at all).
+      var verifyToken = null;
+      try {
+        var vtQs = root && root.location && new URLSearchParams(root.location.search);
+        verifyToken = vtQs ? vtQs.get('verify_token') : null;
+        if (verifyToken && root.history && root.history.replaceState) {
+          vtQs.delete('verify_token');
+          var strippedSearch = vtQs.toString();
+          root.history.replaceState(null, '', root.location.pathname + (strippedSearch ? '?' + strippedSearch : ''));
+        }
+      } catch (e) { /* ignore */ }
+      if (verifyToken && cfg && cfg.personal_auth) {
+        mountEmailVerify(deps, verifyToken);
+        return;
+      }
+
       var decision = deps.AuthGate.authState({
         authRequired: cfg && cfg.auth_required,
         multiUser: cfg && cfg.multi_user,
@@ -1280,7 +1367,7 @@
         storedToken: getStoredToken(),
       });
       if (decision === 'login') {
-        mountLogin(deps, expiredNotice);
+        mountLogin(deps, expiredNotice || gauthErrorMsg);
       } else if (decision === 'signup') {
         mountLanding(deps, cfg);
       } else if (decision === 'prompt') {

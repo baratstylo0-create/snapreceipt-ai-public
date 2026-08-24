@@ -741,6 +741,22 @@ body.theme-ocean-dark {
 }
 .guest-banner-btn:hover { opacity: .9; }
 
+/* Inline code-entry fallback inside the email-verification banner (2026-08-24, W-01) —
+   a compact companion to .guest-banner's existing pill button, not a full onboarding
+   form, since it lives inside a colored banner strip rather than a white card. */
+.verify-banner-code-form { display: inline-flex; align-items: center; gap: 8px; }
+.verify-banner-code-input {
+  width: 90px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--txt);
+  font: inherit;
+  font-size: 13px;
+}
+.verify-banner-code-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .app-error {
   max-width: 480px;
   margin: 40px auto;
