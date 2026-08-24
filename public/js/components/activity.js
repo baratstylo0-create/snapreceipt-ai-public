@@ -892,6 +892,7 @@
 
   function buildToolbar(state, onChange) {
     var bar = el('div', 'act-toolbar');
+    bar.setAttribute('data-tour', 'review');
 
     var search = el('input', 'act-search');
     search.type = 'search';
@@ -1582,6 +1583,7 @@
     rootEl.appendChild(awaitHead);
     rootEl.appendChild(awaitArea);
     var reviewArea = el('div', 'act-review-area');
+    reviewArea.setAttribute('data-tour', 'anomaly-review');
     // Owner request 2026-07-14: this queue is NOT "every receipt awaiting approval" — it's
     // gated entirely by lib/anomaly.js's detectAnomalies(). A receipt only lands here if it
     // was actually flagged (duplicate / unusual amount / missing-or-mismatched data / looks

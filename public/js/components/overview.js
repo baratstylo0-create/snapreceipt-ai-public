@@ -870,6 +870,7 @@
     }
 
     var tiles = el('div', 'ov-metrics-tiles');
+    tiles.setAttribute('data-tour', 'automation-impact');
     tiles.appendChild(metricTile(t('overview.metrics_receipts_processed'), metricText(model.receiptsProcessed), t('overview.metrics_receipts_processed_sub')));
     tiles.appendChild(metricTile(t('overview.metrics_no_edit_pct'), metricText(model.noEditPct, 1) + '%', t('overview.metrics_no_edit_sub')));
     var assumption = model.manualMinutesPerReceipt == null

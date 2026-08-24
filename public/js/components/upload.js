@@ -308,6 +308,7 @@
 
     // Drop zone + hidden file input + browse button.
     var zone = el('div', 'up-zone');
+    zone.setAttribute('data-tour', 'upload-dropzone');
     zone.setAttribute('role', 'button');
     zone.setAttribute('tabindex', '0');
     zone.setAttribute('aria-label', t('upload.zone_aria'));
@@ -332,6 +333,7 @@
 
     // Actions + status + summary areas.
     var actions = el('div', 'up-actions');
+    actions.setAttribute('data-tour', 'ai-extraction-info');
     var uploadBtn = el('button', 'up-upload'); uploadBtn.type = 'button'; Escape.setText(uploadBtn, t('upload.upload_btn'));
     var clearBtn = el('button', 'up-clear'); clearBtn.type = 'button'; Escape.setText(clearBtn, t('upload.clear_btn'));
     actions.appendChild(uploadBtn); actions.appendChild(clearBtn);

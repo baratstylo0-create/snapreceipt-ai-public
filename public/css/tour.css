@@ -17,15 +17,24 @@
 }
 
 /* Positioned exactly over the current target. The 9999px spread box-shadow paints
-   everything OUTSIDE this box, which is what actually dims the rest of the page. */
+   everything OUTSIDE this box, which is what actually dims the rest of the page —
+   the target itself stays its own natural color, never a white cutout. A subtle
+   accent border + soft glow ring (2026-08-23 premium-tour spec) gives the target
+   real visual weight instead of just a bare hole in the dim layer. border-radius
+   is set inline per step (tour.js reads it off the target's own computed style)
+   so the cutout always matches the real element's shape. */
 .tour-spotlight {
   position: fixed;
   z-index: 200;
   border-radius: var(--radius-sm);
-  box-shadow: 0 0 0 9999px rgba(20, 22, 18, 0.6);
+  /* --accent-bg is already a low-alpha tint of THIS theme's own accent (defined per
+     theme in app.css) — reused here instead of a hardcoded color so the glow is
+     always correct, not just on the default theme. */
+  box-shadow: 0 0 0 9999px rgba(20, 22, 18, 0.6), 0 0 0 1px var(--accent), 0 0 0 6px var(--accent-bg);
   pointer-events: none;
   transition: top 0.32s cubic-bezier(0.4, 0, 0.2, 1), left 0.32s cubic-bezier(0.4, 0, 0.2, 1),
-    width 0.32s cubic-bezier(0.4, 0, 0.2, 1), height 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+    width 0.32s cubic-bezier(0.4, 0, 0.2, 1), height 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 0.32s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -178,6 +187,41 @@
 @media (max-width: 480px) {
   .tour-tooltip { width: calc(100vw - 32px); padding: 16px 16px 14px; }
 }
+
+/* --- Completion card (2026-08-23) --------------------------------------------
+   The final step is NOT another spotlighted target — no real element is "the
+   ending", so spotlighting one would read as arbitrary. Instead the tooltip
+   itself becomes a centered, slightly larger card and the dim overlay deepens a
+   touch, since there's no target underneath it competing for attention. */
+.tour-overlay.tour-complete { background: rgba(20, 22, 18, 0.34); transition: background 0.3s ease; }
+
+.tour-tooltip.tour-complete {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 380px;
+  text-align: center;
+  padding: 28px 28px 24px;
+}
+.tour-tooltip.tour-complete .tour-tooltip-header { justify-content: flex-end; margin-bottom: 0; }
+.tour-tooltip.tour-complete .tour-tooltip-title { font-size: 20px; margin-top: 4px; }
+.tour-tooltip.tour-complete .tour-tooltip-desc { margin-bottom: 20px; }
+.tour-tooltip.tour-complete .tour-tooltip-arrow { display: none; }
+
+.tour-tooltip-finish {
+  appearance: none;
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 700;
+  padding: 12px 20px;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--panel);
+}
+.tour-tooltip-finish:hover { filter: brightness(1.06); }
+.tour-tooltip-finish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* --- Fake auto-play cursor ---------------------------------------------------
    A fixed-position pointer that glides between step targets and "clicks" them for

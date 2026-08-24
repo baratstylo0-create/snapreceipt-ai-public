@@ -1,18 +1,23 @@
-// components/tour.js — the auto-play "movie" onboarding tour (2026-08-22, Barat:
-// "I WANT ONCE USER CLICK THE TOUR THE CURSOR MOVE AUTOMATICALLY AND EXPLAIN TO
-// USER" — rewritten from the earlier click-through design after live QA both
-// confirmed it worked AND surfaced that Barat wanted something else entirely).
-// This module never renders a fake dashboard: every step spotlights a REAL element
-// already on screen (nav buttons, metric tiles, the upload zone, the review queue)
-// via app.js's own `deps.switchView`. A fake on-screen cursor glides to each target;
-// for `autoClick` steps it then calls the REAL element's `.click()` — firing the
-// app's own handlers, genuine navigation, never simulated input on a fake UI. The
-// user just watches a per-step progress bar fill and auto-advance; Pause/Resume and
-// Skip are the only controls.
+// components/tour.js — the auto-play "movie" onboarding tour. A fake cursor moves
+// itself around the REAL dashboard, "clicks" real buttons for real, and a
+// spotlight+tooltip explain what's happening — the user just watches; Pause/Resume
+// and Skip are the only controls (Barat, 2026-08-22: "I WANT ONCE USER CLICK THE
+// TOUR THE CURSOR MOVE AUTOMATICALLY AND EXPLAIN TO USER"). This module never
+// renders a fake dashboard: every step spotlights a REAL element already on screen
+// via app.js's own `deps.switchView`.
+//
+// Rewrite (2026-08-23, premium onboarding spec): targets now use purpose-built
+// `data-tour="..."` attributes (added to overview.js/upload.js/activity.js/nav.js)
+// instead of coupling to styling classes; the spotlight's padding is per-step data
+// and its border-radius is read live off the target's own computed style (never a
+// hardcoded shape); the final step is a genuine completion CARD (no spotlight
+// cutout around a random element) with its own "Start Using SnapReceipt AI"
+// button instead of a timed auto-advance; a step whose target never appears logs
+// one dev-console warning and safely skips instead of leaving dead air.
 //
 // STEPS is a plain data model (target selector, view to switch to, copy keys,
-// autoClick, duration) so the sequence can be read/edited/tested without touching
-// the render logic below.
+// autoClick, duration, padding) so the sequence can be read/edited/tested without
+// touching the render logic below.
 //
 // CSP: every node is createElement/createElementNS + Escape.setText (no innerHTML);
 // positioning uses element.style.top/left assignments, the same pattern already used
@@ -33,16 +38,21 @@
   var root = typeof self !== 'undefined' ? self : this;
   var STORAGE_KEY = 'tour_completed';
 
+  // padding: how much breathing room the spotlight cutout gives the target, tuned
+  // per component KIND (spec: button 5-8px, drop zone/card 6-10px, nav bar 4-8px) —
+  // never one fixed number for every shape. radius is intentionally NOT set here;
+  // applySpotlight reads the target's own computed border-radius at render time so
+  // the cutout always matches the real element instead of a guessed shape.
   var STEPS = [
-    { id: 'welcome', view: null, target: 'nav.nav', placement: 'bottom', titleKey: 'tour.step_1_title', descKey: 'tour.step_1_desc', duration: 4000 },
-    { id: 'metrics', view: 'overview', target: '.ov-metrics-tiles', placement: 'bottom', titleKey: 'tour.step_2_title', descKey: 'tour.step_2_desc', duration: 4000 },
-    { id: 'nav_upload', view: 'overview', target: 'button[data-view="upload"]', placement: 'bottom', titleKey: 'tour.step_3_title', descKey: 'tour.step_3_desc', autoClick: true, duration: 3000 },
-    { id: 'upload_zone', view: 'upload', target: '.up-zone', placement: 'top', titleKey: 'tour.step_4_title', descKey: 'tour.step_4_desc', duration: 4000 },
-    { id: 'nav_activity', view: 'upload', target: 'button[data-view="activity"]', placement: 'bottom', titleKey: 'tour.step_5_title', descKey: 'tour.step_5_desc', autoClick: true, duration: 3000 },
-    { id: 'activity_toolbar', view: 'activity', target: '.act-toolbar', placement: 'bottom', titleKey: 'tour.step_6_title', descKey: 'tour.step_6_desc', duration: 4000 },
-    { id: 'activity_review', view: 'activity', target: '.act-review-area', placement: 'top', titleKey: 'tour.step_7_title', descKey: 'tour.step_7_desc', duration: 4000 },
-    { id: 'settings', view: 'activity', target: 'button[data-view="settings"]', placement: 'bottom', titleKey: 'tour.step_8_title', descKey: 'tour.step_8_desc', autoClick: true, duration: 3000 },
-    { id: 'finish', view: 'settings', target: 'nav.nav', placement: 'bottom', titleKey: 'tour.step_9_title', descKey: 'tour.step_9_desc', duration: 5000, isLast: true },
+    { id: 'welcome', view: null, target: '[data-tour="nav-root"]', placement: 'bottom', padding: 6, titleKey: 'tour.step_1_title', descKey: 'tour.step_1_desc', duration: 4000 },
+    { id: 'automation_impact', view: 'overview', target: '[data-tour="automation-impact"]', placement: 'bottom', padding: 8, titleKey: 'tour.step_2_title', descKey: 'tour.step_2_desc', duration: 4500 },
+    { id: 'nav_upload', view: 'overview', target: '[data-tour="nav-upload"]', placement: 'bottom', padding: 6, titleKey: 'tour.step_3_title', descKey: 'tour.step_3_desc', autoClick: true, duration: 3000 },
+    { id: 'upload_dropzone', view: 'upload', target: '[data-tour="upload-dropzone"]', placement: 'top', padding: 8, titleKey: 'tour.step_4_title', descKey: 'tour.step_4_desc', duration: 4500 },
+    { id: 'ai_extraction', view: 'upload', target: '[data-tour="ai-extraction-info"]', placement: 'top', padding: 6, titleKey: 'tour.step_5_title', descKey: 'tour.step_5_desc', duration: 4500 },
+    { id: 'nav_activity', view: 'upload', target: '[data-tour="nav-activity"]', placement: 'bottom', padding: 6, titleKey: 'tour.step_6_title', descKey: 'tour.step_6_desc', autoClick: true, duration: 3000 },
+    { id: 'review_toolbar', view: 'activity', target: '[data-tour="review"]', placement: 'bottom', padding: 8, titleKey: 'tour.step_7_title', descKey: 'tour.step_7_desc', duration: 4500 },
+    { id: 'anomaly_review', view: 'activity', target: '[data-tour="anomaly-review"]', placement: 'top', padding: 8, titleKey: 'tour.step_8_title', descKey: 'tour.step_8_desc', duration: 4500 },
+    { id: 'complete', completion: true, titleKey: 'tour.step_9_title', descKey: 'tour.step_9_desc', isLast: true },
   ];
 
   function hasDom() { return typeof document !== 'undefined'; }
@@ -85,11 +95,13 @@
   var CURSOR_TRAVEL_MS = 650; // just past tour.css's 0.6s cursor transition
   var CLICK_FIRE_DELAY_MS = 150; // lets the click animation read before the real click fires
 
-  var overlayEl, spotlightEl, cursorEl, tooltipEl, arrowEl, stepLabelEl, closeBtn, titleEl, descEl, progressBarEl, progressFillEl, skipBtn, pauseBtn;
+  var overlayEl, spotlightEl, cursorEl, tooltipEl, arrowEl, stepLabelEl, closeBtn, titleEl, descEl,
+    progressBarEl, progressFillEl, skipBtn, pauseBtn, finishBtn;
 
   function now() { return (root.performance && typeof root.performance.now === 'function') ? root.performance.now() : Date.now(); }
   function raf(fn) { return (root && typeof root.requestAnimationFrame === 'function') ? root.requestAnimationFrame(fn) : setTimeout(fn, 16); }
   function cancelRaf(id) { if (root && typeof root.cancelAnimationFrame === 'function') root.cancelAnimationFrame(id); else clearTimeout(id); }
+  function devWarn(msg) { try { if (root && root.console && typeof root.console.warn === 'function') root.console.warn('[Tour] ' + msg); } catch (e) { /* ignore */ } }
 
   function t(key) {
     var I = (currentDeps && currentDeps.I18n) || I18n;
@@ -165,6 +177,14 @@
 
     tooltipEl.appendChild(actions);
 
+    // Completion-only action, hidden the rest of the tour — see renderCompletion().
+    finishBtn = el('button', 'tour-tooltip-finish');
+    finishBtn.type = 'button';
+    finishBtn.hidden = true;
+    Escape.setText(finishBtn, t('tour.finish'));
+    finishBtn.addEventListener('click', function () { end(true); });
+    tooltipEl.appendChild(finishBtn);
+
     document.body.appendChild(overlayEl);
     document.body.appendChild(spotlightEl);
     document.body.appendChild(cursorEl);
@@ -191,12 +211,25 @@
     })();
   }
 
-  function applySpotlight(rect) {
-    var pad = 8;
+  // Reads the target's OWN computed border-radius so the spotlight cutout matches
+  // its real shape (a circular icon gets a circular cutout, a card gets its own
+  // rounded corners) instead of one hardcoded shape for every kind of target.
+  function targetRadius(targetEl) {
+    try {
+      var cs = root.getComputedStyle ? root.getComputedStyle(targetEl) : null;
+      var r = cs && cs.borderRadius;
+      if (r && r !== '0px') return r;
+    } catch (e) { /* ignore */ }
+    return 'var(--radius-sm)';
+  }
+
+  function applySpotlight(rect, padding, radius) {
+    var pad = typeof padding === 'number' ? padding : 8;
     spotlightEl.style.top = (rect.top - pad) + 'px';
     spotlightEl.style.left = (rect.left - pad) + 'px';
     spotlightEl.style.width = (rect.width + pad * 2) + 'px';
     spotlightEl.style.height = (rect.height + pad * 2) + 'px';
+    spotlightEl.style.borderRadius = radius || 'var(--radius-sm)';
   }
 
   // Places the tooltip next to `rect`, flipping across the axis if the preferred
@@ -248,11 +281,14 @@
   }
 
   function reposition() {
-    if (!active || !lastTargetEl) return;
+    if (!active) return;
+    if (STEPS[stepIndex] && STEPS[stepIndex].completion) return; // centered by CSS, nothing to recalc
+    if (!lastTargetEl) return;
     if (!document.body.contains(lastTargetEl)) { playStep(stepIndex + 1); return; }
     var rect = lastTargetEl.getBoundingClientRect();
-    applySpotlight(rect);
-    positionTooltip(rect, STEPS[stepIndex].placement || 'bottom');
+    var step = STEPS[stepIndex];
+    applySpotlight(rect, step.padding, targetRadius(lastTargetEl));
+    positionTooltip(rect, step.placement || 'bottom');
     moveCursorTo(rect);
   }
 
@@ -337,13 +373,19 @@
     stepIndex = index;
     var myGen = ++gen;
 
+    if (step.completion) { renderCompletion(step); return; }
+
     try {
       if (step.view && typeof currentDeps.switchView === 'function') currentDeps.switchView(step.view);
     } catch (e) { /* ignore — still try to find the target on whatever view is current */ }
 
     waitForTarget(step.target, function (targetEl) {
       if (!active || gen !== myGen) return; // superseded by skip/end mid-wait
-      if (!targetEl) { playStep(index + 1); return; }
+      if (!targetEl) {
+        devWarn('target not found: ' + step.target + ' — skipping step ' + (index + 1));
+        playStep(index + 1);
+        return;
+      }
       proceedWithTarget(targetEl, step, myGen);
     });
   }
@@ -352,6 +394,7 @@
   // the scroll settles — spotlight it, fly the fake cursor to it, start the
   // progress timer, and (for autoClick steps) actually click it for real.
   function proceedWithTarget(targetEl, step, myGen) {
+    setCompletionMode(false);
     if (lastTargetEl && lastTargetEl !== targetEl) lastTargetEl.classList.remove('tour-target');
     lastTargetEl = targetEl;
     targetEl.classList.add('tour-target');
@@ -367,7 +410,7 @@
     setTimeout(function () {
       if (gen !== myGen || !active) return;
       var rect = targetEl.getBoundingClientRect();
-      applySpotlight(rect);
+      applySpotlight(rect, step.padding, targetRadius(targetEl));
       positionTooltip(rect, step.placement || 'bottom');
       moveCursorTo(rect);
       startTimer(step.duration || 4000, myGen);
@@ -385,6 +428,35 @@
         }, CURSOR_TRAVEL_MS);
       }
     }, 400); // let the smooth scroll settle before measuring/animating
+  }
+
+  // Toggles the tour chrome between "spotlighting a real element" and "centered
+  // completion card" — swaps which action row is visible and lets tour.css's
+  // .tour-tooltip.tour-complete rule take over positioning instead of the
+  // per-target inline top/left this module sets everywhere else.
+  function setCompletionMode(on) {
+    tooltipEl.classList.toggle('tour-complete', on);
+    overlayEl.classList.toggle('tour-complete', on);
+    spotlightEl.hidden = on;
+    cursorEl.hidden = on;
+    progressBarEl.hidden = on;
+    skipBtn.hidden = on;
+    pauseBtn.hidden = on;
+    finishBtn.hidden = !on;
+    if (on) tooltipEl.style.top = tooltipEl.style.left = '';
+  }
+
+  // The final step: no target, no timer, no spotlight — a clean completion card
+  // (spec: "do not spotlight a random UI element") with one explicit action.
+  function renderCompletion(step) {
+    stopTimer();
+    if (lastTargetEl) { lastTargetEl.classList.remove('tour-target'); lastTargetEl = null; }
+    setCompletionMode(true);
+    Escape.setText(stepLabelEl, tp('tour.step_counter', stepIndex + 1, STEPS.length));
+    Escape.setText(titleEl, t(step.titleKey));
+    Escape.setText(descEl, t(step.descKey));
+    Escape.setText(closeBtn, '✕');
+    Escape.setText(finishBtn, t('tour.finish'));
   }
 
   function end(markDone) {

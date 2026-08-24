@@ -282,6 +282,7 @@
 
     var nav = document.createElement('nav');
     nav.className = 'nav';
+    nav.setAttribute('data-tour', 'nav-root');
 
     var links = document.createElement('div');
     links.className = 'nav-links';
@@ -291,6 +292,9 @@
       btn.type = 'button';
       btn.className = 'nav-link';
       btn.setAttribute('data-view', s.id);
+      // Purpose-built tour target (2026-08-23) alongside data-view — a fixed prefix
+      // means any new section auto-qualifies as a tour target without extra wiring.
+      btn.setAttribute('data-tour', 'nav-' + s.id);
       btn.textContent = s.label;
       // addEventListener (not on*=) keeps us CSP-clean.
       btn.addEventListener('click', function () { onSelect(s.id); });
