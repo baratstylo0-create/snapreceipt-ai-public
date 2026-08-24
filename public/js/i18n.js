@@ -36,6 +36,8 @@
       landing: {
         login: 'Login',
         register: 'Register',
+        install_app: 'Download App',
+        install_app_hint: 'Use browser’s Install menu',
         eyebrow: 'Snap · Scan · Sorted',
         hero_title_1: 'Turn any receipt into ',
         hero_title_em: 'structured data',
@@ -701,6 +703,8 @@
       landing: {
         login: 'Log Masuk',
         register: 'Daftar',
+        install_app: 'Muat Turun Aplikasi',
+        install_app_hint: 'Guna menu Pasang pelayar anda',
         eyebrow: 'Tangkap · Imbas · Tersusun',
         hero_title_1: 'Tukar sebarang resit kepada ',
         hero_title_em: 'data berstruktur',

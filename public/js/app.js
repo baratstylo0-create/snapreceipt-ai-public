@@ -790,6 +790,8 @@
     deps.startTour = function () {
       if (Tour && typeof Tour.start === 'function') Tour.start(deps);
     };
+    // deps.installApp/canInstallApp are set once in boot() (before this function
+    // runs) so Landing/Login can offer install pre-login too — reused as-is here.
 
     var instances = mount ? buildViews(sections, mount, deps) : {};
 
@@ -917,6 +919,12 @@
       appName: (cfg && cfg.app_name) || 'SnapReceipt AI',
       onLogin: function () { mountLogin(deps, undefined, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined }); },
       onRegister: function () { mountOnboarding(deps, cfg); },
+      // Install as desktop app (2026-08-25) — the FIRST screen a brand-new visitor
+      // sees, so this is where "download it like Claude's desktop app" belongs,
+      // not buried in Settings behind a signup. Optional dep, same guard style as
+      // startTour: an older cached bundle without deps.installApp just never shows it.
+      installApp: deps.installApp,
+      canInstallApp: deps.canInstallApp,
     });
   }
 
@@ -1177,6 +1185,23 @@
     deps.t = deps.I18n.t;
     if (document.documentElement) document.documentElement.lang = deps.I18n.lang();
 
+    // Install as desktop/home-screen app (2026-08-25). Set here — BEFORE the auth
+    // decision below picks Landing/Login/signup/dashboard — so a brand-new visitor
+    // can install straight from the marketing/login screen, not just from a signed-
+    // in dashboard's Settings page (Barat: "how new user can download from login
+    // page"). canInstallApp hides the control once already running installed.
+    // installApp() shows the browser's real prompt if it fired early enough to be
+    // captured (deferredInstallPrompt, set above); otherwise resolves 'unavailable'
+    // so the caller can point the user at the browser's own install icon/menu.
+    deps.canInstallApp = function () { return !isStandalone(); };
+    deps.installApp = function () {
+      if (!deferredInstallPrompt) return Promise.resolve('unavailable');
+      var promptEvent = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      promptEvent.prompt();
+      return promptEvent.userChoice ? promptEvent.userChoice.then(function () {}) : Promise.resolve();
+    };
+
     // Subscribe once, before any view can possibly fetch and hit a dead session.
     if (deps.Api.onAuthExpired) deps.Api.onAuthExpired(handleAuthExpired);
 
@@ -1381,6 +1406,20 @@
     });
   }
 
+  // Installable web app (2026-08-25): the one missing piece for Chrome/Edge to
+  // actually offer an Install prompt (manifest.webmanifest + icons already
+  // existed) — see sw.js's own header for the exact, deliberately narrow scope
+  // (never touches /api/, so ADR-025 still holds). deferredInstallPrompt holds
+  // the browser's install event until Settings > About's "Install App" button
+  // (deps.installApp below) chooses to show it — Chrome requires calling
+  // .preventDefault() up front to control timing like this.
+  var deferredInstallPrompt = null;
+  function isStandalone() {
+    try {
+      return !!((root.matchMedia && root.matchMedia('(display-mode: standalone)').matches) || root.navigator.standalone);
+    } catch (e) { return false; }
+  }
+
   // Auto-boot only in a real browser (DOM present). Node require() must not boot.
   if (typeof document !== 'undefined' && root && root.addEventListener) {
     if (document.readyState === 'loading') {
@@ -1388,6 +1427,18 @@
     } else {
       boot();
     }
+    if (root.navigator && 'serviceWorker' in root.navigator) {
+      root.addEventListener('load', function () {
+        // Never let a registration failure (unsupported browser quirk, etc.)
+        // affect anything else — installability just silently degrades.
+        root.navigator.serviceWorker.register('/sw.js').catch(function () {});
+      });
+    }
+    root.addEventListener('beforeinstallprompt', function (ev) {
+      ev.preventDefault();
+      deferredInstallPrompt = ev;
+    });
+    root.addEventListener('appinstalled', function () { deferredInstallPrompt = null; });
   }
 
   return {
