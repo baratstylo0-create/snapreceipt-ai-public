@@ -29,8 +29,13 @@
   border-radius: var(--radius-sm);
   /* --accent-bg is already a low-alpha tint of THIS theme's own accent (defined per
      theme in app.css) — reused here instead of a hardcoded color so the glow is
-     always correct, not just on the default theme. */
-  box-shadow: 0 0 0 9999px rgba(20, 22, 18, 0.6), 0 0 0 1px var(--accent), 0 0 0 6px var(--accent-bg);
+     always correct, not just on the default theme.
+     ORDER MATTERS: CSS paints the first box-shadow in the list on top. The glow +
+     border must come BEFORE the 9999px dim shadow, or the dim paints over them and
+     the highlighted element reads as a plain white hole with no visible frame
+     (found in live QA 2026-08-24 — the accent ring was there in code but invisible
+     on screen because it was listed after, and therefore behind, the dim layer). */
+  box-shadow: 0 0 0 6px var(--accent-bg), 0 0 0 2px var(--accent), 0 0 0 9999px rgba(20, 22, 18, 0.6);
   pointer-events: none;
   transition: top 0.32s cubic-bezier(0.4, 0, 0.2, 1), left 0.32s cubic-bezier(0.4, 0, 0.2, 1),
     width 0.32s cubic-bezier(0.4, 0, 0.2, 1), height 0.32s cubic-bezier(0.4, 0, 0.2, 1),
@@ -48,39 +53,38 @@
   z-index: 201;
 }
 
+/* 2026-08-24 redesign (Barat: "I want tour like this" — Supademo-style): the
+   caption is no longer a speech-bubble pinned to each target (that required an
+   arrow + per-side placement math, and on a wide target like the upload drop
+   zone the bubble had nothing natural to point at). It's now a single fixed
+   caption bar bottom-center of the screen — the spotlight alone shows WHERE,
+   the bar explains WHAT, exactly like a movie's subtitle track. Every step
+   reuses the same bar; only its text swaps, with a fade+rise transition
+   (tour.js toggles .is-visible) so each new line of narration reads as a
+   deliberate beat instead of snapping in. */
 .tour-tooltip {
   position: fixed;
   z-index: 202;
-  width: 340px;
-  max-width: calc(100vw - 32px);
+  left: 50%;
+  bottom: 32px;
+  width: min(640px, calc(100vw - 32px));
   background: var(--panel);
   color: var(--txt);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 18px 20px 16px;
+  padding: 20px 26px 18px;
   font-family: var(--font-body);
-  transition: top 0.32s cubic-bezier(0.4, 0, 0.2, 1), left 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, 10px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
 }
+.tour-tooltip.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
 @media (prefers-reduced-motion: reduce) {
   .tour-tooltip { transition: none; }
 }
-
-.tour-tooltip-arrow {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  transform: rotate(45deg);
-}
-/* Only the two edges facing the target should show a border, per placement side —
-   otherwise the arrow reads as a diamond instead of a seamless pointer. */
-.tour-tooltip[data-placement="bottom"] .tour-tooltip-arrow { top: -8px; border-right: none; border-bottom: none; }
-.tour-tooltip[data-placement="top"] .tour-tooltip-arrow { bottom: -8px; border-left: none; border-top: none; }
-.tour-tooltip[data-placement="right"] .tour-tooltip-arrow { left: -8px; border-top: none; border-right: none; }
-.tour-tooltip[data-placement="left"] .tour-tooltip-arrow { right: -8px; border-bottom: none; border-left: none; }
 
 .tour-tooltip-header {
   display: flex;
@@ -116,7 +120,7 @@
 .tour-tooltip-title {
   margin: 0 0 6px;
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--txt);
   text-wrap: balance;
@@ -124,9 +128,10 @@
 
 .tour-tooltip-desc {
   margin: 0 0 16px;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   color: var(--txt-soft);
+  text-wrap: balance;
 }
 
 /* Fills over the step's `duration` and auto-advances when full — replaces the old
@@ -150,7 +155,8 @@
 .tour-tooltip-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 16px;
 }
 
 .tour-tooltip-skip {
@@ -162,7 +168,6 @@
   font-weight: 600;
   cursor: pointer;
   padding: 8px 4px;
-  margin-right: auto;
 }
 .tour-tooltip-skip:hover { color: var(--txt-soft); text-decoration: underline; }
 .tour-tooltip-skip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -185,28 +190,30 @@
 }
 
 @media (max-width: 480px) {
-  .tour-tooltip { width: calc(100vw - 32px); padding: 16px 16px 14px; }
+  .tour-tooltip { width: calc(100vw - 24px); bottom: 16px; padding: 16px 18px 14px; }
 }
 
 /* --- Completion card (2026-08-23) --------------------------------------------
    The final step is NOT another spotlighted target — no real element is "the
-   ending", so spotlighting one would read as arbitrary. Instead the tooltip
+   ending", so spotlighting one would read as arbitrary. Instead the caption bar
    itself becomes a centered, slightly larger card and the dim overlay deepens a
-   touch, since there's no target underneath it competing for attention. */
+   touch, since there's no target underneath it competing for attention.
+   `bottom: auto` cancels the base bar's bottom-anchored position so top/left/
+   transform (below) can center it instead. */
 .tour-overlay.tour-complete { background: rgba(20, 22, 18, 0.34); transition: background 0.3s ease; }
 
 .tour-tooltip.tour-complete {
   top: 50%;
   left: 50%;
+  bottom: auto;
   transform: translate(-50%, -50%);
   width: 380px;
-  text-align: center;
   padding: 28px 28px 24px;
 }
+.tour-tooltip.tour-complete.is-visible { transform: translate(-50%, -50%); }
 .tour-tooltip.tour-complete .tour-tooltip-header { justify-content: flex-end; margin-bottom: 0; }
 .tour-tooltip.tour-complete .tour-tooltip-title { font-size: 20px; margin-top: 4px; }
 .tour-tooltip.tour-complete .tour-tooltip-desc { margin-bottom: 20px; }
-.tour-tooltip.tour-complete .tour-tooltip-arrow { display: none; }
 
 .tour-tooltip-finish {
   appearance: none;

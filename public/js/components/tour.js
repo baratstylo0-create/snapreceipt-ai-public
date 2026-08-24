@@ -19,6 +19,15 @@
 // autoClick, duration, padding) so the sequence can be read/edited/tested without
 // touching the render logic below.
 //
+// Redesign (2026-08-24, Barat: "I want tour like this" — a Supademo-style walk-
+// through): the caption is now one fixed bar bottom-center of the screen instead
+// of a speech-bubble tooltip pinned beside each target (that needed an arrow +
+// per-side placement math, which broke down on wide targets like the upload drop
+// zone). The spotlight alone shows WHERE; the bar explains WHAT — like subtitles.
+// Also fixed a real bug found live: the spotlight's accent border/glow box-shadow
+// was listed AFTER the dim shadow, so the dim painted over it and every target
+// showed as a plain white hole (see tour.css's .tour-spotlight comment).
+//
 // CSP: every node is createElement/createElementNS + Escape.setText (no innerHTML);
 // positioning uses element.style.top/left assignments, the same pattern already used
 // by render.js's buildInfoIcon and overview.js's info popovers under this app's
@@ -43,15 +52,18 @@
   // never one fixed number for every shape. radius is intentionally NOT set here;
   // applySpotlight reads the target's own computed border-radius at render time so
   // the cutout always matches the real element instead of a guessed shape.
+  // placement/arrow were dropped in the 2026-08-24 redesign — the caption now
+  // lives in one fixed bottom-center bar (see tour.css) instead of a speech
+  // bubble pinned to each target's side, so there's no per-step side to pick.
   var STEPS = [
-    { id: 'welcome', view: null, target: '[data-tour="nav-root"]', placement: 'bottom', padding: 6, titleKey: 'tour.step_1_title', descKey: 'tour.step_1_desc', duration: 4000 },
-    { id: 'automation_impact', view: 'overview', target: '[data-tour="automation-impact"]', placement: 'bottom', padding: 8, titleKey: 'tour.step_2_title', descKey: 'tour.step_2_desc', duration: 4500 },
-    { id: 'nav_upload', view: 'overview', target: '[data-tour="nav-upload"]', placement: 'bottom', padding: 6, titleKey: 'tour.step_3_title', descKey: 'tour.step_3_desc', autoClick: true, duration: 3000 },
-    { id: 'upload_dropzone', view: 'upload', target: '[data-tour="upload-dropzone"]', placement: 'top', padding: 8, titleKey: 'tour.step_4_title', descKey: 'tour.step_4_desc', duration: 4500 },
-    { id: 'ai_extraction', view: 'upload', target: '[data-tour="ai-extraction-info"]', placement: 'top', padding: 6, titleKey: 'tour.step_5_title', descKey: 'tour.step_5_desc', duration: 4500 },
-    { id: 'nav_activity', view: 'upload', target: '[data-tour="nav-activity"]', placement: 'bottom', padding: 6, titleKey: 'tour.step_6_title', descKey: 'tour.step_6_desc', autoClick: true, duration: 3000 },
-    { id: 'review_toolbar', view: 'activity', target: '[data-tour="review"]', placement: 'bottom', padding: 8, titleKey: 'tour.step_7_title', descKey: 'tour.step_7_desc', duration: 4500 },
-    { id: 'anomaly_review', view: 'activity', target: '[data-tour="anomaly-review"]', placement: 'top', padding: 8, titleKey: 'tour.step_8_title', descKey: 'tour.step_8_desc', duration: 4500 },
+    { id: 'welcome', view: null, target: '[data-tour="nav-root"]', padding: 6, titleKey: 'tour.step_1_title', descKey: 'tour.step_1_desc', duration: 4000 },
+    { id: 'automation_impact', view: 'overview', target: '[data-tour="automation-impact"]', padding: 8, titleKey: 'tour.step_2_title', descKey: 'tour.step_2_desc', duration: 4500 },
+    { id: 'nav_upload', view: 'overview', target: '[data-tour="nav-upload"]', padding: 6, titleKey: 'tour.step_3_title', descKey: 'tour.step_3_desc', autoClick: true, duration: 3000 },
+    { id: 'upload_dropzone', view: 'upload', target: '[data-tour="upload-dropzone"]', padding: 8, titleKey: 'tour.step_4_title', descKey: 'tour.step_4_desc', duration: 4500 },
+    { id: 'ai_extraction', view: 'upload', target: '[data-tour="ai-extraction-info"]', padding: 6, titleKey: 'tour.step_5_title', descKey: 'tour.step_5_desc', duration: 4500 },
+    { id: 'nav_activity', view: 'upload', target: '[data-tour="nav-activity"]', padding: 6, titleKey: 'tour.step_6_title', descKey: 'tour.step_6_desc', autoClick: true, duration: 3000 },
+    { id: 'review_toolbar', view: 'activity', target: '[data-tour="review"]', padding: 8, titleKey: 'tour.step_7_title', descKey: 'tour.step_7_desc', duration: 4500 },
+    { id: 'anomaly_review', view: 'activity', target: '[data-tour="anomaly-review"]', padding: 8, titleKey: 'tour.step_8_title', descKey: 'tour.step_8_desc', duration: 4500 },
     { id: 'complete', completion: true, titleKey: 'tour.step_9_title', descKey: 'tour.step_9_desc', isLast: true },
   ];
 
@@ -95,7 +107,7 @@
   var CURSOR_TRAVEL_MS = 650; // just past tour.css's 0.6s cursor transition
   var CLICK_FIRE_DELAY_MS = 150; // lets the click animation read before the real click fires
 
-  var overlayEl, spotlightEl, cursorEl, tooltipEl, arrowEl, stepLabelEl, closeBtn, titleEl, descEl,
+  var overlayEl, spotlightEl, cursorEl, tooltipEl, stepLabelEl, closeBtn, titleEl, descEl,
     progressBarEl, progressFillEl, skipBtn, pauseBtn, finishBtn;
 
   function now() { return (root.performance && typeof root.performance.now === 'function') ? root.performance.now() : Date.now(); }
@@ -138,8 +150,6 @@
     tooltipEl = el('div', 'tour-tooltip');
     tooltipEl.setAttribute('role', 'dialog');
     tooltipEl.setAttribute('aria-modal', 'false');
-    arrowEl = el('div', 'tour-tooltip-arrow');
-    tooltipEl.appendChild(arrowEl);
 
     var header = el('div', 'tour-tooltip-header');
     stepLabelEl = el('span', 'tour-tooltip-step');
@@ -232,54 +242,8 @@
     spotlightEl.style.borderRadius = radius || 'var(--radius-sm)';
   }
 
-  // Places the tooltip next to `rect`, flipping across the axis if the preferred
-  // side has no room, clamping to a 16px viewport margin, then nudging the arrow
-  // so it still points at the target's own center even after clamping.
-  function positionTooltip(rect, placement) {
-    // documentElement.clientWidth/Height (the layout viewport) is what `position: fixed`
-    // is actually constrained by; root.innerWidth/Height can diverge from it (mobile
-    // browser chrome, pinch-zoom, some emulated viewports) and clamping against the
-    // wrong one lets the tooltip render past the real edge of the screen.
-    var vw = document.documentElement.clientWidth || (root && root.innerWidth) || 320;
-    var vh = document.documentElement.clientHeight || (root && root.innerHeight) || 480;
-    var margin = 16, gap = 14;
-    var tw = tooltipEl.offsetWidth || 340;
-    var th = tooltipEl.offsetHeight || 160;
-    var vertical = placement === 'top' || placement === 'bottom';
-    var side = placement;
-
-    if (vertical) {
-      var roomBelow = vh - rect.bottom;
-      var roomAbove = rect.top;
-      if (side === 'bottom' && roomBelow < th + gap + margin && roomAbove > roomBelow) side = 'top';
-      if (side === 'top' && roomAbove < th + gap + margin && roomBelow > roomAbove) side = 'bottom';
-      var top = side === 'bottom' ? rect.bottom + gap : rect.top - th - gap;
-      top = clamp(top, margin, vh - th - margin);
-      var targetCenterX = rect.left + rect.width / 2;
-      var left = clamp(targetCenterX - tw / 2, margin, vw - tw - margin);
-      tooltipEl.style.top = top + 'px';
-      tooltipEl.style.left = left + 'px';
-      var arrowX = clamp(targetCenterX - left - 7, margin, tw - margin - 14);
-      arrowEl.style.left = arrowX + 'px';
-      arrowEl.style.top = '';
-    } else {
-      var roomRight = vw - rect.right;
-      var roomLeft = rect.left;
-      if (side === 'right' && roomRight < tw + gap + margin && roomLeft > roomRight) side = 'left';
-      if (side === 'left' && roomLeft < tw + gap + margin && roomRight > roomLeft) side = 'right';
-      var leftPos = side === 'right' ? rect.right + gap : rect.left - tw - gap;
-      leftPos = clamp(leftPos, margin, vw - tw - margin);
-      var targetCenterY = rect.top + rect.height / 2;
-      var topPos = clamp(targetCenterY - th / 2, margin, vh - th - margin);
-      tooltipEl.style.top = topPos + 'px';
-      tooltipEl.style.left = leftPos + 'px';
-      var arrowY = clamp(targetCenterY - topPos - 7, margin, th - margin - 14);
-      arrowEl.style.top = arrowY + 'px';
-      arrowEl.style.left = '';
-    }
-    tooltipEl.setAttribute('data-placement', side);
-  }
-
+  // The caption bar (tour.css .tour-tooltip) is fixed bottom-center by CSS —
+  // only the spotlight and cursor need repositioning per target now.
   function reposition() {
     if (!active) return;
     if (STEPS[stepIndex] && STEPS[stepIndex].completion) return; // centered by CSS, nothing to recalc
@@ -288,7 +252,6 @@
     var rect = lastTargetEl.getBoundingClientRect();
     var step = STEPS[stepIndex];
     applySpotlight(rect, step.padding, targetRadius(lastTargetEl));
-    positionTooltip(rect, step.placement || 'bottom');
     moveCursorTo(rect);
   }
 
@@ -404,6 +367,7 @@
     Escape.setText(descEl, t(step.descKey));
     Escape.setText(closeBtn, '✕');
     Escape.setText(skipBtn, t('tour.skip'));
+    flashCaption();
 
     try { targetEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { /* older browsers */ }
 
@@ -411,7 +375,6 @@
       if (gen !== myGen || !active) return;
       var rect = targetEl.getBoundingClientRect();
       applySpotlight(rect, step.padding, targetRadius(targetEl));
-      positionTooltip(rect, step.placement || 'bottom');
       moveCursorTo(rect);
       startTimer(step.duration || 4000, myGen);
 
@@ -432,8 +395,8 @@
 
   // Toggles the tour chrome between "spotlighting a real element" and "centered
   // completion card" — swaps which action row is visible and lets tour.css's
-  // .tour-tooltip.tour-complete rule take over positioning instead of the
-  // per-target inline top/left this module sets everywhere else.
+  // .tour-tooltip.tour-complete rule take over centering instead of the
+  // bottom-bar position this module leaves to CSS everywhere else.
   function setCompletionMode(on) {
     tooltipEl.classList.toggle('tour-complete', on);
     overlayEl.classList.toggle('tour-complete', on);
@@ -443,7 +406,17 @@
     skipBtn.hidden = on;
     pauseBtn.hidden = on;
     finishBtn.hidden = !on;
-    if (on) tooltipEl.style.top = tooltipEl.style.left = '';
+  }
+
+  // Re-triggers the caption bar's fade+rise transition (tour.css .is-visible)
+  // every time a new step's text is written in — removing then re-adding the
+  // class in the same tick would get coalesced into one paint by the browser,
+  // so a forced reflow (reading offsetWidth) sits between the two to make sure
+  // the "hidden" state actually commits first.
+  function flashCaption() {
+    tooltipEl.classList.remove('is-visible');
+    void tooltipEl.offsetWidth;
+    tooltipEl.classList.add('is-visible');
   }
 
   // The final step: no target, no timer, no spotlight — a clean completion card
@@ -457,6 +430,7 @@
     Escape.setText(descEl, t(step.descKey));
     Escape.setText(closeBtn, '✕');
     Escape.setText(finishBtn, t('tour.finish'));
+    flashCaption();
   }
 
   function end(markDone) {
