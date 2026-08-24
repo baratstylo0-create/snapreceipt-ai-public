@@ -701,3 +701,132 @@ create index if not exists email_challenges_expiry_idx on email_challenges (expi
 
 alter table email_challenges enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
+-- ============================================================================
+-- Migration: device sessions and auth events (P-02a, 2026-08-24)
+-- Program: docs/FULL_APP_EXECUTION_PLAN.md Gate 1 (trust foundation), issue #35.
+--
+-- P-02 asks for cookie sessions, CSRF, device management, step-up auth and
+-- suspicious-login events. This migration is the FIRST slice only: the durable
+-- record needed to answer "which devices are signed in as me, and when did
+-- someone last sign in?" It deliberately does NOT change how a session is
+-- resolved -- the bearer contract is untouched, so every existing client keeps
+-- working byte-for-byte. The cookie/CSRF transport switch is P-02b and needs
+-- W-01 and M-02 to agree the session contract first.
+--
+-- Why `id` is added rather than reusing the primary key: sessions is keyed by
+-- token_hash, and a device list has to be addressable from the browser
+-- ("revoke THAT device"). Exposing token_hash as the handle would put a value
+-- derived from a live credential into URLs, logs and history -- so a separate,
+-- meaningless surrogate id is generated for addressing. Changing the primary
+-- key itself would be a breaking rewrite of lib/auth.js's whole lookup path,
+-- so the PK is left exactly as it is.
+--
+-- Privacy (PDPA, C-02): the raw client IP is NEVER stored. `ip_hash` is a
+-- salted sha-256 -- enough to answer "is this the same network as last time?"
+-- for new-device detection, without retaining a location-bearing identifier.
+-- user_agent IS stored, truncated, because a device list that cannot say
+-- "Chrome on Windows" is useless to the person reading it.
+-- ============================================================================
+alter table sessions add column if not exists id uuid not null default gen_random_uuid();
+alter table sessions add column if not exists last_seen_at timestamptz;
+alter table sessions add column if not exists user_agent text;
+alter table sessions add column if not exists ip_hash text;
+create unique index if not exists sessions_id_idx on sessions (id);
+
+-- Stamped whenever a password changes (reset today; a future change-password
+-- endpoint too). Revocation itself is still a hard DELETE of the user's session
+-- rows -- this column is the audit answer to "when did this account's
+-- credentials last change?", which a device list and an incident review both need.
+alter table users add column if not exists password_changed_at timestamptz;
+
+-- auth_events: the security timeline for one account. Powers new-device
+-- detection and the "was this you?" surface W-06 will render.
+--
+-- Deliberately NOT a general audit log: it records only authentication outcomes,
+-- never what the user then did, and never a token, password, code or receipt
+-- value. Retention is P-07's job (these should not live forever).
+create table if not exists auth_events (
+  id          uuid        primary key default gen_random_uuid(),
+  account_id  text        not null default 'default',
+  user_id     uuid        references users(id) on delete cascade,  -- null for a failure against an unknown account
+  event       text        not null
+    check (event in ('login_ok', 'login_fail', 'logout', 'session_revoked', 'password_changed', 'new_device')),
+  ip_hash     text,                                 -- salted hash, never the raw IP
+  user_agent  text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists auth_events_user_idx on auth_events (account_id, user_id, created_at desc);
+create index if not exists auth_events_created_idx on auth_events (created_at);
+
+alter table auth_events enable row level security;
+-- service_role bypasses RLS; no anon policy -> anon denied (SEC-8, same as every table).
+-- ============================================================================
+-- Migration: shared (multi-instance) rate limiting (P-04a, 2026-08-24)
+-- Program: docs/FULL_APP_EXECUTION_PLAN.md Gate 1, issue #37.
+--
+-- The problem this fixes: lib/ratelimit.js is a per-PROCESS Map. It was honest
+-- about that ("Single-process v1 ... a multi-instance deploy would move this to
+-- a shared store"), but the gap is now load-bearing -- P-01's OTP endpoints and
+-- P-02a's revoke endpoints both lean on rate limiting, and the 2026-08-24 gap
+-- audit lists single-process limiting as a P0 launch blocker. Two instances
+-- behind a load balancer today means an attacker gets N times the budget, and a
+-- restart resets every counter to zero.
+--
+-- Deliberately Postgres rather than Redis: the no-new-dependency rule is real,
+-- and this codebase already reaches Supabase on every request anyway. The cost
+-- is one extra round-trip on the ABUSE-CRITICAL endpoints only -- never on the
+-- ordinary dashboard read path, which keeps its in-memory limiter untouched.
+--
+-- bucket_key is a SALTED HASH of the client identifier, never a raw IP. A rate
+-- limiter is not a reason to start retaining addresses (PDPA / C-02).
+-- ============================================================================
+create table if not exists rate_limits (
+  bucket_key   text        not null,          -- salted hash of "<name>|<client>"; never a raw IP
+  window_start timestamptz not null,          -- start of the fixed window this row counts
+  count        int         not null default 0,
+  expires_at   timestamptz not null,          -- when this row may be swept (P-07 retention)
+  primary key (bucket_key, window_start)
+);
+create index if not exists rate_limits_expiry_idx on rate_limits (expires_at);
+
+alter table rate_limits enable row level security;
+-- service_role bypasses RLS; no anon policy -> anon denied (SEC-8, same as every table).
+
+-- bump_rate_limit(key, window_ms) -> the count INCLUDING this request.
+--
+-- The whole point is that this is ONE statement: INSERT .. ON CONFLICT DO UPDATE
+-- is atomic, so N concurrent requests across N instances produce N distinct
+-- counts with no lost updates. A read-then-write from the application could not
+-- provide that, which is exactly the weakness of the in-memory limiter it backs up.
+create or replace function bump_rate_limit(p_key text, p_window_ms int)
+returns int language plpgsql as $$
+declare
+  v_window_start timestamptz;
+  v_count        int;
+begin
+  -- Floor "now" to the start of its fixed window, so every instance agrees on
+  -- which bucket a given moment belongs to without any coordination.
+  v_window_start := to_timestamp(
+    floor(extract(epoch from now()) * 1000 / p_window_ms) * p_window_ms / 1000.0
+  );
+  insert into rate_limits (bucket_key, window_start, count, expires_at)
+  values (p_key, v_window_start, 1,
+          v_window_start + ((p_window_ms * 2) || ' milliseconds')::interval)
+  on conflict (bucket_key, window_start)
+  do update set count = rate_limits.count + 1
+  returning count into v_count;
+  return v_count;
+end;
+$$;
+
+-- sweep_rate_limits() -> rows removed. Expired buckets are pure garbage; nothing
+-- reads them once their window has passed. P-07 owns scheduling this.
+create or replace function sweep_rate_limits()
+returns int language plpgsql as $$
+declare v_n int;
+begin
+  delete from rate_limits where expires_at < now();
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;

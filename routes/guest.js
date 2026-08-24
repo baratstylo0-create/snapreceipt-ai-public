@@ -9,9 +9,12 @@
 const express = require('express');
 const { sbSelect, sbInsertReturning, sbInsert, sbHardDelete } = require('../lib/supabase');
 const { mintSession, lookupSession } = require('../lib/auth');
+const { deviceFromRequest, recordAuthEvent } = require('../lib/deviceSessions'); // P-02a (#35)
 const { getCapabilities } = require('../lib/account');
 const { genBindingToken, BIND_TTL_MS } = require('../lib/personalAuth');
 const { createRateLimiter, clientKey } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 
 // A guest session lives at most 24h (matches the safety-net sweep below) — even if the
 // close-tab beacon (POST /api/guest/end) never fires, the session itself can't outlive it.
@@ -21,7 +24,7 @@ const GUEST_STALE_MS = GUEST_SESSION_TTL_MS;
 // New account creation is real DB write + email-free (no signup friction to slow abuse the
 // way a password policy naturally does), so this gets its own limiter rather than reusing
 // signupLimiter — deliberately tighter than /api/signup's default.
-const guestStartLimiter = createRateLimiter({ max: Number(process.env.GUEST_START_RATE_MAX) || 10 });
+const guestStartLimiter = createAbuseLimiter({ name: 'guest.start', max: Number(process.env.GUEST_START_RATE_MAX) || 10 });
 // /api/guest/end is a fire-and-forget cleanup call (sendBeacon) — generous, since a legitimate
 // guest only ever calls it once, but still bounded against abuse.
 const guestEndLimiter = createRateLimiter({ max: Number(process.env.GUEST_END_RATE_MAX) || 30 });
@@ -93,7 +96,13 @@ module.exports = function mountGuest(app) {
         active: true,
       });
 
-      const token = await mintSession(user, GUEST_SESSION_TTL_MS);
+      // P-02a (#35, Codex cross-lane pre-review finding on #48): guest starts previously
+      // minted a session with no device metadata and no timeline entry. No new-device
+      // check here -- a guest identity is single-use and ephemeral (<=24h), so "is this a
+      // new device" has no meaningful prior session to compare against.
+      const device = deviceFromRequest(req);
+      const token = await mintSession(user, GUEST_SESSION_TTL_MS, device);
+      await recordAuthEvent({ userId: user.id, event: 'login_ok', device });
       // Logged only on a CONFIRMED successful signup — a mid-flow failure above must not
       // burn the device's one trial for nothing.
       if (ip && ip !== 'unknown') {

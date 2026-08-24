@@ -62,6 +62,31 @@
   (multiUser) accounts are admin-provisioned, not self-serve installers, and a personal-mode
   visitor already had the chance to install on Landing before ever reaching Login.
 
+## 2026-08-24 · Claude-P (platform/trust) · chore/claude-p-agent-cross-review-workflow · Agent cross-review workflow
+
+- **Files:** added `docs/AGENT_CROSS_REVIEW.md`; this worklog. **Risk tier 1** (docs only, no code).
+- **Why:** on day one of the program the repo hit **12 open PRs, 0 reviews, 0 merges**, seven of them
+  opened that day by two AI agents, with `main` unmoved. Build capacity was planned in the execution
+  plan; review capacity was assumed. Review — not build — is the binding constraint.
+- **What it defines:** a mandatory cross-lane agent pre-review before any `agent:*` PR is marked ready
+  for a human. Explicitly **not** the Tier-2 approval — governance already permits agents to review but
+  not to approve, and that line is unchanged. Codex pre-reviews platform; Claude-P pre-reviews mobile.
+  Also proposes a **WIP limit of 2 open Tier-2 PRs per lane**, so an agent at the cap pre-reviews,
+  rebases and writes blocking decision docs instead of deepening a stalled queue.
+- **Grounded in a real find, not theory.** Running the first pass today surfaced a defect neither PR
+  could see alone: #49 sets `FLAG_SECURE` *before* `super.onCreate()`; #47 rewrites the same `onCreate`
+  with `super.onCreate()` *first*. Merging either way resolves into one method and silently drops the
+  ordering guarantee — and #49's test only greps for the string `FLAG_SECURE`, so it would still pass.
+  A security control degraded by a merge, with a green test. That finding class is now section 4.1.
+- **Also carried across:** mutation testing on security-relevant suites (it caught two suites in the
+  platform lane that could not detect a deleted control, plus a real `Number(null) === 0` bug), and the
+  harder-won lesson that a mutation harness must **exit non-zero when its edit fails to apply** — twice
+  a silently-failed harness reported every mutation as "caught".
+- **Pre-reviews posted today:** #47 (M-01) and #49 (M-03). Plan amendments posted to #17.
+- **Verification:** docs-only; no code, no tests, no schema. `npm test` unaffected.
+- **What's next:** adopt/amend/reject via normal review. This file does not modify
+  `docs/COLLABORATION_AND_RELEASE_GOVERNANCE.md`, which is integration-owned.
+
 ## 2026-08-24 · Claude (Barat/web lane, W-01) · feature/tour-premium-redesign-2026-08-23 · Email-verification UI built against Jeevan/Claude-P's P-01 contract + a real Google-OAuth-error bug fixed
 
 - **Context:** Jeevan pushed a full-app team-restructure plan today (`codex/full-app-team-plan`,

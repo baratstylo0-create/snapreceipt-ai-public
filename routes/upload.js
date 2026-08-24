@@ -7,6 +7,8 @@ const templates = require('../lib/templates');
 const pdf = require('../lib/pdf');
 const storage = require('../lib/storage');
 const { createRateLimiter } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 
 const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
 
@@ -19,7 +21,7 @@ const MAX_IMAGES = Number(process.env.MASS_MAX_IMAGES) || 10;
 // RUNAWAY backstop, not a throttle: the Groq key pool (ADR-016) is the cost backstop; this
 // only caps a bug-loop / malicious flood before it hammers every pooled key indefinitely.
 // Deliberately generous-but-present (not unlimited — a runaway drains the whole pool otherwise).
-const uploadLimiter = createRateLimiter({ max: Number(process.env.UPLOAD_RATE_MAX) || 120 });
+const uploadLimiter = createAbuseLimiter({ name: 'upload', max: Number(process.env.UPLOAD_RATE_MAX) || 120 });
 
 // #1 PDF: map lib/pdf's typed PdfError codes to an HTTP status + a FIXED client message.
 // The message NEVER interpolates the code or any library internals (SOP §7.2). TOO_LARGE

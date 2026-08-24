@@ -24,12 +24,14 @@ const storage = require('../lib/storage');         // namespace import so tests 
 const { cfg } = require('../lib/config');
 const { getCapabilities } = require('../lib/account');
 const { createRateLimiter } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 const { buildStatementModel } = require('../lib/statement');
 const { statementToWorkbook } = require('../lib/statementXlsx');
 const { statementToPdf } = require('../lib/statementPdf');
 const { checkDash, dashOrigin } = require('./expenses');
 
-const statementLimiter = createRateLimiter({ max: Number(process.env.STATEMENT_RATE_MAX) || 30 });
+const statementLimiter = createAbuseLimiter({ name: 'export.statement', max: Number(process.env.STATEMENT_RATE_MAX) || 30 });
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const ALL_BRANCHES = 'all';
 

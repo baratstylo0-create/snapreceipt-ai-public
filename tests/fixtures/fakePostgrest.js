@@ -39,6 +39,10 @@ function matches(row, filters) {
     if (expr === 'is.null') return isNullish(row[col]);
     if (expr === 'not.is.null') return !isNullish(row[col]);
     if (expr.startsWith('eq.')) return String(row[col]) === expr.slice(3);
+    // neq. is used by P-02a's "revoke every device EXCEPT mine" delete. Getting it wrong in
+    // the fake would silently turn that into "revoke everything", including the caller's own
+    // session — so it is implemented rather than approximated.
+    if (expr.startsWith('neq.')) return String(row[col]) !== expr.slice(4);
     throw new Error('fakePostgrest: unsupported filter "' + col + '=' + expr + '" — extend the fake rather than loosening it');
   });
 }
