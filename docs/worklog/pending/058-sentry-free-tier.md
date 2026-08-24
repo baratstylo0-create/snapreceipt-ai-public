@@ -1,0 +1,6 @@
+## 2026-08-25 · Codex · codex/sentry-free-tier — OPS: Sentry free-tier error tracking
+
+- **Files:** `lib/sentry.js`, `server.js`, `lib/config.js`, `.env.example`, `docs/DECISIONS.md`, `docs/ops/2026-08-25-sentry-free-tier.md`, `tests/sentry.test.js`, `package.json`, `package-lock.json`.
+- **What:** implemented the Owner direction to use one Sentry free-tier setup for SnapReceipt AI. Added `@sentry/node`, DSN-gated initialization, boot-summary visibility (`sentry=on/off`), global Express error capture, strict `beforeSend` scrubbing, Sentry setup docs, and tests that prove request bodies, cookies, auth context, receipt/OCR fields, merchant/amount/card data, user identifiers, long IDs, and query strings do not leave the app.
+- **Privacy/ops boundary:** Claude owns Sentry account/project setup and deployment env (`SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`); Codex only added application wiring. Local/CI stays default-off unless a DSN is explicitly configured. Tracing defaults to `0` to preserve free-tier quota.
+- **Verification:** `node --test tests/sentry.test.js tests/config-summary.test.js`; full `npm test` passed 2387/2387; `git diff --check` clean. `npm audit --omit=dev` still reports an existing `brace-expansion` high-severity finding through `exceljs`/`archiver` paths; the Sentry lockfile diff does not touch `brace-expansion`.
