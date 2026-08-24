@@ -1,5 +1,46 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-08-25 · Claude (Barat/web lane) · main (live deploy) · Deployed PWA + P-01/P-02/P-04 to production, hit and fixed a real outage along the way
+
+- **Context:** Barat approved a full production deploy (PR #57's PWA work, which by this
+  point sat on `main` on top of Jeevan/Claude-P's previously-merged-but-never-deployed P-01
+  email verification, P-02a device sessions, and P-04a shared rate limiting). Auto-deploy is
+  still broken (missing VPS secrets), so this was a manual deploy.
+- **DB migrations applied first** (Barat ran the SQL himself in Supabase's SQL Editor, per the
+  project's own documented workflow — not run programmatically): the 3 pending migration
+  blocks from the tail of `schema.sql` (P-01 `email_challenges` + `users.email_verified_at`,
+  P-02a `auth_events` + `sessions`/`users` columns, P-04a `rate_limits` + its two functions).
+  Verified via a read-only REST HEAD check before AND after — all three tables 404'd
+  beforehand, all three returned 200 afterward.
+- **Code deploy — real gap found and fixed live:** built the deploy file list from
+  `git diff a6d9e0b HEAD`, which only captures what changed SINCE the tour-redesign branch
+  point. That branch point already had P-01 merged in (just never deployed), so 3 files it
+  never touched were silently missing from the deploy list: `lib/emailChallenge.js` (new
+  file, 100% missing on the VPS), `lib/account.js`, `lib/mailer.js` (both stale). First
+  restart attempt crashed the site (`MODULE_NOT_FOUND: '../lib/emailChallenge'`,
+  `routes/auth.js` → HTTP 502 for a few minutes). **Caught immediately** by checking
+  `pm2 logs --err` right after the restart rather than trusting the health-check alone. Fix:
+  ran an md5 hash comparison of every `lib/*.js` file the app actually `require()`s (local
+  repo vs. live VPS content, CRLF-stripped) to find every real gap at once rather than
+  patching one file and hoping — found exactly those 3, copied them, restarted, confirmed
+  clean (`/health`, `/api/config` both real responses; error log empty after a flush + fresh
+  request). Also re-ran the same hash check on all `routes/*.js` + `server.js` — zero
+  mismatches, confirms the original deploy list was otherwise complete.
+- **Lesson for next deploy:** diffing against a branch point is not enough when that branch
+  point itself contains merged-but-undeployed work — the file list has to account for
+  "everything different from what's ACTUALLY live," not "everything different from wherever
+  this branch forked." A live md5 comparison of every required module (like the one used to
+  find/confirm the fix here) is the more reliable check and should be the first step, not the
+  recovery step, next time.
+- **Verification:** `/health` → `{"ok":true,...}`; `/api/config` → real config JSON
+  (`personal_auth:true`, `google_auth:true`, etc.); `/sw.js` → HTTP 200; `index.html` serving
+  `js/app.js?v=20260825a` (confirms the new cache-busted bundle, not a stale cached one);
+  `pm2 logs --err` empty after the fix; full backup taken before any file was touched
+  (`/root/snapreceipt-backup-*.tar.gz` on the VPS) as a rollback point, not needed in the end.
+- **What's next:** one real live pass of the actual browser Install prompt on
+  `https://snapreceiptai.friction.com.my` (couldn't be exercised in the local harness, per
+  PR #57) would close out the PWA work fully.
+
 ## 2026-08-25 · Claude (Barat/web lane) · feature/tour-premium-redesign-2026-08-23 · Installable desktop/home-screen app (PWA, Option 1 of the "download as desktop app" plan)
 
 - **Context:** Barat asked ("i want user download it from web and use as desktop app like how
