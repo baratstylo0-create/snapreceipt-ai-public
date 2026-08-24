@@ -17,13 +17,17 @@ function baseDeps(over = {}) {
   const edited = [];
   const answered = [];
   const softDeleteCalls = [];
+  // sbSelectGlobal (2026-08-23): see lib/bot.js's handleCallbackQuery doc comment.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
     tgEditMessage: async (chatId, messageId, text, replyMarkup) => { edited.push({ chatId, messageId, text, replyMarkup }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
+    sbSelectGlobal: async () => [],
     sbSoftDelete: async (table, { id }) => { softDeleteCalls.push({ table, id }); },
-    ...over,
+    ...resolvedOver,
   };
   return { deps, sent, edited, answered, softDeleteCalls };
 }

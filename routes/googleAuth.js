@@ -11,9 +11,9 @@
 const crypto = require('node:crypto');
 const { cfg } = require('../lib/config');
 const { getCapabilities } = require('../lib/account');
-const { sbSelect, sbInsertReturning, sbInsert } = require('../lib/supabase');
+const { sbSelectGlobal, sbInsertReturning, sbInsert } = require('../lib/supabase');
 const { mintSession } = require('../lib/auth');
-const { normaliseEmail, genBindingToken, BIND_TTL_MS } = require('../lib/personalAuth');
+const { normaliseEmail, genBindingToken, genAccountId, BIND_TTL_MS } = require('../lib/personalAuth');
 const { isConfigured, buildAuthUrl, exchangeCode, verifyIdToken } = require('../lib/googleAuth');
 const { createRateLimiter } = require('../lib/ratelimit');
 
@@ -81,7 +81,13 @@ module.exports = function mountGoogleAuth(app) {
       const { email, name } = await verifyIdToken(idToken);
       const username = normaliseEmail(email);
 
-      const existing = await sbSelect('users', { eq: { username }, limit: 1 });
+      // sbSelectGlobal (2026-08-22): see lib/supabase.js's doc comment — a Google-login
+      // "does this email already exist" check must be tenant-independent, or it goes blind
+      // to any already-migrated owner and creates a fresh duplicate account on every re-login.
+      // CAUGHT LIVE: exactly this happened to baratstylo0@gmail.com right after the 2026-08-22
+      // account-isolation backfill — his real 4-receipt account has account_id=p_0a0b1781...,
+      // but the OLD scoped lookup here only ever matched cfg.ACCOUNT_ID, so it never found him.
+      const existing = await sbSelectGlobal('users', { eq: { username }, limit: 1 });
       let user = existing[0];
       let bindToken = null;
       let isNew = false;
@@ -93,7 +99,13 @@ module.exports = function mountGoogleAuth(app) {
         if (user.role !== 'owner') return failRedirect(req, res, 'account_type');
       } else {
         isNew = true;
+        // 2026-08-14 SECURITY FIX (mirrors lib/personalAuth.js signupOwner's same-day fix):
+        // this used to leave account_id unset, so every Google-signed-up owner fell back to
+        // the same shared 'default' account_id as every other personal user — full
+        // cross-account receipt read/write. genAccountId() gives this new owner their own.
+        const account_id = genAccountId();
         user = await sbInsertReturning('users', {
+          account_id,
           branch_id: null,
           company_id: null,
           role: 'owner',
@@ -105,6 +117,7 @@ module.exports = function mountGoogleAuth(app) {
         if (!user) return failRedirect(req, res, 'failed');
         bindToken = genBindingToken();
         await sbInsert('bot_bindings', {
+          account_id, // must match the user row — lib/bot.js's bindingMeta() reads it from here
           user_id: user.id,
           branch_id: null,
           company_id: null,

@@ -566,3 +566,43 @@ test('smart date resolver: an already-ISO date is never flagged as ambiguous', a
   const { flagged } = await assembleExpense(goodInput(), deps()); // goodInput's rawParsed.expense_date is '2026-01-02'
   assert.strictEqual(flagged, false);
 });
+
+// 2026-08-14 SECURITY FIX regression lock: assembleExpense is the ONE insert choke-point
+// for every capture path (bot single-photo, bot album/PDF, dashboard upload). Its own
+// `insert(expense)` call has no `scope` argument, so without account_id being stamped
+// directly onto the row here, EVERY capture — regardless of which per-account owner sent
+// it — landed under the single shared default account_id instead of the capturing user's
+// own (invisible on their own dashboard, visible to every other account). Mirrors the
+// existing branch_id/company_id/owner_user_id attribution tests' pattern exactly.
+test('account_id: stamped onto the row when the caller supplies one (per-account isolation)', async () => {
+  const inserted = [];
+  const input = { ...goodInput(), account_id: 'p_abc123' };
+  await assembleExpense(input, deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.strictEqual(inserted[0].account_id, 'p_abc123');
+});
+
+test('account_id: absent from the row when the caller supplies none (business/legacy path, unchanged — falls back to stampScope\'s own default)', async () => {
+  const inserted = [];
+  await assembleExpense(goodInput(), deps({ insertExpense: async (row) => { inserted.push(row); } }));
+  assert.ok(!('account_id' in inserted[0]), 'must not fabricate the column when not supplied — lib/supabase.js stampScope owns the fallback');
+});
+
+// 2026-08-23 (issue #4 root cause): loadHistory() used to be called with no account_id at
+// all, which made lib/anomaly.js's duplicate/outlier checks compare every new receipt
+// against an EMPTY history for any migrated personal account (their real rows live under
+// their own unique account_id — the same one just stamped onto THIS row above — never
+// under the old shared default). assembleExpense must thread the same account_id through
+// to loadHistory that it stamps onto the row, so the account's real past receipts are what
+// gets compared against.
+test('account_id: the same value stamped onto the row is also passed to loadHistory (duplicate detection sees the right account\'s history)', async () => {
+  let seenAccountId = 'not-called';
+  const input = { ...goodInput(), account_id: 'p_abc123' };
+  await assembleExpense(input, deps({ loadHistory: async (accountId) => { seenAccountId = accountId; return []; } }));
+  assert.strictEqual(seenAccountId, 'p_abc123');
+});
+
+test('account_id: loadHistory is called with undefined when the caller supplies none (business/legacy path, unchanged default lookup)', async () => {
+  let seenAccountId = 'not-called';
+  await assembleExpense(goodInput(), deps({ loadHistory: async (accountId) => { seenAccountId = accountId; return []; } }));
+  assert.strictEqual(seenAccountId, undefined);
+});

@@ -18,6 +18,7 @@
   --muted: #8a8d75;           /* ink-faint */
   --accent: #5f7a47;          /* moss */
   --accent-strong: #6f8c54;
+  --accent-bg: rgba(95, 122, 71, 0.14);
   --accent-contrast: #f6f3e6;
   --radius: 20px;
   --radius-sm: 13px;
@@ -70,8 +71,12 @@
   --hill: rgba(63, 96, 72, 0.10);
   --shadow: 24px 26px 54px rgba(54, 52, 34, 0.16);
 
-  --font-display: 'Spectral', Georgia, 'Times New Roman', serif;
-  --font-body: 'Nunito Sans', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* 2026-08-21 (Barat: "app looks old fashion... make it more modern"): replaced the
+     Treehouse serif/rounded-sans pairing (Spectral + Nunito Sans) with Inter across
+     the whole dashboard — one unified typeface, matching what Landing already uses
+     (see index.html), instead of two clashing type systems in one app. */
+  --font-display: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -85,6 +90,10 @@ body {
   font-family: var(--font-body);
   font-size: 15px;
   line-height: 1.55;
+  /* 2026-08-21: tabular figures everywhere — every amount/KPI/table column of
+     digits lines up cleanly instead of jittering. No effect on non-numeric text,
+     so this is safe to set once here rather than chasing every money class. */
+  font-variant-numeric: tabular-nums;
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
@@ -155,6 +164,20 @@ h1, h2, h3, h4,
 body.personal-mode .app-header,
 body.personal-mode .app-main {
   max-width: 1680px;
+}
+
+/* 2026-08-14 (Barat: "zoom out the web page") — the personal dashboard felt too large/
+   zoomed-in on a normal monitor, nothing fit on screen without scrolling. Shrinks the
+   WHOLE personal-mode experience (header, nav, cards, modals) via CSS `zoom`, which —
+   unlike `font-size` alone — also shrinks components with hardcoded px sizes, and —
+   unlike `transform: scale()` — keeps document flow/scrolling and position:fixed
+   (modals, the colour-picker popup) behaving correctly, since zoom changes the actual
+   layout pixel density rather than just visually scaling a rendered box. Scoped to
+   body.personal-mode only (set once by app.js's enterApp) — the business (Premala)
+   dashboard and the marketing landing page (body.landing-mode, no .personal-mode) are
+   both completely untouched. */
+body.personal-mode {
+  zoom: 0.85;
 }
 
 .app-modal[hidden] { display: none; }
@@ -277,6 +300,7 @@ body.theme-dark {
   --accent: #88a266;
   --accent-strong: #9ab37a;
   --accent-contrast: #14161a;
+  --accent-bg: rgba(136, 162, 102, 0.16);
 
   --moss: #88a266;  --moss-bg: rgba(136, 162, 102, 0.16);
   --teal: #61998f;  --teal-bg: rgba(97, 153, 143, 0.16);
@@ -322,6 +346,7 @@ body.theme-warm {
   --accent: #c9822f;
   --accent-strong: #d99a44;
   --accent-contrast: #fff8ec;
+  --accent-bg: rgba(201, 130, 47, 0.14);
 
   --glow-top: rgba(201, 130, 47, 0.16);
   --glow-warm: rgba(201, 130, 47, 0.16);
@@ -349,6 +374,7 @@ body.theme-ocean {
   --accent: #2563eb;
   --accent-strong: #1d4ed8;
   --accent-contrast: #ffffff;
+  --accent-bg: rgba(37, 99, 235, 0.12);
 
   /* 2026-07-27 (Barat: "make the main UI fully consistent" — the rust/brown
      --clay danger colour, tuned for the moss-green Treehouse palette, clashed
@@ -386,6 +412,7 @@ body.theme-ocean-dark {
   --accent: #4f8cff;
   --accent-strong: #6ea1ff;
   --accent-contrast: #ffffff;
+  --accent-bg: rgba(79, 140, 255, 0.16);
 
   --moss: #88a266;  --moss-bg: rgba(136, 162, 102, 0.16);
   --teal: #61998f;  --teal-bg: rgba(97, 153, 143, 0.16);
@@ -431,20 +458,19 @@ body.theme-ocean-dark {
   width: 46px;
   height: 46px;
   flex-shrink: 0;
-  border-radius: 15px 15px 15px 6px;
-  background: var(--accent);
   display: grid;
   place-items: center;
   box-shadow: var(--panel-shadow);
 }
 .emblem svg { width: 28px; height: 28px; display: block; }
+.emblem img { width: 100%; height: 100%; display: block; object-fit: contain; }
 
 .brand-title {
   font-family: var(--font-display);
   font-size: clamp(24px, 3.4vw, 34px);
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1.05;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
   color: var(--txt);
   margin: 0;
 }
@@ -715,12 +741,58 @@ body.theme-ocean-dark {
 }
 .guest-banner-btn:hover { opacity: .9; }
 
+/* Inline code-entry fallback inside the email-verification banner (2026-08-24, W-01) —
+   a compact companion to .guest-banner's existing pill button, not a full onboarding
+   form, since it lives inside a colored banner strip rather than a white card. */
+.verify-banner-code-form { display: inline-flex; align-items: center; gap: 8px; }
+.verify-banner-code-input {
+  width: 90px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--txt);
+  font: inherit;
+  font-size: 13px;
+}
+.verify-banner-code-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .app-error {
   max-width: 480px;
   margin: 40px auto;
   text-align: center;
   color: var(--muted);
 }
+
+/* Boot-time loading / error states (2026-08-19 fix): #app starts empty in
+   index.html, so without this a slow network showed nothing at all between the
+   static header/footer shell and the dashboard appearing — read as a frozen app,
+   not a loading one. Reuses .app-error's own centered/muted treatment. */
+.app-boot-loading {
+  max-width: 480px;
+  margin: 60px auto;
+  text-align: center;
+  color: var(--muted);
+}
+.app-boot-error {
+  max-width: 480px;
+  margin: 60px auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.app-boot-retry {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.app-boot-retry:hover { opacity: .9; }
 
 /* --- Overview: asymmetric dashboard grid (reference-style). A narrow left rail
    of stacked stat cards, a wide trend chart top-right, the category donut
@@ -1039,7 +1111,12 @@ body.theme-ocean-dark .ov-segment-btn.is-active { color: var(--bg); }
 }
 .ov-linechart-svg { width: 100%; height: auto; display: block; flex: 1 1 auto; }
 .ov-chart-grid { stroke: var(--line); stroke-width: 1; }
-.ov-chart-area { fill: var(--moss-bg); }
+/* Bug fix (2026-08-19, Barat: "dark mode graph filling looks green, must show
+   blue"): the area fill used the category-color --moss-bg (always green,
+   category identity), while the line itself uses --accent (blue in Ocean/Ocean
+   Dark) — a visible mismatch. --accent-bg is a translucent version of each
+   theme's own --accent, so the fill always matches the line's color. */
+.ov-chart-area { fill: var(--accent-bg); }
 .ov-chart-line { stroke: var(--accent); stroke-width: 2.5; }
 .ov-chart-dot { fill: var(--panel); stroke: var(--accent); stroke-width: 2; cursor: pointer; }
 .ov-chart-dot:hover, .ov-chart-dot:focus { fill: var(--accent); outline: none; }
@@ -1427,7 +1504,13 @@ body.theme-ocean-dark .act-view-btn.is-active { color: var(--bg); }
 .act-card-body { display: flex; flex-direction: column; gap: 6px; }
 .act-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .act-card-merchant { font-weight: 600; }
-.act-card-meta { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.act-card-meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+/* Bug fix (2026-08-19, "Bill details looks messy"): date+amount is always exactly
+   2 items, so space-between reads cleanly on its own row. */
+.act-card-meta-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Optional branch/staff/ref chips wrap onto their own row instead of squeezing
+   into the same space-between line as date/amount. */
+.act-card-meta-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .act-card-amount { font-variant-numeric: tabular-nums; color: var(--txt); font-weight: 600; }
 .act-card-status { font-size: 12px; color: var(--muted); text-transform: capitalize; }
 .act-card-remark {
@@ -2505,7 +2588,6 @@ body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
 
 /* --- Agent chat (Task G) --------------------------------------------------- */
 .ag-root { display: flex; flex-direction: column; gap: 14px; }
-.ag-intro { margin: 0; }
 
 .ag-list {
   display: flex;
@@ -2554,7 +2636,7 @@ body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
 .rm-chip--critical { color: #fff; border-color: var(--accent-strong); }
 .rm-chip--critical .rm-fill { background: var(--accent); opacity: 0.9; }
 
-.ag-msg { display: flex; flex-direction: column; max-width: 72%; }
+.ag-msg { display: flex; flex-direction: column; max-width: 88%; }
 .ag-msg--user { align-self: flex-end; align-items: flex-end; }
 .ag-msg--assistant { align-self: flex-start; align-items: flex-start; }
 
@@ -2594,55 +2676,101 @@ body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
   font-size: 13px;
 }
 
+/* Suggestion chips — shown alongside the welcome bubble, before the user's
+   first message. Tapping one fills the input and sends it immediately. */
+.ag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 4px;
+  align-self: flex-start;
+  max-width: 88%;
+}
+.ag-chip {
+  padding: 7px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--txt);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.ag-chip:hover { border-color: var(--accent); color: var(--accent); }
+
 .ag-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  gap: 6px;
 }
 
-.ag-input {
-  min-height: 48px;
-  padding: 10px 12px;
+/* Pill-shaped input bar: textarea + round send button share one rounded
+   container, matching a modern chat-input look instead of a boxed textarea
+   with a separate button row underneath. */
+.ag-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 22px;
+  transition: border-color 0.15s;
+}
+.ag-input-row:focus-within { border-color: var(--accent); }
+
+.ag-input {
+  flex: 1;
+  min-height: 24px;
+  max-height: 120px;
+  padding: 6px 0;
+  background: transparent;
+  border: none;
   color: var(--txt);
   font: inherit;
-  resize: vertical;
+  font-size: 14px;
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
 }
-
-.ag-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+.ag-input:focus { outline: none; }
 
 .ag-send {
-  padding: 9px 20px;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
   background: var(--accent);
   color: var(--accent-contrast);
   border: none;
-  border-radius: 999px;
-  font-weight: 600;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
 }
+.ag-send-icon { display: block; transform: translateY(-1px); }
+.ag-send:not(:disabled):hover { transform: scale(1.06); }
 .ag-send:disabled { opacity: 0.5; cursor: default; }
 
 .ag-clear {
-  padding: 9px 16px;
-  background: var(--panel);
+  align-self: flex-end;
+  padding: 2px 4px;
+  background: transparent;
   color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  border: none;
   font: inherit;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.ag-clear:hover { color: var(--txt); border-color: var(--txt); }
+.ag-clear:hover { color: var(--txt); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PHASE 2 — Mugi's Treehouse concept: brand emblem, Settings view, Falc orb.
@@ -2685,6 +2813,7 @@ body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
 .set-label { font-size: 13.5px; font-weight: 700; color: var(--txt); display: flex; align-items: center; }
 .set-desc { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
 .set-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.set-legal-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .set-value { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; color: var(--txt-soft); }
 .set-select {
   min-width: 140px; padding: 7px 10px; font: inherit; font-size: 13px;
@@ -2707,7 +2836,10 @@ body.theme-ocean-dark .up-mode-btn.is-active { color: var(--bg); }
 .set-upgrade-row { display: flex; align-items: center; gap: 10px; }
 .set-upgrade-status { font-size: 12px; }
 
-.set-btn { padding: 8px 16px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--line); }
+.set-btn {
+  display: inline-block; padding: 8px 16px; border-radius: 999px; font: inherit;
+  font-weight: 600; cursor: pointer; border: 1px solid var(--line); text-decoration: none;
+} /* text-decoration/display so this also works as an <a> (Legal links below), not just <button> */
 .set-btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .set-btn--danger { background: var(--clay); color: #fff; border-color: var(--clay); }
 .set-btn--ghost { background: var(--panel); color: var(--muted); }
@@ -3083,8 +3215,13 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 @keyframes sora-flap { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-14deg); } }
 
 .sora-chat {
+  /* 2026-08-21 (Barat: "chatbot looks messy... make it bigger so user can see
+     clearly"): was capped at 380x540 — inside that, the header + input form
+     left barely any room for the actual transcript, so a real reply scrolled
+     out of view almost immediately (see .ag-list below). Bigger panel, same
+     floating-widget behavior. */
   position: fixed; right: clamp(16px, 3vw, 30px); bottom: 116px; z-index: 150;
-  width: min(380px, calc(100vw - 32px)); height: min(540px, calc(100vh - 160px));
+  width: min(460px, calc(100vw - 32px)); height: min(680px, calc(100vh - 140px));
   background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
   box-shadow: var(--shadow); display: none; flex-direction: column; overflow: hidden;
   transform-origin: bottom right;
@@ -3104,9 +3241,128 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 }
 .sc-close:hover { color: var(--clay); border-color: var(--clay); }
 .sc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
-/* Let the reused Agent chat fill Falc's panel body. */
+/* Let the reused Agent chat fill Falc's panel body. flex:1 alone still left
+   .ag-list capped at its own max-height:420px (below) — a flex child's
+   max-height wins over flex-grow, so the transcript stayed small even after
+   the panel itself grew. Override it to none here so it actually fills the
+   panel's real available height. */
 .sc-body .ag-root { height: 100%; }
-.sc-body .ag-list { flex: 1; }
+.sc-body .ag-list { flex: 1; max-height: none; }
+.sc-foot {
+  flex-shrink: 0;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Standalone legal pages (privacy.html, accountdeletion.html) — Bug fix (2026-08-19,
+   Barat: "this privacy policy page looks messy and not match to the app theme"): these
+   pages already loaded app.css and used these class names, but no rules existed for
+   them anywhere, so the browser fell back to unstyled defaults (edge-to-edge text,
+   default blue links, no card, no spacing). Reuses the same Treehouse tokens as the
+   rest of the app (--bg/--panel/--txt/--accent/--line/--radius) so it matches
+   automatically if those tokens are ever retuned — no separate palette to maintain.
+   Both pages share this one template, so one pass fixes both. */
+.privacy-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+.privacy-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 24px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--txt-soft);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+.privacy-back::before { content: '←'; }
+.privacy-back:hover { border-color: var(--accent); color: var(--accent); }
+.privacy-doc {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  padding: 40px 44px 48px;
+}
+.privacy-hero { margin-bottom: 12px; }
+.privacy-kicker {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.privacy-hero h1 { margin: 0 0 4px; font-size: 30px; }
+.privacy-updated { margin: 0 0 18px; font-size: 13px; color: var(--muted); }
+.privacy-hero > p:not(.privacy-kicker):not(.privacy-updated) {
+  color: var(--txt-soft);
+  font-size: 15px;
+}
+.privacy-doc section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.privacy-doc h2 { margin: 0 0 10px; font-size: 17px; }
+/* Bug fix (2026-08-19): scoped to "section p" (not bare ".privacy-doc p") — the
+   original rule's specificity (.privacy-doc + p = 0,1,1) accidentally beat the
+   single-class .privacy-kicker/.privacy-updated rules above (0,1,0) since those are
+   ALSO <p> tags nested inside .privacy-doc, silently overriding their accent/muted
+   colors back to the body-text color. Narrowing to "section p" only reaches the
+   numbered-section paragraphs it was meant for; the hero's own paragraphs are never
+   inside a <section>, so no specificity fight is possible any more. */
+.privacy-doc section p { margin: 0 0 12px; color: var(--txt-soft); font-size: 14px; }
+.privacy-doc section p:last-child { margin-bottom: 0; }
+.privacy-doc section ul, .privacy-doc section ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  color: var(--txt-soft);
+  font-size: 14px;
+}
+.privacy-doc li { margin-bottom: 6px; }
+.privacy-doc li:last-child { margin-bottom: 0; }
+.privacy-doc a { color: var(--accent); text-decoration: none; }
+.privacy-doc a:hover { text-decoration: underline; }
+
+/* In-app Privacy Policy / Account Deletion modal (2026-08-19, Barat: "make it part of
+   web app that's not another page") — components/legal.js. Same overlay/card pattern
+   as .team-modal-overlay/.team-modal, just wider + scrollable for a long document
+   instead of a short confirm dialog. Reuses .privacy-doc's own typography rules above
+   for the body text (kicker/h2/p/ul/a) — the ".legal-modal-body .privacy-doc" rule
+   strips .privacy-doc's own card chrome (bg/border/shadow/padding) since this modal
+   shell already provides all of that. */
+.legal-modal-overlay {
+  position: fixed; inset: 0; background: rgba(22, 26, 18, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px;
+}
+.legal-modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--panel-shadow); max-width: 640px; width: 100%;
+  max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+}
+.legal-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.legal-modal-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--txt); }
+.legal-modal-close {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.legal-modal-close:hover { color: var(--clay); border-color: var(--clay); }
+.legal-modal-body { overflow-y: auto; padding: 20px; }
+.legal-modal-body .privacy-doc { background: none; border: none; box-shadow: none; padding: 0; }
 
 /* Tablet: two columns. Cards pair up, chart / donut go full width. */
 @media (max-width: 768px) {
@@ -3122,6 +3378,13 @@ body.theme-dark .pay-tab.is-active { color: var(--bg); }
 
 /* Phone: single column, everything stacks in reading order. */
 @media (max-width: 620px) {
+  .privacy-page { padding: 24px 14px 60px; }
+  .privacy-doc { padding: 26px 20px 32px; }
+  .privacy-hero h1 { font-size: 24px; }
+  .legal-modal-overlay { padding: 0; }
+  .legal-modal { max-height: 100vh; border-radius: 0; }
+  .legal-modal-body { padding: 16px; }
+
   .sora-btn { width: 72px; height: 72px; }
   .sora-btn svg { width: 66px; height: 66px; }
   .sora-chat { bottom: 96px; }

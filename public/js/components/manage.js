@@ -21,10 +21,12 @@
 // Conventions: pure DOM (createElement/textContent — never innerHTML), UMD shim, the routing
 // logic (subPagesFor) node-testable without a DOM.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.Manage = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../i18n'));
+  else root.Manage = factory(root.I18n);
+})(typeof self !== 'undefined' ? self : this, function (I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
 
   // ---- pure logic (node-tested) ----------------------------------------------
 
@@ -37,9 +39,9 @@
   // gate whether the page exists at all. Pure, never throws.
   function subPagesFor(config, business) {
     var templateBuilderOff = !!(config && config.template_builder === false);
-    var pages = [templateBuilderOff ? { id: 'category', label: 'Categories' } : { id: 'template', label: 'Template & Categories' }];
+    var pages = [templateBuilderOff ? { id: 'category', label: t('manage.categories') } : { id: 'template', label: t('manage.template_and_categories') }];
     var gridOff = !!(config && config.excel_lite_grid === false);
-    if (!gridOff) pages.push({ id: 'data', label: 'Data editor (spreadsheet)' });
+    if (!gridOff) pages.push({ id: 'data', label: t('manage.data_editor') });
     return pages;
   }
 
@@ -81,7 +83,7 @@
     var label = document.createElement('label');
     label.className = 'manage-subnav-label';
     label.setAttribute('for', 'manage-subnav-select');
-    label.textContent = 'Section';
+    label.textContent = t('manage.section_label');
     var select = document.createElement('select');
     select.className = 'manage-subnav-select';
     select.id = 'manage-subnav-select';
@@ -126,7 +128,7 @@
       } else {
         var ph = document.createElement('p');
         ph.className = 'view-placeholder muted';
-        ph.textContent = 'Coming soon.';
+        ph.textContent = t('app.coming_soon');
         panel.appendChild(ph);
       }
     });

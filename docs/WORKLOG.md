@@ -1,5 +1,91 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-08-24 · Claude (Barat/web lane, W-01) · feature/tour-premium-redesign-2026-08-23 · Email-verification UI built against Jeevan/Claude-P's P-01 contract + a real Google-OAuth-error bug fixed
+
+- **Context:** Jeevan pushed a full-app team-restructure plan today (`codex/full-app-team-plan`,
+  not yet merged — see `docs/FULL_APP_EXECUTION_PLAN.md` on that branch) assigning Barat/this
+  Claude the "Web/Product" lane (W-01 through W-08). Started on **W-01: complete login/
+  register/verification/recovery UI**.
+- **Researched before building anything** (per BARAT.md's own rule — "if an API is missing,
+  file a platform task, do not invent a client-only contract"): found Jeevan/Claude-P had
+  *already* pushed `feature/claude-p-P-01-verified-email-challenge` today — a fully tested
+  (2266/2266, mutation-tested), documented email-OTP/magic-link backend service, with a frozen
+  API contract at `docs/security/P-01-email-verification-contract.md` on that branch. Built the
+  frontend against that exact contract instead of inventing one. **Not merged into `main` yet**,
+  so this cannot be tested end-to-end live until both branches land — verified instead via a
+  DB-free static-preview harness with a fake `Api` object standing in for the real endpoints
+  (mirrors the same technique used for the tour.js fix earlier today), covering every path the
+  contract specifies: resend cooldown, code-entry fallback (success + the server's verbatim
+  generic failure message), magic-link confirm screen (success + failure), and the full boot()
+  → header-banner injection wiring, not just the component in isolation.
+- **New file:** `public/js/components/emailverify.js` — `mount()` for the `?verify_token=`
+  magic-link landing screen (auto-confirms on load, shows the server's own generic message
+  verbatim per the contract's account-enumeration defense — never invents a more specific
+  explanation), `buildBanner()` for a persistent dashboard header banner (mirrors app.js's
+  existing `buildTelegramBanner` shape) with a resend button (client-side-only 60s cooldown —
+  contract §3 says the server enforces the real one silently) and an inline code-entry fallback.
+- **`public/js/app.js` changes:**
+  - Wires `EmailVerify` into `dep()`/boot deps (optional, like ResetPassword/Tour).
+  - Strips `?verify_token=` from the URL immediately after reading it (contract §3 — it's a
+    live single-use credential and must not linger in browser history).
+  - After `enterApp`, fires a best-effort `GET /api/verify-email/status` for owner sessions and
+    appends the banner if unverified — silently no-ops today since the endpoint isn't live on
+    `main` yet (this is by design: the code is future-proofed to activate itself the moment
+    P-01 merges, no follow-up frontend change needed).
+  - **Real bug found and fixed while researching this** (unrelated to P-01 but found along the
+    way): `routes/googleAuth.js` has redirected failed Google sign-ins back here with
+    `#gauth_error=<code>` since 2026-07-30, but nothing on this end ever read it — a user whose
+    Google login failed saw the screen reload with zero explanation. Fixed to map the known
+    codes (`denied`/`account_type`/`not_configured`) to real copy, with a generic fallback for
+    anything else (`state_mismatch`, `failed`, or an unrecognized future code). **First attempt
+    at this fix was itself wrong** — wired the message into the `decision === 'login'` branch,
+    which only fires for business/multiUser mode; but Google sign-in only exists for personal
+    accounts, and a personal account with no stored token *always* resolves to `'signup'`
+    (→ the marketing Landing page), confirmed by reading `authgate.js`'s `authState()` directly.
+    Caught via live testing (not just reading the code), fixed by short-circuiting straight to
+    `mountLogin` with the same `onRegister`/`onForgotPassword`/`onGoogleLogin` opts Landing's own
+    `onLogin` callback uses elsewhere in this file, verified live for all 4 error codes plus a
+    regression check that the normal successful `gauth_token` path is unaffected.
+- **`public/css/app.css`, `public/js/i18n.js` (EN+MS):** new banner/screen copy and the
+  code-entry form's compact styling (reuses `.guest-banner`/`.onboard-*` tokens — no new design
+  language introduced).
+- **Verified:** full suite **2327/2327** (`.env` moved aside/restored). New pure-logic tests in
+  `tests/frontend/emailverify.test.js` (`validateCode` + no-DOM safety). DOM/interaction paths
+  verified live per above, not just unit-tested.
+- **Still TODO for W-01** (not started, flagging rather than silently deferring): dedicated test
+  coverage for `onboarding.js`/`resetpassword.js` (currently zero, a pre-existing gap found
+  during this same research pass); the two product-decision items flagged to Barat separately
+  (silent Google-account-linking vs. an explicit confirm step; whether the current generic
+  rate-limit message is enough for the plan's "locked" state acceptance criterion, or something
+  more specific is wanted).
+- **Branching note:** intended to branch this off current `snapreceipt/main` per the new SOP
+  (`docs/roles/BARAT.md` §B.2), but `git checkout -b ... snapreceipt/main` failed on this
+  machine with a filesystem permission error unrelated to this change (`promptfoo/samples`,
+  some other project's untracked directory, locked by another process during the tree switch).
+  Recovered safely (stash + targeted file restore, verified byte-identical via `git diff`
+  before dropping the stash — nothing lost) but landed this commit on the already-open
+  `feature/tour-premium-redesign-2026-08-23` (PR #14) instead of a clean new branch. Flagging
+  for whoever reviews: this PR now bundles two unrelated pieces of work; split if that matters
+  for review, or merge as one — both are independently tested and verified.
+
+## 2026-08-24 · Claude (frontend/Mugi lane) · feature/tour-premium-redesign-2026-08-23 · Tour spotlight bug fixed live; caption redesigned; still pending merge
+
+- **Bug found in live QA (Barat's screenshot) and fixed:** the 2026-08-23 premium-tour spotlight's accent border/glow (`box-shadow`) was listed AFTER the 9999px dim shadow, so per CSS's own paint-order rule the dim painted OVER the border — every spotlighted element rendered as a bare white hole with no visible frame ("white rectangle" bug). Fixed by reordering the shadow list (glow/border first, dim last) and thickening the border to 2px. Root-caused via computed-style inspection, not guesswork — confirmed the box-shadow order was the sole cause before touching anything.
+- **Redesign (Barat's ask, referencing a Supademo-style demo):** replaced the per-target speech-bubble tooltip (needed an arrow + per-side placement math, broke down on wide targets like the upload drop zone) with a single fixed caption bar bottom-center of the screen — spotlight shows WHERE, bar explains WHAT, like subtitles. Each step fades the new caption in.
+- **Files:** `public/css/tour.css`, `public/js/components/tour.js`, `public/index.html` (cache-bust `20260823b` → `20260824a`).
+- **Verified:** full suite 2319/2319 (`.env` moved aside/restored). Visually confirmed via computed-style inspection in a DB-free static fixture (no live backend/data touched) — box-shadow paint order, bottom-bar positioning, fade-in cascade, and completion-card centering all correct.
+- **Deployed live** to `snapreceiptai.friction.com.my` same day (hash-verified against the VPS copy) — **but this commit was not pushed until now**, so `main`/PR #14 didn't reflect what's actually running live until this push. Flagging that gap: live-deploy and git-commit had drifted apart for several hours today; worth treating "push before/with deploy, not after" as the rule going forward, not just for this one fix.
+- **Still open, unrelated to this fix — flagging for whoever picks this up next:** PR #13 (tour/refresh-fix → `main`) and PR #14 (this tour-premium-redesign branch → `main`) are both still unmerged as of this entry. Also: Jeevan pushed a large new governance/team-restructure proposal today (`codex/full-app-team-plan`, not yet merged, no PR confirmed) that reassigns Barat's lane to "Web/Product" and introduces a third Claude identity ("Claude-P") for backend work — read `docs/FULL_APP_EXECUTION_PLAN.md` on that branch before assuming today's role docs are current.
+
+## 2026-08-23 · Claude (frontend/Mugi lane) · merge/tour-refresh-fix-into-main-2026-08-23 · Handoff to Barat (Deputy) — new workflow rule + backend QA items
+
+- **For whoever picks up backend work next (Barat/Deputy persona, `docs/roles/BARAT.md`):** Barat (the Owner-side human, not the Deputy role file — confusing overlap, see note below) asked that going forward: **every edit gets pushed to GitHub, merged to `main` (via PR — direct pushes to `main` are hook-blocked anyway, SOP §1.5), and `docs/backend-issues.md` gets updated with an issue + fix summary whenever an item there is actually fixed.** Treat that file as a live log, same spirit as this WORKLOG — don't just fix silently.
+- **New file: `docs/backend-issues.md`** — seeded today with 6 issues from a live QA pass (Guest Mode auto-logout + no per-device cap, missing personal-account messaging in the bind-token flow, no post-trial reply restriction, duplicate-receipt detection not firing on re-upload, OCR misreading dates on clear photos, and the post-capture edit-message flow needing a redesign). All still OPEN, none fixed yet.
+- **Ownership note worth flagging before you start:** two of those six items (#4 duplicate detection, #5 OCR date parsing) are squarely in `lib/ocr.js` — your file per BARAT.md §2. The other four (#1, #2, #3, #6) are in `lib/bot.js`/`lib/account.js`/`routes/guest.js`, which aren't on your owned-file list in BARAT.md — confirm with Jeevan (Owner) whether those are yours to touch or need reassigning before editing, per the SOP §4.6 collision rule.
+- **Also merged today (PR #13, not yet merged to `main` as of this entry):** the auto-play onboarding tour, and a real frontend bug fix — the dashboard header's Refresh button was forcing a full `location.reload()` (killing Guest Mode / real sessions on every refresh); it now re-fetches just the current view's data. Reconciled against your Android/wordmark work already on `main` — 5 merge conflicts resolved by hand, full suite green (2281/2281) on the merged tree. Doesn't touch anything on your owned-file list.
+- **What's next:** review/merge PR #13 (Jeevan or named Deputy per SOP §2), then pick up the `docs/backend-issues.md` items — OCR ones first since they're unambiguously yours.
+- **Assumptions:** "backend developer" in this handoff means whichever Claude session next picks up `lib/`/`routes/` work under the Barat(Deputy)/BARAT.md brief — there was no other session reachable to message directly when this was written, hence landing it here per SOP §0.1.4 (WORKLOG is the sync ledger other Claudes read on startup).
+
 ## 2026-08-24 · Claude-P (platform/trust) · feature/claude-p-P-01-verified-email-challenge · P-01 verified-email challenge service
 
 - **Issue:** #34 [P-01] · Gate 1 (trust foundation) · **Risk tier 2** (auth + schema) · not merged, not pushed.

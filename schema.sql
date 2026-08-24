@@ -605,6 +605,37 @@ alter table subscriptions enable row level security;
 -- ============================================================================
 alter table bot_bindings alter column token_expires_at drop not null;
 alter table bot_bindings add column if not exists last_active_at timestamptz;
+
+-- ============================================================================
+-- Migration: guest_ip_log (2026-08-22, QA report #2) — "Guest Mode only access
+-- once ... once user use guest mode track that device IP ... same user want try
+-- guest mode again means pop message, tell sign up." Enforces one guest trial
+-- per device/network, and closes a real API-cost abuse vector (a blocked user
+-- could otherwise just start a fresh guest trial over and over).
+--
+-- Deliberately its OWN table, never touched by guest cleanup (routes/guest.js's
+-- sweepStaleGuests / /api/guest/end both delete `users` rows, cascading through
+-- sessions/bot_bindings/expenses — this table must NOT be part of that cascade,
+-- or the block would silently reset every time a guest's 24h-old data gets
+-- swept, defeating the entire point). Insert-only from the app's side; no
+-- update/delete path exists anywhere in the codebase for this table.
+--
+-- account_id kept for consistency with every other table's SEC-8 shape even
+-- though Guest Mode itself is single-tenant today (every guest lands under one
+-- shared account_id, see routes/guest.js) — costs nothing, keeps this table
+-- shaped the same as everything else if that ever changes.
+-- ============================================================================
+create table if not exists guest_ip_log (
+  id                uuid        primary key default gen_random_uuid(),
+  account_id        text        not null default 'default',
+  ip_address        text        not null,
+  first_started_at  timestamptz not null default now(),
+  start_count       integer     not null default 1
+);
+create unique index if not exists guest_ip_log_ip_idx on guest_ip_log (account_id, ip_address);
+
+alter table guest_ip_log enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
 update bot_bindings set last_active_at = coalesce(bound_at, created_at) where last_active_at is null;
 
 -- ============================================================================

@@ -9,15 +9,35 @@ const express = require('express');
 const mountExpenses = require('../routes/expenses');
 const { CATEGORIES } = require('../lib/categorize');
 const { cfg } = require('../lib/config');
+const { tokenHash } = require('../lib/auth');
 
-function get(app, path) {
+function get(app, path, headers) {
   return new Promise((resolve, reject) => {
     const srv = app.listen(0);
     const base = 'http://127.0.0.1:' + srv.address().port;
-    fetch(base + path)
+    fetch(base + path, { headers: headers || {} })
       .then((r) => r.json().then((json) => { srv.close(); resolve({ status: r.status, json }); }))
       .catch((e) => { srv.close(); reject(e); });
   });
+}
+
+// account_info stub: intercepts the /users?, /sessions, /bot_bindings lookups routes/
+// expenses.js's /api/config makes to build account_info for an authenticated request. Every
+// other Supabase call (field_templates etc.) falls through to the real fetch, matching this
+// file's existing withFieldSpecCategories helper's own "stub only what this test cares about"
+// convention.
+function stubAccountInfo(user) {
+  const realFetch = global.fetch;
+  global.fetch = async (url, opt = {}) => {
+    const u = String(url);
+    if (u.includes('/sessions')) {
+      return { text: async () => JSON.stringify([{ token_hash: tokenHash('t'), user_id: user.id, expires_at: new Date(Date.now() + 3600000).toISOString() }]) };
+    }
+    if (u.includes('/bot_bindings')) return { text: async () => JSON.stringify([]) };
+    if (u.includes('/users?')) return { text: async () => JSON.stringify([user]) };
+    return realFetch(url, opt);
+  };
+  return () => { global.fetch = realFetch; };
 }
 
 // 2026-07-22 QA finding: this test used to pass by ACCIDENT, not by design — it never
@@ -180,3 +200,33 @@ test('GET /api/config falls back to the generic CATEGORIES when the account has 
   const { json } = await get(app, '/api/config');
   assert.deepStrictEqual(json.categories, CATEGORIES);
 }));
+
+// 2026-08-19: has_password lets Settings' delete-account modal skip the "Confirm your
+// password" field for a Google-only signup (password_hash null) — see routes/auth.js's
+// matching DELETE /api/account fix, same day.
+test('GET /api/config: account_info.has_password is true for a real password-based owner', async () => {
+  const restore = stubAccountInfo({ id: 'u1', role: 'owner', username: 'a@b.com', created_at: 'x', password_hash: 'scrypt$abc$def' });
+  try {
+    const app = express();
+    mountExpenses(app);
+    const { json } = await get(app, '/api/config', { Authorization: 'Bearer t' });
+    assert.strictEqual(json.account_info.has_password, true);
+  } finally { restore(); }
+});
+
+test('GET /api/config: account_info.has_password is false for a Google-only owner (no password_hash)', async () => {
+  const restore = stubAccountInfo({ id: 'u1', role: 'owner', username: 'a@b.com', created_at: 'x', password_hash: null });
+  try {
+    const app = express();
+    mountExpenses(app);
+    const { json } = await get(app, '/api/config', { Authorization: 'Bearer t' });
+    assert.strictEqual(json.account_info.has_password, false);
+  } finally { restore(); }
+});
+
+test('GET /api/config: no Authorization header -> account_info is null, no has_password crash', async () => {
+  const app = express();
+  mountExpenses(app);
+  const { json } = await get(app, '/api/config');
+  assert.strictEqual(json.account_info, null);
+});

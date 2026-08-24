@@ -491,39 +491,71 @@ module.exports = function mountExpenses(app) {
   // Display shaping only — the server enforces each capability on its own routes.
   app.get('/api/config', async (req, res) => {
     const caps = getCapabilities();
-    let categories = CATEGORIES;
-    try {
-      const spec = await getFieldSpec();
-      if (spec && Array.isArray(spec.categories) && spec.categories.length) categories = spec.categories;
-    } catch (e) { console.error('[api/config] getFieldSpec failed, using default categories:', e.message); }
+    // Perf fix (2026-08-19, Barat-reported: "loading for a while" every dashboard
+    // open): categories (getFieldSpec) and the auth/account-info chain below share no
+    // data — they were previously AWAITED one after the other, adding a whole extra
+    // sequential round trip to every authenticated call (this route is hit TWICE per
+    // boot for a returning session — app.js's boot() + enterApp()). Kick both off
+    // together and await them concurrently instead; each keeps its own try/catch so
+    // either side failing independently behaves exactly as before (safe fallback,
+    // never a 500 for a getFieldSpec hiccup or an account_info hiccup).
+    const categoriesPromise = getFieldSpec()
+      .then((spec) => (spec && Array.isArray(spec.categories) && spec.categories.length) ? spec.categories : CATEGORIES)
+      .catch((e) => { console.error('[api/config] getFieldSpec failed, using default categories:', e.message); return CATEGORIES; });
+
     // account_info (2026-08-08): OPTIONAL auth — this route is called before login exists
     // (boot()'s very first /api/config, pre-token), so a missing/invalid bearer just means
     // "not signed in yet" — never a 401 here, this route must stay reachable unauthenticated.
     // No paid plan exists (2026-08-11): every account is unlimited/free, so this no longer
-    // computes a plan or a monthly usage cap.
-    let accountInfo = null;
-    try {
-      const a = req.get('Authorization') || '';
-      const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
-      if (presented) {
+    // computes a plan or a monthly usage cap. session -> user -> bot_bindings is a genuine
+    // sequential dependency chain (each step needs the previous one's result) and stays
+    // awaited in order; only the CATEGORIES side runs concurrently with it now.
+    const accountInfoPromise = (async () => {
+      try {
+        const a = req.get('Authorization') || '';
+        const presented = a.startsWith('Bearer ') ? a.slice(7) : '';
+        if (!presented) return null;
         const sess = await lookupSession(presented);
-        if (sess) {
-          const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
-          if (rows[0] && rows[0].role === 'owner') {
-            accountInfo = { email: rows[0].username, created_at: rows[0].created_at };
-            // Telegram connect status (2026-08-08) — Settings needs to show "Connected" /
-            // "Not connected" + the connect link ANY time, not just once during onboarding
-            // (the link itself is now permanent, see schema.sql's bot_bindings migration).
-            try {
-              const bindRows = await sbSelect('bot_bindings', { eq: { user_id: sess.user_id }, limit: 1 });
-              const b = bindRows[0];
-              accountInfo.telegram_connected = !!(b && b.chat_id);
-              accountInfo.telegram_bind_token = b ? b.bind_token : null;
-            } catch (e) { console.error('[api/config] telegram status lookup failed:', e.message); }
-          }
+        if (!sess) return null;
+        // 2026-08-22: scope MUST be passed here — sbSelect defaults to account_id=cfg.ACCOUNT_ID
+        // when no scope is given, but every personal account now has its own unique account_id
+        // (the 2026-08-14 isolation fix). An unscoped lookup by id silently returns zero rows for
+        // any migrated user, which is exactly what broke Account Settings/Telegram status/delete/
+        // feedback right after the 2026-08-22 account-isolation backfill moved real users off the
+        // old shared bucket. `sess` already carries { account_id, branch_id? } so it doubles as scope.
+        const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1, scope: sess });
+        // 2026-08-19: a VALID, non-expired session with no matching user row (or a role that
+        // isn't 'owner') used to fail silently here — account_info just came back null with
+        // zero trace anywhere. Investigated as a suspected Supabase read-after-write race
+        // right after signup; the actual root cause turned out to be a frontend ordering bug
+        // (public/js/app.js's boot() — the gauth token was attached to Api AFTER, not before,
+        // the first /api/config call, so that first call went out unauthenticated and this
+        // branch never even ran). Fixed on the frontend; this warning stays as a real signal
+        // for the genuinely-anomalous case (a session row pointing at a user that's gone, or
+        // whose role changed) instead of returning null with nothing to grep for.
+        if (!rows[0] || rows[0].role !== 'owner') {
+          console.warn('[api/config] valid session but no matching owner row', { user_id: sess.user_id, found: !!rows[0], role: rows[0] && rows[0].role });
+          return null;
         }
-      }
-    } catch (e) { console.error('[api/config] account_info lookup failed:', e.message); }
+        // has_password (2026-08-19): a Google-only signup (routes/googleAuth.js) never sets
+        // password_hash — Settings' delete-account modal needs this to skip the "Confirm your
+        // password" field entirely instead of showing a box nothing can ever correctly fill
+        // in (see routes/auth.js's DELETE /api/account matching fix, same day).
+        const accountInfo = { email: rows[0].username, created_at: rows[0].created_at, has_password: !!rows[0].password_hash };
+        // Telegram connect status (2026-08-08) — Settings needs to show "Connected" /
+        // "Not connected" + the connect link ANY time, not just once during onboarding
+        // (the link itself is now permanent, see schema.sql's bot_bindings migration).
+        try {
+          const bindRows = await sbSelect('bot_bindings', { eq: { user_id: sess.user_id }, limit: 1, scope: sess });
+          const b = bindRows[0];
+          accountInfo.telegram_connected = !!(b && b.chat_id);
+          accountInfo.telegram_bind_token = b ? b.bind_token : null;
+        } catch (e) { console.error('[api/config] telegram status lookup failed:', e.message); }
+        return accountInfo;
+      } catch (e) { console.error('[api/config] account_info lookup failed:', e.message); return null; }
+    })();
+
+    const [categories, accountInfo] = await Promise.all([categoriesPromise, accountInfoPromise]);
     res.json({
       auth_required: !!cfg.DASHBOARD_TOKEN, default_currency: cfg.DEFAULT_CURRENCY, categories,
       multi_user: !!caps.multiUser,

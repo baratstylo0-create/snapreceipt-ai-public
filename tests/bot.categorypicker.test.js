@@ -16,18 +16,26 @@ function baseDeps(over = {}) {
   const edited = [];
   const answered = [];
   const updateCalls = [];
+  // sbSelectGlobal (2026-08-23): handleCallbackQuery's expense-by-id lookups now go through
+  // sbSelectGlobal, not sbSelect (see lib/bot.js's handleCallbackQuery doc comment / lib/
+  // supabase.js's sbSelectGlobal doc comment). Mirroring whatever `sbSelect` override a test
+  // passes keeps every existing "row found"/"row not found" scenario working without touching
+  // each call site individually.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   const deps = {
     tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
     tgEditMessage: async (chatId, messageId, text, replyMarkup) => { edited.push({ chatId, messageId, text, replyMarkup }); },
     tgAnswerCallback: async (id, opts) => { answered.push({ id, opts }); },
     sbSelect: async () => [],
+    sbSelectGlobal: async () => [],
     sbUpdate: async (table, { id }, patch) => { updateCalls.push({ table, id, patch }); },
     // Hermetic: the catpick/catedit handlers read the account's category list via
     // getFieldSpec (ADR-021). Inject a no-categories spec so the picker uses the
     // built-in default (CATEGORIES) and no real Supabase call is attempted.
     getFieldSpec: async () => ({ columns: [] }),
     pendingRemarkMessages: new Map(), // fresh per test — the real module-level Map is shared/global
-    ...over,
+    ...resolvedOver,
   };
   return { deps, sent, edited, answered, updateCalls };
 }
@@ -47,6 +55,31 @@ test('tapping a real category: row updated to that category + status saved, conf
   assert.strictEqual(answered.length, 1);
   assert.match(sent[0].text, /Groceries/);
   assert.match(sent[0].text, /Bonda KL/);
+});
+
+// Regression test (2026-08-23, live QA report): a migrated personal account's OWN receipt
+// (account_id != the deployment's shared cfg.ACCOUNT_ID default) used to come back "already
+// gone" the instant its category was tapped — the lookup was sbSelect (scoped to the shared
+// default), not sbSelectGlobal, so a receipt captured seconds earlier under the user's own
+// unique account_id was invisible to it. Confirmed live against a real production account.
+test('REGRESSION: a receipt under a migrated personal account\'s OWN unique account_id is found correctly (not "already gone")', async () => {
+  const MIGRATED_ROW = { ...PENDING_ROW, account_id: 'p_11111111-2222-3333-4444-555555555555' };
+  const idx = CATEGORIES.indexOf('Groceries');
+  const seenGlobalCalls = [];
+  const { deps, sent, answered, updateCalls } = baseDeps({
+    // sbSelect deliberately returns NOTHING — proves the handler is not relying on it for
+    // this lookup (the pre-fix behavior would have found nothing here and shown "already gone").
+    sbSelect: async () => [],
+    sbSelectGlobal: async (table, opts) => { seenGlobalCalls.push({ table, opts }); return [MIGRATED_ROW]; },
+  });
+  await handleCallbackQuery({ id: 'cb-regress', data: 'catpick:exp-9:' + idx, message: { chat: { id: 100 } } }, deps);
+  assert.strictEqual(seenGlobalCalls.length, 1, 'the id-keyed lookup must go through sbSelectGlobal');
+  assert.strictEqual(answered.length, 1);
+  assert.ok(!sent.some((s) => /already gone/i.test(s.text)), 'must never say "already gone" for a receipt that genuinely exists');
+  assert.strictEqual(updateCalls.length, 1);
+  assert.strictEqual(updateCalls[0].id, 'exp-9');
+  assert.deepStrictEqual(updateCalls[0].patch, { category: 'Groceries', status: 'saved' });
+  assert.match(sent[0].text, /Groceries/);
 });
 
 test('tapping "Others": row moves to awaiting_remark with category=Others, NOT status=saved yet', async () => {
@@ -185,23 +218,31 @@ test('catedit: a deleted row is refused gracefully, no crash', async () => {
   assert.strictEqual(updateCalls.length, 0);
 });
 
-test('catedit -> catpick round trip: re-picking a category after Edit says "(updated)"', async () => {
+// 2026-08-23 (Barat reference mockup): a category pick — re-pick via "✏️ Edit" -> Category,
+// or a fresh uncertain-receipt resolution — now re-renders the FULL "Expense Captured" card
+// (captureCardText/captureCardKeyboard) instead of a terse "Saved as X (updated)" line, so
+// there's no separate "(updated)" wording to distinguish anymore — both paths look the same,
+// matching every other card-edit path's "the card re-renders in place" behavior.
+test('catedit -> catpick round trip: re-picking a category renders the full card with the NEW category', async () => {
   // Simulates the two-step flow: catedit resets status, THEN a category tap resolves it.
-  // After catedit, the row (as read back by the next catpick call) is awaiting_category
-  // again but its `category` field still holds the OLD real value (Fuel & Auto) — that's
-  // exactly the signal catpick uses to know this is a re-pick, not a fresh uncertain one.
   const idx = CATEGORIES.indexOf('Groceries');
   const rowAfterEdit = { ...SAVED_ROW, status: 'awaiting_category' }; // category still 'Fuel & Auto'
   const { deps, edited } = baseDeps({ sbSelect: async () => [rowAfterEdit] });
   await handleCallbackQuery({ id: 'cbEdit4', data: 'catpick:exp-20:' + idx, message: withMessageId(100, 900) }, deps);
-  assert.match(edited[0].text, /Groceries \(updated\)/);
+  assert.match(edited[0].text, /Expense Captured/);
+  assert.match(edited[0].text, /Groceries/);
+  assert.deepStrictEqual(edited[0].replyMarkup, { inline_keyboard: [[
+    { text: '✏️ Edit', callback_data: 'editmenu:exp-20' },
+    { text: '📝 Add Remark', callback_data: 'addremark:exp-20' },
+  ]] });
 });
 
-test('a fresh (never-before-categorized) receipt does NOT get "(updated)" wording', async () => {
+test('a fresh (never-before-categorized) receipt also renders the full card on its first pick', async () => {
   const idx = CATEGORIES.indexOf('Groceries');
   const { deps, edited } = baseDeps({ sbSelect: async () => [PENDING_ROW] }); // category is PENDING_CATEGORY, not a real one
   await handleCallbackQuery({ id: 'cbEdit5', data: 'catpick:exp-9:' + idx, message: withMessageId(100, 900) }, deps);
-  assert.ok(!/\(updated\)/.test(edited[0].text));
+  assert.match(edited[0].text, /Expense Captured/);
+  assert.match(edited[0].text, /Groceries/);
 });
 
 // --- business category set drives the picker (ADR-021 Phase 5) --------------------------

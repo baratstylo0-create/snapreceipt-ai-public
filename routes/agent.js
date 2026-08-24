@@ -2,7 +2,7 @@
 const express = require('express');
 const { checkDash, dashOrigin } = require('./expenses');
 const { runAgent: realRunAgent, confirmProposal: realConfirmProposal } = require('../lib/agent');
-const { groqChatTools } = require('../lib/groq');
+const { orChatTools } = require('../lib/openrouter');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
 const { saveTemplate, getFieldSpec } = require('../lib/templates');
 const { createRateLimiter } = require('../lib/ratelimit');
@@ -10,25 +10,40 @@ const { createRateLimiter } = require('../lib/ratelimit');
 const MAX_PROPOSAL_ID_LEN = 200; // proposal ids are short 'p_'+uuid strings; generous headroom
 
 const MAX_MESSAGES = 20, MAX_CHARS = 12000;
-const AGENT_MODEL = process.env.AGENT_MODEL || 'qwen/qwen3.6-27b';
+// 2026-08-19: moved off Groq (qwen/qwen3.6-27b) to OpenRouter — the account's only GROQ_KEY
+// was invalid (a full Falc outage, every user, every question; see lib/groq.js's callGroq
+// logging fix, same day). OPENROUTER_KEY is confirmed live and working, and this model
+// supports tool-calling (confirmed live 2026-08-19) with no <think> reasoning pass at all —
+// sidesteps the whole token-budget-eaten-by-reasoning failure class the qwen model was
+// exposed to. Revisit if OpenRouter costs/quality don't hold up under real traffic.
+const AGENT_MODEL = process.env.AGENT_MODEL || 'meta-llama/llama-3.3-70b-instruct';
 const AGENT_MAX_TOKENS = Number(process.env.AGENT_MAX_TOKENS) || 1500;
+// 2026-08-19: live-confirmed OpenRouter's DeepInfra backend for AGENT_MODEL returns a
+// genuinely empty response (no content, no tool_calls) specifically when Falc's full
+// SYSTEM_PROMPT + all 7 tool specs are sent together — every other backend serving this
+// model called the right tool correctly. See lib/openrouter.js's orChatTools avoidProviders
+// doc comment for the full investigation. Comma-separated so a future bad backend can be
+// added without a code change.
+const AGENT_AVOID_PROVIDERS = String(process.env.AGENT_AVOID_PROVIDERS || 'DeepInfra')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 const ALLOWED_ROLES = new Set(['user', 'assistant']);
 
-// P6 abuse defense (§4.4): every agent turn is a Groq call (cost-drainable) — rate limit it.
-// AGENT_RATE_MAX follows Barat's WEBHOOK_RATE_MAX naming convention; reuses the shared
-// lib/ratelimit.js limiter, no second implementation.
+// P6 abuse defense (§4.4): every agent turn is a paid model call (cost-drainable) — rate
+// limit it. AGENT_RATE_MAX follows Barat's WEBHOOK_RATE_MAX naming convention; reuses the
+// shared lib/ratelimit.js limiter, no second implementation.
 // Owner directive (lenient): a human power-user peaks at ~10-20 questions/min, so 120/min
 // is generous headroom that never trips real use. It's a RUNAWAY backstop (bug-loop /
-// flood), not a throttle — the Groq key pool (ADR-016) is the cost backstop. Not unlimited
-// on purpose: a runaway would otherwise drain every pooled key.
+// flood), not a throttle. Not unlimited on purpose: a runaway would otherwise drain the
+// account's OpenRouter balance with no ceiling (single-key provider, ADR-016's Groq pool
+// rotation doesn't apply here — see AGENT_MODEL's own doc comment, 2026-08-19).
 const agentLimiter = createRateLimiter({ max: Number(process.env.AGENT_RATE_MAX) || 120 });
 
 // deps injected in tests; default to the real modules in production.
 module.exports = function mountAgent(app, deps = {}) {
   const runAgent = deps.runAgent || realRunAgent;
   const confirmProposal = deps.confirmProposal || realConfirmProposal;
-  // The chat adapter binds model/token config onto the tool-calling Groq client.
-  const chat = deps.chat || ((messages, opts) => groqChatTools(messages, { model: AGENT_MODEL, max_tokens: AGENT_MAX_TOKENS, temperature: 0, ...opts }));
+  // The chat adapter binds model/token config onto the tool-calling OpenRouter client.
+  const chat = deps.chat || ((messages, opts) => orChatTools(messages, { model: AGENT_MODEL, max_tokens: AGENT_MAX_TOKENS, temperature: 0, avoidProviders: AGENT_AVOID_PROVIDERS, ...opts }));
   // Write helpers + template helpers: overridable in tests, default to the real modules —
   // same override pattern as chat/sbSelect above.
   const sbSelectFn = deps.sbSelect || sbSelect;

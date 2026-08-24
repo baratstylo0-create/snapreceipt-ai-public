@@ -15,10 +15,13 @@
 //
 // Conventions: pure DOM (createElement/textContent), UMD shim, pure helpers node-tested.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('../exportGuards'));
-  else root.Grid = factory(root.ExportGuards);
-})(typeof self !== 'undefined' ? self : this, function (ExportGuards) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../exportGuards'), require('../i18n'));
+  else root.Grid = factory(root.ExportGuards, root.I18n);
+})(typeof self !== 'undefined' ? self : this, function (ExportGuards, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   var PAGE_SIZE = 25;
 
@@ -26,18 +29,22 @@
   // (minus status/subtotal/tax/currency — not cell-edit material) so a valid cell edit can
   // never be rejected server-side for the field itself.
   var EDITABLE = ['expense_date', 'merchant', 'category', 'amount', 'remark'];
-  var LABELS = { expense_date: 'Date', merchant: 'Merchant', category: 'Category', amount: 'Amount', remark: 'Remark' };
-  var EXPORT_COLUMNS = [
-    { key: 'expense_date', label: 'Date' },
-    { key: 'merchant', label: 'Merchant' },
-    { key: 'amount', label: 'Amount' },
-    { key: 'currency', label: 'Currency' },
-    { key: 'category', label: 'Category' },
-    { key: 'branch_id', label: 'Branch' },
-    { key: 'staff_user_id', label: 'Staff' },
-    { key: 'payment_status', label: 'Status' },
-    { key: 'receipt_url', label: 'Receipt URL' },
-  ];
+  function labels() {
+    return { expense_date: t('grid.col_date'), merchant: t('grid.col_merchant'), category: t('grid.col_category'), amount: t('grid.col_amount'), remark: t('grid.col_remark') };
+  }
+  function exportColumns() {
+    return [
+      { key: 'expense_date', label: t('grid.col_date') },
+      { key: 'merchant', label: t('grid.col_merchant') },
+      { key: 'amount', label: t('grid.col_amount') },
+      { key: 'currency', label: t('grid.col_currency') },
+      { key: 'category', label: t('grid.col_category') },
+      { key: 'branch_id', label: t('grid.col_branch') },
+      { key: 'staff_user_id', label: t('grid.col_staff') },
+      { key: 'payment_status', label: t('grid.col_status') },
+      { key: 'receipt_url', label: t('grid.col_receipt_url') },
+    ];
+  }
 
   // Export buttons the Data-editor toolbar renders (QA 2026-07-13, Untitled document.md:
   // trimmed to just these two — Export CSV / Export PDF (with receipts) / Export template /
@@ -45,8 +52,8 @@
   // ('xlsx' for the managed export, 'pdf' for the statement) so the produced files are
   // byte-for-byte identical to before — only the button set shrinks. These are the single
   // source of truth the toolbar builds from (grid.test.js locks the set).
-  function managedExportButtons() { return [{ label: 'Export Excel', format: 'xlsx' }]; }
-  function statementExportButtons() { return [{ label: 'Statement PDF', format: 'pdf' }]; }
+  function managedExportButtons() { return [{ label: t('grid.export_excel'), format: 'xlsx' }]; }
+  function statementExportButtons() { return [{ label: t('grid.statement_pdf'), format: 'pdf' }]; }
 
   // Edit-mode hook class for the ledger table — CSS greens the editable columns while on.
   function ledgerTableClass(editMode) { return 'ledger-table' + (editMode ? ' is-editing' : ''); }
@@ -64,11 +71,11 @@
     if (field === 'amount') {
       var s = String(rawValue == null ? '' : rawValue).trim();
       var n = Number(s);
-      if (s === '' || !isFinite(n)) return { ok: false, error: 'Amount must be a number.' };
+      if (s === '' || !isFinite(n)) return { ok: false, error: t('grid.amount_must_be_number') };
       value = n;
     } else if (field === 'expense_date') {
       var d = String(rawValue == null ? '' : rawValue).trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: 'Date must be YYYY-MM-DD.' };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: t('grid.date_must_be_iso') };
       value = d;
     } else {
       value = String(rawValue == null ? '' : rawValue).trim();
@@ -113,6 +120,22 @@
     });
   }
 
+  var FULL_MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  // periodLabel("2026-08") -> "August, 2026" — the human-readable label for the Month
+  // filter that's actually driving this export (2026-08-19, Barat: the exported XLSX
+  // title used to show a single receipt's own date instead of the filter the user
+  // actually picked, e.g. "2026-08-09" instead of "August, 2026" when every visible
+  // receipt happened to share one date). Invalid/empty period -> '' (caller falls back
+  // to the server's own default). Pure, never throws.
+  function periodLabel(period) {
+    var p = String(period || '').trim();
+    var m = /^(\d{4})-(\d{2})$/.exec(p);
+    if (!m) return '';
+    var idx = Number(m[2]) - 1;
+    if (idx < 0 || idx > 11) return '';
+    return FULL_MONTH_NAMES[idx] + ', ' + m[1];
+  }
+
   // paginate(rows, page, pageSize) -> { pageRows, page, totalPages, total }. page is
   // clamped into [1, totalPages] (a stale page number after a filter shrinks the set
   // never produces an out-of-range slice). Empty input -> page 1 of 1, zero rows.
@@ -154,9 +177,10 @@
   // only, in display order — the same shape a spreadsheet user would expect to reopen.
   function rowsToCSV(rows) {
     var list = Array.isArray(rows) ? rows : [];
-    var header = EXPORT_COLUMNS.map(function (c) { return escapeCSVValue(c.label); }).join(',');
+    var cols = exportColumns();
+    var header = cols.map(function (c) { return escapeCSVValue(c.label); }).join(',');
     var lines = list.map(function (row) {
-      return EXPORT_COLUMNS.map(function (c) { return escapeCSVValue(exportValue(row, c.key)); }).join(',');
+      return cols.map(function (c) { return escapeCSVValue(exportValue(row, c.key)); }).join(',');
     });
     return [header].concat(lines).join('\r\n');
   }
@@ -164,7 +188,8 @@
   // blankTemplateCSV() -> just the header row — for a clerk who wants to prep data offline
   // in the exact column shape this view accepts.
   function blankTemplateCSV() {
-    return EDITABLE.map(function (f) { return escapeCSVValue(LABELS[f]); }).join(',');
+    var lbl = labels();
+    return EDITABLE.map(function (f) { return escapeCSVValue(lbl[f]); }).join(',');
   }
 
   function statementExportUrl(opts) {
@@ -183,9 +208,9 @@
 
   function statementBranchOptions(rows, session) {
     if (!session || session.role !== 'admin') return [];
-    var out = [{ value: 'all', label: 'All branches' }];
+    var out = [{ value: 'all', label: t('grid.branch_all') }];
     var own = session.branch_id ? String(session.branch_id) : '';
-    if (own) out.push({ value: own, label: 'My uploads' });
+    if (own) out.push({ value: own, label: t('grid.branch_mine') });
     var seen = {};
     if (own) seen[own] = true;
     var ids = [];
@@ -195,7 +220,7 @@
       seen[id] = true;
       ids.push(id);
     });
-    ids.sort().forEach(function (id) { out.push({ value: id, label: 'Branch ' + id }); });
+    ids.sort().forEach(function (id) { out.push({ value: id, label: tp('grid.branch_named', id) }); });
     return out;
   }
 
@@ -217,7 +242,7 @@
       return row && submissionState(row) === 'submitted' && (!target || String(row.period || '') === target);
     }).map(function (row) {
       var id = row.branch_id == null ? '' : String(row.branch_id);
-      return { id: row.id == null ? '' : String(row.id), branch_id: id, period: String(row.period || ''), label: names[id] || id || 'Unassigned branch' };
+      return { id: row.id == null ? '' : String(row.id), branch_id: id, period: String(row.period || ''), label: names[id] || id || t('grid.unassigned_branch') };
     });
   }
 
@@ -288,12 +313,12 @@
 
     // -- toolbar: mode badge + Edit toggle + exports --
     var toolbar = el('div', 'ledger-toolbar');
-    var badge = textEl('span', 'ledger-badge', 'Read-only');
+    var badge = textEl('span', 'ledger-badge', t('grid.read_only'));
     toolbar.appendChild(badge);
 
     var editBtn = el('button', 'ledger-btn ledger-btn--primary');
     editBtn.type = 'button';
-    Escape.setText(editBtn, 'Edit cells');
+    Escape.setText(editBtn, t('grid.edit_cells'));
     editBtn.addEventListener('click', function () {
       state.editMode = !state.editMode;
       render();
@@ -312,7 +337,7 @@
     // that used to also be on business's toolbar before a 2026-07-13 de-clutter pass
     // removed it there. Business's own button set (managedExportButtons()) is untouched,
     // so grid.test.js's pinned business export set still holds exactly as before.
-    if (!isBusinessSession) exportButtons.push({ label: 'Export PDF', format: 'pdf' });
+    if (!isBusinessSession) exportButtons.push({ label: t('grid.export_pdf'), format: 'pdf' });
     exportButtons.forEach(function (cfg) {
       var b = el('button', 'ledger-btn ledger-btn--ghost');
       b.type = 'button';
@@ -330,10 +355,10 @@
     // route 403s without req.scope (no session), so hiding them for personal isn't just
     // cosmetic, it avoids offering a control that would just fail.
     var statementTools = el('div', 'ledger-statement-tools');
-    statementTools.appendChild(textEl('span', 'ledger-statement-label', isBusinessSession ? 'Petty Cash Statement' : 'Month'));
+    statementTools.appendChild(textEl('span', 'ledger-statement-label', isBusinessSession ? t('grid.petty_cash_statement') : t('grid.month')));
     var statementMonth = el('input', 'ledger-statement-month');
     statementMonth.type = 'month';
-    statementMonth.setAttribute('aria-label', isBusinessSession ? 'Statement month' : 'Filter by month');
+    statementMonth.setAttribute('aria-label', isBusinessSession ? t('grid.statement_month_aria') : t('grid.filter_by_month_aria'));
     var now = new Date();
     statementMonth.value = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
     statementTools.appendChild(statementMonth);
@@ -341,7 +366,7 @@
     var statementBranch = null;
     if (session && session.role === 'admin') {
       statementBranch = el('select', 'ledger-statement-branch');
-      statementBranch.setAttribute('aria-label', 'Statement branch');
+      statementBranch.setAttribute('aria-label', t('grid.statement_branch_aria'));
       statementTools.appendChild(statementBranch);
     }
 
@@ -363,7 +388,7 @@
     var submissionWrap = null, submissionMsg = null, submissionBtn = null, withdrawBtn = null, readyList = null;
     if (submissionOn && (isClerk || isAdmin)) {
       submissionWrap = el('div', 'ledger-submission');
-      var submissionHeading = textEl('span', 'ledger-submission-label', isClerk ? 'Month ready' : 'Ready to close');
+      var submissionHeading = textEl('span', 'ledger-submission-label', isClerk ? t('grid.month_ready') : t('grid.ready_to_close'));
       submissionWrap.appendChild(submissionHeading);
       submissionMsg = el('span', 'ledger-submission-msg muted');
       submissionWrap.appendChild(submissionMsg);
@@ -374,7 +399,7 @@
         submissionWrap.appendChild(submissionBtn);
         withdrawBtn = el('button', 'ledger-btn ledger-btn--ghost');
         withdrawBtn.type = 'button';
-        Escape.setText(withdrawBtn, 'Withdraw');
+        Escape.setText(withdrawBtn, t('grid.withdraw'));
         withdrawBtn.hidden = true;
         withdrawBtn.addEventListener('click', withdrawMonth);
         submissionWrap.appendChild(withdrawBtn);
@@ -394,8 +419,8 @@
     var searchRow = el('div', 'ledger-search-row');
     var searchInput = el('input', 'ledger-search');
     searchInput.type = 'search';
-    searchInput.placeholder = 'Search merchant, category, remark…';
-    searchInput.setAttribute('aria-label', 'Search the ledger');
+    searchInput.placeholder = t('grid.search_placeholder');
+    searchInput.setAttribute('aria-label', t('grid.search_aria'));
     searchInput.addEventListener('input', function () {
       state.search = searchInput.value;
       state.page = 1;
@@ -442,17 +467,17 @@
     function doStatementExport(format) {
       var period = statementMonth.value;
       if (!/^\d{4}-\d{2}$/.test(period)) {
-        note('Choose a statement month first.');
+        note(t('grid.choose_statement_month'));
         return;
       }
       var branch = statementBranch ? statementBranch.value : '';
       setExportBusy(true);
-      note('Preparing statement ' + String(format).toUpperCase() + '...');
+      note(tp('grid.preparing_statement', String(format).toUpperCase()));
       Api.fetchBlob(statementExportUrl({ period: period, format: format, branch: branch })).then(function (blob) {
         downloadBlob(blob, statementFilename(format));
-        note('Statement ' + String(format).toUpperCase() + ' downloaded.');
+        note(tp('grid.statement_downloaded', String(format).toUpperCase()));
       }).catch(function () {
-        note('Statement export failed. Please try again.');
+        note(t('grid.statement_export_failed'));
       }).then(function () {
         setExportBusy(false);
       });
@@ -480,7 +505,7 @@
       if (!readyList) return;
       clear(readyList);
       var rows = readyToCloseRows(state.submissions, state.branchNames, period);
-      Escape.setText(submissionMsg, rows.length ? rows.length + ' branch' + (rows.length === 1 ? '' : 'es') + ' submitted.' : 'No branches submitted yet.');
+      Escape.setText(submissionMsg, rows.length ? tp('grid.branches_submitted', rows.length) : t('grid.no_branches_submitted'));
       if (!rows.length) return;
       rows.forEach(function (row) {
         var item = el('div', 'ledger-ready-item');
@@ -489,7 +514,7 @@
         ['xlsx', 'pdf'].forEach(function (format) {
           var button = el('button', 'ledger-btn ledger-btn--ghost');
           button.type = 'button';
-          Escape.setText(button, format === 'xlsx' ? 'Export Excel' : 'Export PDF');
+          Escape.setText(button, format === 'xlsx' ? t('grid.export_excel') : t('grid.export_pdf'));
           button.addEventListener('click', function () {
             selectStatementBranch(row.branch_id, row.period);
             doStatementExport(format);
@@ -509,10 +534,10 @@
         state.submission = state.submissions[0] || null;
         if (isClerk) {
           var status = submissionState(state.submission);
-          Escape.setText(submissionMsg, status === 'submitted' ? 'Submitted for ' + period + '.'
-            : status === 'withdrawn' ? 'Withdrawn for ' + period + '.' : 'Not submitted for ' + period + '.');
+          Escape.setText(submissionMsg, status === 'submitted' ? tp('grid.submitted_for', period)
+            : status === 'withdrawn' ? tp('grid.withdrawn_for', period) : tp('grid.not_submitted_for', period));
           if (submissionBtn) {
-            Escape.setText(submissionBtn, status === 'submitted' ? 'Re-submit month ready' : 'Submit month ready');
+            Escape.setText(submissionBtn, status === 'submitted' ? t('grid.resubmit_month_ready') : t('grid.submit_month_ready'));
             submissionBtn.disabled = false;
           }
           if (withdrawBtn) withdrawBtn.hidden = status !== 'submitted';
@@ -520,7 +545,7 @@
           renderReadyList(period);
         }
       }).catch(function () {
-        Escape.setText(submissionMsg, 'Could not load submission status.');
+        Escape.setText(submissionMsg, t('grid.could_not_load_submission'));
       });
     }
 
@@ -528,12 +553,12 @@
       if (!submissionBtn || !Api || typeof Api.apiFetch !== 'function') return;
       var period = statementMonth.value || submissionPeriod();
       submissionBtn.disabled = true;
-      Escape.setText(submissionMsg, 'Submitting…');
+      Escape.setText(submissionMsg, t('grid.submitting'));
       Api.apiFetch('/api/submissions', { method: 'POST', body: { period: period } })
         .then(function () { refreshSubmissionSignal(); })
         .catch(function (err) {
           submissionBtn.disabled = false;
-          Escape.setText(submissionMsg, err && err.status === 403 ? 'Only a branch clerk can submit.' : 'Submit failed. Please try again.');
+          Escape.setText(submissionMsg, err && err.status === 403 ? t('grid.only_clerk_can_submit') : t('grid.submit_failed'));
         });
     }
 
@@ -542,7 +567,7 @@
       withdrawBtn.disabled = true;
       Api.apiFetch('/api/submissions/' + encodeURIComponent(state.submission.id), { method: 'PATCH', body: { status: 'withdrawn' } })
         .then(function () { withdrawBtn.disabled = false; refreshSubmissionSignal(); })
-        .catch(function () { withdrawBtn.disabled = false; Escape.setText(submissionMsg, 'Withdraw failed. Please try again.'); });
+        .catch(function () { withdrawBtn.disabled = false; Escape.setText(submissionMsg, t('grid.withdraw_failed')); });
     }
 
     function loadBranchDirectory() {
@@ -568,16 +593,20 @@
         onReview: switchView ? function () { switchView('activity'); } : undefined,
         onProceed: function () {
           setExportBusy(true);
-          note('Preparing ' + String(format).toUpperCase() + ' export...');
+          note(tp('grid.preparing_export', String(format).toUpperCase()));
+          // period_label (2026-08-19): tells the server which filter is actually driving
+          // this export ("August, 2026") so the XLSX title reflects the user's Month
+          // picker instead of guessing from the exported rows' own dates — see
+          // periodLabel's own doc comment above for the bug this fixes.
           Api.fetchBlob('/api/manage-export?format=' + encodeURIComponent(format), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: ids }),
+            body: JSON.stringify({ ids: ids, period_label: periodLabel(statementMonth.value) }),
           }).then(function (blob) {
             downloadBlob(blob, 'ledger-export.' + (format === 'xlsx' ? 'xlsx' : format));
-            note(String(format).toUpperCase() + ' downloaded.');
+            note(tp('grid.export_downloaded', String(format).toUpperCase()));
           }).catch(function () {
-            note('Export failed. Please try again.');
+            note(t('grid.export_failed'));
           }).then(function () {
             setExportBusy(false);
           });
@@ -594,7 +623,7 @@
         renderCell(td, row, field); // restore display either way
         return;
       }
-      note('Saving…');
+      note(t('grid.saving'));
       Api.apiFetch('/api/expenses/' + encodeURIComponent(row.id), { method: 'PATCH', body: built.patch })
         .then(function (fresh) {
           // Server echoes the updated row (incl. the trigger-bumped updated_at) — keep it
@@ -604,18 +633,18 @@
           } else {
             row[field] = built.patch[field];
           }
-          note('Click a cell to edit. Enter saves, Esc cancels.');
+          note(t('grid.click_cell_hint'));
           renderCell(td, row, field);
         })
         .catch(function (err) {
           if (err && err.status === 409) {
-            note('That row changed elsewhere — refreshed with the latest values.');
+            note(t('grid.row_changed_elsewhere'));
             load();
           } else if (err && err.status === 403) {
-            note('You can only edit your own branch\'s expenses.');
+            note(t('grid.own_branch_only'));
             renderCell(td, row, field);
           } else {
-            note('Save failed. Please try again.');
+            note(t('grid.save_failed'));
             renderCell(td, row, field);
           }
         });
@@ -647,7 +676,7 @@
         if (current && categories.indexOf(current) === -1) {
           var legacy = document.createElement('option');
           legacy.value = current;
-          legacy.textContent = current + ' (not in category list)';
+          legacy.textContent = tp('grid.not_in_category_list', current);
           input.appendChild(legacy);
         }
         categories.forEach(function (c) {
@@ -681,14 +710,14 @@
       if (view.total === 0) return;
       var start = (view.page - 1) * PAGE_SIZE + 1;
       var end = Math.min(view.page * PAGE_SIZE, view.total);
-      pager.appendChild(textEl('span', 'ledger-pager-info', 'Showing ' + start + '-' + end + ' of ' + view.total));
+      pager.appendChild(textEl('span', 'ledger-pager-info', tp('grid.pager_showing', start, end, view.total)));
 
       var nav = el('div', 'ledger-pager-nav');
       var prev = el('button', 'ledger-pager-btn');
       Escape.setText(prev, '‹');
       prev.type = 'button';
       prev.disabled = view.page <= 1;
-      prev.setAttribute('aria-label', 'Previous page');
+      prev.setAttribute('aria-label', t('grid.previous_page'));
       prev.addEventListener('click', function () { state.page = view.page - 1; render(); });
       nav.appendChild(prev);
 
@@ -698,16 +727,16 @@
       Escape.setText(next, '›');
       next.type = 'button';
       next.disabled = view.page >= view.totalPages;
-      next.setAttribute('aria-label', 'Next page');
+      next.setAttribute('aria-label', t('grid.next_page'));
       next.addEventListener('click', function () { state.page = view.page + 1; render(); });
       nav.appendChild(next);
       pager.appendChild(nav);
     }
 
     function render() {
-      Escape.setText(badge, state.editMode ? 'Editing enabled' : 'Read-only');
+      Escape.setText(badge, state.editMode ? t('grid.editing_enabled') : t('grid.read_only'));
       badge.classList.toggle('ledger-badge--edit', state.editMode);
-      Escape.setText(editBtn, state.editMode ? 'Done editing' : 'Edit cells');
+      Escape.setText(editBtn, state.editMode ? t('grid.done_editing') : t('grid.edit_cells'));
 
       host.textContent = '';
       var byPeriod = filterByPeriod(state.rows, statementMonth.value);
@@ -716,22 +745,23 @@
       renderPager(view);
 
       if (!state.rows.length) {
-        note(state.loaded ? 'No expenses yet.' : 'Loading…');
+        note(state.loaded ? t('grid.no_expenses_yet') : t('grid.loading_ellipsis'));
         return;
       }
       if (!filtered.length) {
-        note(state.search ? 'No rows match "' + state.search + '".' : 'No expenses for ' + statementMonth.value + '.');
+        note(state.search ? tp('grid.no_rows_match', state.search) : tp('grid.no_expenses_for_month', statementMonth.value));
         return;
       }
-      note(state.editMode ? 'Click a cell to edit. Enter saves, Esc cancels.' : 'Read-only — tap "Edit cells" to make changes.');
+      note(state.editMode ? t('grid.click_cell_hint') : t('grid.read_only_hint'));
 
       var table = document.createElement('table');
       table.className = ledgerTableClass(state.editMode);
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
+      var lbl = labels();
       EDITABLE.forEach(function (f) {
         var th = document.createElement('th');
-        th.textContent = LABELS[f];
+        th.textContent = lbl[f];
         hr.appendChild(th);
       });
       thead.appendChild(hr);
@@ -762,7 +792,7 @@
         refreshStatementBranches();
         render();
         refreshSubmissionSignal();
-      }).catch(function () { note('Could not load expenses. Please try again shortly.'); });
+      }).catch(function () { note(t('grid.load_expenses_failed')); });
     }
 
     render();
@@ -772,7 +802,7 @@
   return {
     // pure
     mount: mount, buildCellPatch: buildCellPatch, EDITABLE: EDITABLE,
-    filterRows: filterRows, filterByPeriod: filterByPeriod, paginate: paginate, escapeCSVValue: escapeCSVValue,
+    filterRows: filterRows, filterByPeriod: filterByPeriod, periodLabel: periodLabel, paginate: paginate, escapeCSVValue: escapeCSVValue,
     rowsToCSV: rowsToCSV, blankTemplateCSV: blankTemplateCSV, receiptLink: receiptLink,
     statementExportUrl: statementExportUrl, statementBranchOptions: statementBranchOptions, statementFilename: statementFilename,
     managedExportButtons: managedExportButtons, statementExportButtons: statementExportButtons, ledgerTableClass: ledgerTableClass,

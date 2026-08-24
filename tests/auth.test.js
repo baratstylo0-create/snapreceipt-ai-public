@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   hashPassword, verifyPassword,
-  mintSession, lookupSession, revokeSessionsForUser, tokenHash,
+  mintSession, lookupSession, revokeSessionsForUser, tokenHash, accountIdFor,
   scopeForUser,
 } = require('../lib/auth');
 
@@ -126,14 +126,96 @@ test('lookupSession returns null for a missing token, empty input, or expired se
   try { assert.strictEqual(await lookupSession('stale'), null); } finally { stub.restore(); }
 });
 
-test('revokeSessionsForUser issues a DELETE filtered by user_id', async () => {
+// 2026-08-14 SECURITY FIX: this used to also assert an `account_id=eq.` predicate — that was
+// the bug (see lib/auth.js's doc comment on revokeSessionsForUser). `user_id` is already a FK
+// to one globally-unique `users.id`, so it alone is correct; a lingering account_id=eq.<the
+// one global cfg.ACCOUNT_ID constant> predicate would silently fail to revoke a session minted
+// for a user whose own account_id differs from that constant (exactly the per-account
+// personal-signup case this fix introduces).
+test('revokeSessionsForUser issues a DELETE filtered by user_id ONLY (no account_id predicate)', async () => {
   const stub = stubFetch(() => []);
   try {
     await revokeSessionsForUser('u1');
     const del = stub.calls[0];
     assert.strictEqual(del.method, 'DELETE');
-    assert.match(del.url, /\/sessions\?user_id=eq\.u1/);
-    assert.match(del.url, /account_id=eq\./);
+    assert.strictEqual(del.url, '/rest/v1/sessions?user_id=eq.u1');
+  } finally { stub.restore(); }
+});
+
+// 2026-08-14 SECURITY FIX regression lock: mintSession/lookupSession must round-trip a
+// user's OWN account_id, not the single global cfg.ACCOUNT_ID constant — this is the actual
+// isolation mechanism two different personal ("owner") accounts now rely on.
+test('mintSession stamps the SESSION with the USER\'s own account_id, not the global default', async () => {
+  const stub = stubFetch(() => []);
+  try {
+    await mintSession({ id: 'u1', role: 'owner', account_id: 'p_abc123' });
+    assert.strictEqual(stub.calls[0].body.account_id, 'p_abc123');
+  } finally { stub.restore(); }
+});
+
+test('mintSession falls back to cfg.ACCOUNT_ID when the user row carries none (business/legacy, unchanged)', async () => {
+  const stub = stubFetch(() => []);
+  try {
+    await mintSession({ id: 'u1', role: 'clerk', branch_id: 'b1' });
+    assert.strictEqual(stub.calls[0].body.account_id, 'default');
+  } finally { stub.restore(); }
+});
+
+// 2026-08-14 regression lock — CAUGHT LIVE against the real production .env before deploy:
+// a deployment can set ACCOUNT_ID to something other than the literal string 'default'
+// (this one uses 'snapreceiptai'). schema.sql's users.account_id column DEFAULT is always
+// the literal 'default', so every EXISTING (pre-fix) user row has account_id:'default' while
+// their actual data rows all carry the deployment's real cfg.ACCOUNT_ID. A plain `||`
+// fallback would treat that literal 'default' as a real, intentional value (non-empty string)
+// and mint a session that matches NONE of that user's existing data — accountIdFor must
+// treat 'default' as "never actually assigned" and use cfg.ACCOUNT_ID instead.
+test('accountIdFor: treats the literal DB-default "default" as unset, not a real per-user value', () => {
+  const savedAccountId = process.env.ACCOUNT_ID;
+  process.env.ACCOUNT_ID = 'snapreceiptai';
+  delete require.cache[require.resolve('../lib/config')];
+  delete require.cache[require.resolve('../lib/auth')];
+  try {
+    const freshAuth = require('../lib/auth');
+    assert.strictEqual(freshAuth.accountIdFor({ account_id: 'default' }), 'snapreceiptai',
+      'an existing pre-fix user (DB column default) must resolve to the deployment\'s real account_id, matching their existing data');
+    assert.strictEqual(freshAuth.accountIdFor({ account_id: 'p_abc123' }), 'p_abc123',
+      'a real per-user account_id (new signups, never literally "default") is used as-is');
+    assert.strictEqual(freshAuth.accountIdFor({}), 'snapreceiptai', 'no account_id at all also falls back');
+  } finally {
+    if (savedAccountId === undefined) delete process.env.ACCOUNT_ID; else process.env.ACCOUNT_ID = savedAccountId;
+    delete require.cache[require.resolve('../lib/config')];
+    delete require.cache[require.resolve('../lib/auth')];
+  }
+});
+
+test('mintSession: an EXISTING user row stuck on the literal "default" resolves to cfg.ACCOUNT_ID, not the literal string', async () => {
+  const savedAccountId = process.env.ACCOUNT_ID;
+  process.env.ACCOUNT_ID = 'snapreceiptai';
+  delete require.cache[require.resolve('../lib/config')];
+  delete require.cache[require.resolve('../lib/auth')];
+  try {
+    const freshAuth = require('../lib/auth');
+    const stub = stubFetch(() => []);
+    try {
+      await freshAuth.mintSession({ id: 'u1', role: 'owner', account_id: 'default' });
+      assert.strictEqual(stub.calls[0].body.account_id, 'snapreceiptai',
+        'must match this deployment\'s real account_id, matching every existing expense row — NOT the literal "default"');
+    } finally { stub.restore(); }
+  } finally {
+    if (savedAccountId === undefined) delete process.env.ACCOUNT_ID; else process.env.ACCOUNT_ID = savedAccountId;
+    delete require.cache[require.resolve('../lib/config')];
+    delete require.cache[require.resolve('../lib/auth')];
+  }
+});
+
+test('lookupSession does not filter by account_id (token_hash alone is the unique key)', async () => {
+  const stub = stubFetch((call) => {
+    assert.strictEqual(call.url, '/rest/v1/sessions?token_hash=eq.' + tokenHash('sometoken') + '&limit=1');
+    return [{ user_id: 'u1', account_id: 'p_abc123', role: 'owner', expires_at: new Date(Date.now() + 60000).toISOString() }];
+  });
+  try {
+    const s = await lookupSession('sometoken');
+    assert.strictEqual(s.account_id, 'p_abc123', 'a per-user account_id survives the round trip');
   } finally { stub.restore(); }
 });
 

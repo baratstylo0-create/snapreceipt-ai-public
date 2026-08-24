@@ -17,17 +17,26 @@ function baseDeps(over = {}) {
   const sent = [];
   const answered = [];
   const deleted = [];
+  // sbSelectGlobal (2026-08-22): handleSignupStep's email-exists and reconnect-email checks
+  // now go through sbSelectGlobal, not sbSelect (see lib/supabase.js's doc comment — a
+  // duplicate-email check must be tenant-independent). Defaulting it to mirror whatever
+  // `sbSelect` override a test already passes keeps every existing "existing user found"/
+  // "no existing user" test scenario working without touching each one individually; a test
+  // that needs the two to diverge can still pass its own `sbSelectGlobal` override.
+  const resolvedOver = { ...over };
+  if (resolvedOver.sbSelectGlobal === undefined) resolvedOver.sbSelectGlobal = resolvedOver.sbSelect;
   return {
     deps: {
       tgSend: async (chatId, text, replyMarkup) => { sent.push({ chatId, text, replyMarkup }); },
       tgAnswerCallback: async (id) => { answered.push(id); },
       tgDeleteMessage: async (chatId, messageId) => { deleted.push({ chatId, messageId }); },
       sbSelect: async () => [],
+      sbSelectGlobal: async () => [],
       sbUpdate: async () => [],
       signupOwnerDirect: async () => ({ user: { id: 'u1', username: 'x@y.com', role: 'owner' }, bindToken: 'tok' }),
       reconnectBinding: async () => true,
       sendVerificationCode: async () => {},
-      ...over,
+      ...resolvedOver,
     },
     sent, answered, deleted,
   };

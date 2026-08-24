@@ -46,12 +46,15 @@
 // layer simply isn't exercised there — no document/Blob/fetch).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../format'), require('../api'), require('../exportGuards'));
+    module.exports = factory(require('../escape'), require('../format'), require('../api'), require('../exportGuards'), require('../i18n'));
   } else {
-    root.Reports = factory(root.Escape, root.Format, root.Api, root.ExportGuards);
+    root.Reports = factory(root.Escape, root.Format, root.Api, root.ExportGuards, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api, ExportGuards) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api, ExportGuards, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var PERIODS = ['day', 'week', 'month', 'year'];
@@ -75,8 +78,8 @@
   function branchFilterOptions(branches, isAdmin) {
     if (!isAdmin) return [];
     var out = [
-      { value: 'all', label: 'All branches' },
-      { value: 'mine', label: 'My uploads' },
+      { value: 'all', label: t('reports.branch_all') },
+      { value: 'mine', label: t('reports.branch_mine') },
     ];
     (Array.isArray(branches) ? branches : []).forEach(function (branch) {
       if (!branch || branch.id === undefined || branch.id === null || String(branch.id) === '') return;
@@ -201,10 +204,10 @@
   // at all (routes/excel.js treats a missing from/to as "every expense ever").
   var EXPORT_CHOICES = ['day', 'week', 'month', 'overall'];
   function exportChoiceLabel(choice) {
-    if (choice === 'day') return 'Today';
-    if (choice === 'week') return 'This week';
-    if (choice === 'month') return 'This month';
-    return 'Overall (all time)';
+    if (choice === 'day') return t('reports.export_today');
+    if (choice === 'week') return t('reports.export_this_week');
+    if (choice === 'month') return t('reports.export_this_month');
+    return t('reports.export_overall');
   }
   function exportRangeFor(choice, now) {
     var today = isIsoShaped(now) ? now : todayIso();
@@ -336,9 +339,9 @@
   // never leak server internals). Never throws.
   function exportErrorMessage(status) {
     switch (Number(status)) {
-      case 401: return 'Your access token is missing or invalid. Please try again.';
-      case 502: return 'Could not export to Excel right now. Please try again shortly.';
-      default:  return 'Could not export to Excel. Please try again.';
+      case 401: return t('reports.export_err_401');
+      case 502: return t('reports.export_err_502');
+      default:  return t('reports.export_err_default');
     }
   }
 
@@ -376,7 +379,7 @@
   function renderChart(rows) {
     var figure = el('figure', 'ov-chart');
     var caption = el('figcaption', 'ov-chart-caption');
-    Escape.setText(caption, 'Spend by period');
+    Escape.setText(caption, t('reports.spend_by_period'));
     figure.appendChild(caption);
 
     var width = 640, height = 260, padL = 8, padR = 8, padBottom = 30;
@@ -477,11 +480,11 @@
   function renderCategoryBreakdown(rows) {
     var wrap = el('div', 'rp-categories');
     var title = el('h4', 'rp-categories-title');
-    Escape.setText(title, 'By category');
+    Escape.setText(title, t('reports.by_category'));
     wrap.appendChild(title);
 
     if (!rows.length) {
-      wrap.appendChild(msg('rp-categories-empty muted', 'No category spend for this period.'));
+      wrap.appendChild(msg('rp-categories-empty muted', t('reports.no_category_spend')));
       return wrap;
     }
 
@@ -517,18 +520,17 @@
     var hasData = reports && toNum(reports.count) > 0;
 
     if (reports && reports.truncated) {
-      container.appendChild(msg('up-notice rp-notice', 'This report only covers the first ' +
-        Format.formatCount(reports.fetched_count) + ' matching expenses (there may be more).'));
+      container.appendChild(msg('up-notice rp-notice', tp('reports.truncated_notice', Format.formatCount(reports.fetched_count))));
     }
 
     if (!hasData) {
-      container.appendChild(msg('ov-empty', 'No expenses for this period.'));
+      container.appendChild(msg('ov-empty', t('reports.no_expenses_period')));
       return;
     }
 
     container.appendChild(renderKpis([
-      { label: 'Total spend', value: Format.formatMoney(reports.total) },
-      { label: 'Total bills', value: Format.formatCount(reports.count) },
+      { label: t('reports.kpi_total_spend'), value: Format.formatMoney(reports.total) },
+      { label: t('reports.kpi_total_bills'), value: Format.formatCount(reports.count) },
     ]));
     if (period !== 'day') container.appendChild(renderChart(rowsForPeriod(period, reports, anchor)));
     container.appendChild(renderCategoryBreakdown(categoryBreakdown(reports)));
@@ -596,7 +598,7 @@
     var card = el('div', 'rp-confirm-card');
     card.setAttribute('role', 'dialog');
     card.setAttribute('aria-modal', 'true');
-    card.appendChild(msg('rp-confirm-title', 'Export which timeframe?'));
+    card.appendChild(msg('rp-confirm-title', t('reports.export_which_timeframe')));
 
     var choices = el('div', 'rp-confirm-choices');
     EXPORT_CHOICES.forEach(function (choice) {
@@ -610,7 +612,7 @@
 
     var cancelBtn = el('button', 'rp-confirm-cancel');
     cancelBtn.type = 'button';
-    Escape.setText(cancelBtn, 'Cancel');
+    Escape.setText(cancelBtn, t('reports.cancel'));
     cancelBtn.addEventListener('click', close);
     card.appendChild(cancelBtn);
 
@@ -653,7 +655,7 @@
     PERIODS.forEach(function (p) {
       var btn = el('button', 'rp-period-btn');
       btn.type = 'button';
-      Escape.setText(btn, p.charAt(0).toUpperCase() + p.slice(1));
+      Escape.setText(btn, t('reports.period_' + p));
       btn.addEventListener('click', function () {
         if (state.uiPeriod === p) return;
         state.uiPeriod = p;
@@ -669,19 +671,19 @@
     var branchSelect = null;
     if (isAdmin) {
       branchSelect = el('select', 'rp-branch-filter');
-      branchSelect.setAttribute('aria-label', 'Filter by branch');
+      branchSelect.setAttribute('aria-label', t('reports.filter_branch_aria'));
       toolbar.appendChild(branchSelect);
     }
 
     var navGroup = el('div', 'rp-nav-group');
     var prevBtn = el('button', 'rp-nav-btn');
     prevBtn.type = 'button';
-    prevBtn.setAttribute('aria-label', 'Previous');
+    prevBtn.setAttribute('aria-label', t('reports.previous'));
     Escape.setText(prevBtn, '‹');
     var navLabel = el('span', 'rp-nav-label');
     var nextBtn = el('button', 'rp-nav-btn');
     nextBtn.type = 'button';
-    nextBtn.setAttribute('aria-label', 'Next');
+    nextBtn.setAttribute('aria-label', t('reports.next'));
     Escape.setText(nextBtn, '›');
     navGroup.appendChild(prevBtn);
     navGroup.appendChild(navLabel);
@@ -690,7 +692,7 @@
 
     var exportBtn = el('button', 'rp-export-btn');
     exportBtn.type = 'button';
-    Escape.setText(exportBtn, 'Export to Excel');
+    Escape.setText(exportBtn, t('reports.export_to_excel'));
     toolbar.appendChild(exportBtn);
 
     rootEl.appendChild(toolbar);
@@ -765,11 +767,21 @@
 
     function currentQuery() { return buildAnchorQuery(state.uiPeriod, currentAnchor()); }
 
-    function fetchAndRender() {
+    // silent (2026-08-21, same fix as overview.js's load()): the 25s background
+    // poll used to unconditionally clear() the whole report and show "Loading…"
+    // on every tick, blanking already-correct data for no reason — the "keeps
+    // refreshing, goes blank and comes back" complaint. refreshIfVisible() now
+    // passes silent=true so a background tick fetches quietly and swaps content
+    // in only once, via the same renderInto() call already below; every
+    // user-driven call (period/prev/next/branch change) still shows the loading
+    // state, since those really do invalidate what's on screen.
+    function fetchAndRender(silent) {
       if (!apiFetch) return;
       state.loading = true;
-      clear(body);
-      body.appendChild(msg('ov-loading muted', 'Loading report…'));
+      if (!silent) {
+        clear(body);
+        body.appendChild(msg('ov-loading muted', t('reports.loading_report')));
+      }
       var q = currentQuery();
       var params = [];
       Object.keys(q).forEach(function (k) { params.push(k + '=' + encodeURIComponent(q[k])); });
@@ -782,8 +794,15 @@
         renderInto(body, reports, period, anchor);
       }).catch(function () {
         state.loading = false;
-        clear(body);
-        body.appendChild(msg('ov-error', 'Could not load your report. Please try again shortly.'));
+        if (!state.lastReports) {
+          clear(body);
+          body.appendChild(msg('ov-error', t('reports.load_failed')));
+        } else if (!silent) {
+          // Keep the last-known-good report on screen — same "stale cache is
+          // fine" rule this app already uses elsewhere, so a real user-driven
+          // reload doesn't blank the page just because a refetch failed.
+          renderInto(body, state.lastReports, period, anchor);
+        }
       });
     }
 
@@ -807,11 +826,11 @@
           showExportChoiceDialog(function (choice) {
             exportBusy = true;
             exportBtn.disabled = true;
-            Escape.setText(exportStatus, 'Preparing your export…');
+            Escape.setText(exportStatus, t('reports.preparing_export'));
             exportExcel(exportRangeFor(choice)).then(function () {
               exportBusy = false;
               exportBtn.disabled = false;
-              Escape.setText(exportStatus, 'Export downloaded.');
+              Escape.setText(exportStatus, t('reports.export_downloaded'));
             }).catch(function (err) {
               exportBusy = false;
               exportBtn.disabled = false;
@@ -835,7 +854,7 @@
 
     var refreshTimer = null;
     function visible() { return typeof document === 'undefined' || document.visibilityState !== 'hidden'; }
-    function refreshIfVisible() { if (visible() && !state.loading) fetchAndRender(); }
+    function refreshIfVisible() { if (visible() && !state.loading) fetchAndRender(true); }
     function onVisibilityChange() { if (visible()) refreshIfVisible(); }
     function startLiveUpdates() {
       if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('focus', refreshIfVisible);

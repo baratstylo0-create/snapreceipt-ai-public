@@ -26,11 +26,11 @@
 // UMD shim: window.Settings in the browser; require()-able in Node.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'));
+    module.exports = factory(require('../escape'), require('./legal'));
   } else {
-    root.Settings = factory(root.Escape);
+    root.Settings = factory(root.Escape, root.Legal);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Legal) {
   'use strict';
 
   function str(v) { return v === null || v === undefined ? '' : String(v); }
@@ -79,7 +79,11 @@
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
 
   // A collapsible section (low-stimulation: open what you want). Static title
-  // via textContent. Returns { el, body }.
+  // via textContent. Returns { el, body }. Deliberately NO persistence across
+  // navigation (2026-08-19, Barat: "no need remember final position if user go
+  // another page and comeback to setting" — a same-session sessionStorage-remember
+  // version was tried and explicitly rejected) — every visit to Settings starts
+  // every section at its own `defaultOpen` again, full stop.
   function collapsible(title, defaultOpen) {
     var wrap = el('div', 'collapsible' + (defaultOpen ? ' is-open' : ''));
     var head = el('button', 'collapsible-head');
@@ -177,6 +181,11 @@
   // (client-side friction only, mirrors the reference design) before the button un-disables.
   function openDeleteAccountModal(opts) {
     if (!hasDom()) return;
+    // has_password (2026-08-19): a Google-only signup never sets a password, so asking for
+    // one here is a dead end — nothing typed can ever be "correct" (routes/auth.js's DELETE
+    // /api/account has the matching server-side fix, same day). Skip the field entirely for
+    // that case; the "Type DELETE" box alone is this account's real confirmation.
+    var hasPassword = !!(opts.config && opts.config.account_info && opts.config.account_info.has_password);
     var overlay = el('div', 'team-modal-overlay');
     var modal = el('div', 'team-modal');
     modal.setAttribute('role', 'alertdialog');
@@ -188,8 +197,8 @@
       return p;
     })());
 
-    var pw = passwordFieldWithEye('Confirm your password');
-    modal.appendChild(pw.wrap);
+    var pw = hasPassword ? passwordFieldWithEye('Confirm your password') : null;
+    if (pw) modal.appendChild(pw.wrap);
 
     var confirmField = el('div', 'set-field');
     var confirmLab = el('label', 'set-field-label');
@@ -217,11 +226,14 @@
 
     // Both fields must be filled (password non-empty, confirm text exactly "DELETE") before
     // the destructive button is even clickable — matches the reference design, and gives an
-    // extra guard against a fast/accidental click beyond the password check alone.
+    // extra guard against a fast/accidental click beyond the password check alone. When there
+    // is no password field at all (hasPassword false), the DELETE text alone gates the button.
     function refreshEnabled() {
-      confirm.disabled = !(pw.input.value && confirmInput.value === 'DELETE');
+      confirm.disabled = hasPassword
+        ? !(pw.input.value && confirmInput.value === 'DELETE')
+        : confirmInput.value !== 'DELETE';
     }
-    pw.input.addEventListener('input', refreshEnabled);
+    if (pw) pw.input.addEventListener('input', refreshEnabled);
     confirmInput.addEventListener('input', refreshEnabled);
 
     function closeModal() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
@@ -234,7 +246,9 @@
       confirm.disabled = true;
       cancel.disabled = true;
       errMsg.style.display = 'none';
-      opts.Api.apiFetch('/api/account', { method: 'DELETE', body: { password: pw.input.value } })
+      var body = { confirmText: confirmInput.value };
+      if (hasPassword) body.password = pw.input.value;
+      opts.Api.apiFetch('/api/account', { method: 'DELETE', body: body })
         .then(function () {
           // Account (and its session) no longer exists server-side — reuse the app's real
           // logout path (deps.logout, wired in app.js) so the browser's stored token is
@@ -255,7 +269,7 @@
     });
 
     document.body.appendChild(overlay);
-    pw.input.focus();
+    (hasPassword ? pw.input : confirmInput).focus();
   }
 
   // ---- render layer --------------------------------------------------------
@@ -275,7 +289,10 @@
     rootEl.appendChild(sub);
 
     // --- Account settings (real) ---
-    var acc = collapsible('Account settings', true);
+    // Bug fix (2026-08-19, Barat: "I want the account settings always closed, when
+    // user use open it than only its popup"): every other section here defaults
+    // closed — this one alone opened automatically on every visit to Settings.
+    var acc = collapsible('Account settings', false);
 
     // Account identity + plan summary (2026-08-08) — opts.config.account_info comes from
     // /api/config's real session lookup (routes/expenses.js), null for a signed-out/guest/
@@ -317,6 +334,23 @@
       Escape.setText(delBtn, 'Delete account');
       delBtn.addEventListener('click', function () { openDeleteAccountModal(opts); });
       acc.body.appendChild(setRow('Delete account', 'Permanently deletes your account, every receipt, and your Telegram connection. This cannot be undone.', delBtn));
+    } else if (hasToken) {
+      // Bug fix (2026-08-19, Barat: "I sign up using new Google account, I try to open
+      // account settings I cannot open why"): the section WAS opening — accountInfo was
+      // just null (a fresh signup's /api/config response can arrive without it, e.g. a
+      // brief backend timing gap right after account creation), so the body rendered
+      // completely empty and looked like the click did nothing. A signed-in user now
+      // always sees SOMETHING here — either their real details, or this explicit retry,
+      // never a silent blank box.
+      var retryMsg = el('p', 'set-privacy-text');
+      Escape.setText(retryMsg, 'Could not load your account details. This can happen right after signing up — try refreshing the page.');
+      acc.body.appendChild(retryMsg);
+      var retryBtn = el('button', 'set-btn set-btn--ghost');
+      Escape.setText(retryBtn, 'Refresh');
+      retryBtn.addEventListener('click', function () {
+        try { if (typeof location !== 'undefined' && location.reload) location.reload(); } catch (e) { /* ignore */ }
+      });
+      acc.body.appendChild(setRow('Account details', null, retryBtn));
     }
 
     rootEl.appendChild(acc.el);
@@ -329,7 +363,21 @@
     // is completely unchanged: the original three (Light/Warm/Dark) — this file
     // is shared with the live Premala dashboard, which never asked for this.
     var isPersonal = !!(opts.config && opts.config.personal_auth);
+    var t = opts.t || function (k) { return k; };
     var app = collapsible('Appearance', false);
+    // Language (2026-08-19): sessionStorage-persisted, same pattern as the theme
+    // picker just below — a full page reload picks up the new language everywhere
+    // (this view is built once at boot and never re-rendered, same reasoning as
+    // the theme <select> sync comment below).
+    var langSel = pick(
+      (opts.I18n && opts.I18n.LANGS) || [['en', 'English']],
+      opts.lang || 'en',
+      function (v) {
+        if (typeof opts.setLang === 'function') opts.setLang(v);
+        if (typeof location !== 'undefined' && location.reload) location.reload();
+      }
+    );
+    app.body.appendChild(setRow(t('settings.lang'), t('settings.lang_desc'), langSel));
     var themeSel = pick(
       isPersonal
         ? [['ocean', 'Light'], ['ocean-dark', 'Dark']]
@@ -418,6 +466,10 @@
     Escape.setText(clearBtn, 'Clear now');
     clearBtn.addEventListener('click', function () {
       try { if (typeof sessionStorage !== 'undefined') sessionStorage.clear(); } catch (e) { /* ignore */ }
+      // 2026-08-14: a personal "remember me" login now also lives in localStorage
+      // (app.js storeToken's `persistent` param) — clear that too, or "Clear local data"
+      // would silently leave the saved login behind.
+      try { if (typeof localStorage !== 'undefined') localStorage.clear(); } catch (e) { /* ignore */ }
       if (typeof opts.onClearLocal === 'function') opts.onClearLocal();
     });
     priv.body.appendChild(setRow('Clear local data', 'Remove the saved token + theme from this browser.', clearBtn));
@@ -429,6 +481,39 @@
     // --- About ---
     var about = collapsible('About', false);
     about.body.appendChild(setRow('AutoReceipt Dashboard', 'Treehouse design · Mugi.', valueChip('v0.2')));
+    // Privacy Policy / Account Deletion (2026-08-19, Barat: first "move this privacy
+    // policy to settings page" — was a footer link on every page; footer removed,
+    // Settings > About became the one place to find both — THEN "make it part of web
+    // app that's not another page": these were still target=_blank links to standalone
+    // pages, i.e. still a navigation away from the dashboard. Now they open an in-app
+    // modal (components/legal.js) with the exact same wording — no new tab, no leaving
+    // the SPA. The standalone /privacypolicy /accountdeletion pages themselves stay —
+    // Google Play requires a publicly reachable URL that works without signing in.
+    var legalLinks = el('div', 'set-legal-links');
+    if (Legal) {
+      var privacyBtn = el('button', 'set-btn set-btn--ghost');
+      privacyBtn.type = 'button';
+      Escape.setText(privacyBtn, 'Privacy Policy');
+      privacyBtn.addEventListener('click', function () { Legal.openPrivacyModal(); });
+      var deletionBtn = el('button', 'set-btn set-btn--ghost');
+      deletionBtn.type = 'button';
+      Escape.setText(deletionBtn, 'Account Deletion');
+      deletionBtn.addEventListener('click', function () { Legal.openAccountDeletionModal(); });
+      legalLinks.appendChild(privacyBtn);
+      legalLinks.appendChild(deletionBtn);
+    }
+    about.body.appendChild(setRow('Legal', 'Privacy policy and account deletion instructions.', legalLinks));
+    // Guided tour restart (2026-08-22) — the tour auto-shows once for new users, so
+    // this is the one place to replay it later. opts.startTour is set by app.js's
+    // renderApp (guarded there against an older cached bundle missing tour.js), so
+    // this row is skipped entirely rather than showing a dead button if it's absent.
+    if (typeof opts.startTour === 'function') {
+      var tourBtn = el('button', 'set-btn set-btn--ghost');
+      tourBtn.type = 'button';
+      Escape.setText(tourBtn, 'Take a Tour');
+      tourBtn.addEventListener('click', function () { opts.startTour(); });
+      about.body.appendChild(setRow('Product tour', 'Replay the guided walkthrough of the dashboard.', tourBtn));
+    }
     rootEl.appendChild(about.el);
 
     // --- Session (real) --- moved to the last section of the page (2026-08-09, Barat:

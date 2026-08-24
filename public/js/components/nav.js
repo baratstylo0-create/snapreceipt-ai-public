@@ -9,21 +9,28 @@
 // so buildNav() no-ops (returns null) there — the SECTIONS list is still exported
 // so it stays unit-inspectable without a DOM.
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.Nav = factory();
-})(typeof self !== 'undefined' ? self : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('../i18n'));
+  else root.Nav = factory(root.I18n);
+})(typeof self !== 'undefined' ? self : this, function (I18n) {
   'use strict';
+
+  // Falls back to plain English if i18n.js hasn't loaded (older cached bundle) —
+  // never throws, never leaves a label blank.
+  var t = (I18n && I18n.t) || function (k) {
+    var fallback = { 'nav.overview': 'Overview', 'nav.activity': 'Activity', 'nav.upload': 'Upload', 'nav.manage': 'Manage', 'nav.settings': 'Settings', 'nav.team': 'Team' };
+    return fallback[k] || k;
+  };
 
   // Canonical section order. id is used as the view key; label is display text.
   // Phase 2 (Mugi's Treehouse concept): the Agent is no longer a nav tab — it
   // lives in the floating "Falc" assistant (components/falc.js), so it's dropped
   // here. A dedicated Settings view takes its place.
   var SECTIONS = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'activity', label: 'Activity' },
-    { id: 'upload', label: 'Upload' },
-    { id: 'manage', label: 'Manage' },
-    { id: 'settings', label: 'Settings' },
+    { id: 'overview', label: t('nav.overview') },
+    { id: 'activity', label: t('nav.activity') },
+    { id: 'upload', label: t('nav.upload') },
+    { id: 'manage', label: t('nav.manage') },
+    { id: 'settings', label: t('nav.settings') },
   ];
 
   // Business-only sections: Team (branches/staff/companies — Phase 2/8 follow-up, was
@@ -33,7 +40,7 @@
   // "Manage" (components/manage.js), gated there by the excelLiteGrid capability. It used to
   // be a standalone "Ledger" tab here; the Owner moved it under Manage (2026-07-09).
   var BUSINESS_SECTIONS = [
-    { id: 'team', label: 'Team' },
+    { id: 'team', label: t('nav.team') },
   ];
 
   function paymentsPageEnabled(opts) {
@@ -54,7 +61,7 @@
     opts = opts || {};
     if (!opts.business) return SECTIONS;
     var businessSections = BUSINESS_SECTIONS.slice();
-    if (paymentsPageEnabled(opts)) businessSections.push({ id: 'payments', label: 'Payments' });
+    if (paymentsPageEnabled(opts)) businessSections.push({ id: 'payments', label: t('nav.payments') });
     var out = [];
     for (var i = 0; i < SECTIONS.length; i++) {
       if (SECTIONS[i].id === 'settings') { out = out.concat(businessSections); }
@@ -68,25 +75,20 @@
   // Build Mugi's "Treehouse" brand emblem (a leaf mark) as inline SVG via
   // createElementNS — never innerHTML — so the strict no-inline CSP holds.
   // Returns the emblem <span> wrapper (or null outside a browser).
+  // Real app icon (public/icons/app-icon-192.png — the actual designed logo,
+  // already a blue squircle with its own receipt-scan glyph baked in) swapped
+  // in for the old placeholder leaf/droplet SVG that never matched branding.
   function buildEmblem() {
     if (typeof document === 'undefined') return null;
     var wrap = document.createElement('span');
     wrap.className = 'nav-emblem';
     wrap.setAttribute('aria-hidden', 'true');
-    var svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    var leaf = document.createElementNS(SVG_NS, 'path');
-    leaf.setAttribute('d', 'M12 3C8 8 5 11 5 15a7 7 0 0014 0c0-4-3-7-7-12z');
-    leaf.setAttribute('fill', 'var(--accent-contrast)');
-    var vein = document.createElementNS(SVG_NS, 'path');
-    vein.setAttribute('d', 'M12 9v9');
-    vein.setAttribute('stroke', 'var(--accent)');
-    vein.setAttribute('stroke-width', '1.4');
-    vein.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(leaf);
-    svg.appendChild(vein);
-    wrap.appendChild(svg);
+    var img = document.createElement('img');
+    img.src = 'icons/app-icon-192.png';
+    img.alt = '';
+    img.width = 46;
+    img.height = 46;
+    wrap.appendChild(img);
     return wrap;
   }
 
@@ -175,10 +177,10 @@
     var titleWrap = document.createElement('div');
     var h1 = document.createElement('h1');
     h1.className = 'brand-title';
-    h1.textContent = business ? 'AutoReceipt Business' : 'Main Dashboard';
+    h1.textContent = business ? 'AutoReceipt Business' : t('brand.title');
     var sub = document.createElement('div');
     sub.className = 'brand-sub';
-    sub.textContent = business ? 'branches · staff · petty-cash, in one place' : 'snap a receipt · auto-extract · auto-categorize';
+    sub.textContent = business ? 'branches · staff · petty-cash, in one place' : t('brand.subtitle');
     titleWrap.appendChild(h1);
     titleWrap.appendChild(sub);
     brand.appendChild(titleWrap);
@@ -203,8 +205,8 @@
       tgBtn.href = tgLink;
       tgBtn.target = '_blank';
       tgBtn.rel = 'noopener noreferrer';
-      tgBtn.title = 'Open Telegram bot';
-      tgBtn.setAttribute('aria-label', 'Open Telegram bot');
+      tgBtn.title = t('brand.telegram_tooltip');
+      tgBtn.setAttribute('aria-label', t('brand.telegram_tooltip'));
       tgBtn.appendChild(buildTelegramIcon());
       actions.appendChild(tgBtn);
     }
@@ -218,8 +220,8 @@
       var feedbackBtn = document.createElement('button');
       feedbackBtn.type = 'button';
       feedbackBtn.className = 'icon-btn icon-btn--lg';
-      feedbackBtn.title = 'Contact us / feedback';
-      feedbackBtn.setAttribute('aria-label', 'Contact us or give feedback');
+      feedbackBtn.title = t('brand.feedback_tooltip');
+      feedbackBtn.setAttribute('aria-label', t('brand.feedback_tooltip'));
       feedbackBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
         + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         + '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>'
@@ -244,7 +246,7 @@
 
     // 2026-07-27: personal accounts only cycle Light(blue/white)/Dark now — see
     // app.js's themeCycleFor(). Business keeps the original three-way label.
-    var themeLabel = opts.personalAuth ? 'Cycle theme (Light / Dark)' : 'Cycle theme (Light / Warm / Dark)';
+    var themeLabel = opts.personalAuth ? t('brand.theme_tooltip_personal') : 'Cycle theme (Light / Warm / Dark)';
     var themeBtn = document.createElement('button');
     themeBtn.type = 'button';
     themeBtn.className = 'icon-btn icon-btn--lg';
@@ -257,8 +259,8 @@
     var refreshBtn = document.createElement('button');
     refreshBtn.type = 'button';
     refreshBtn.className = 'icon-btn icon-btn--lg';
-    refreshBtn.title = 'Refresh';
-    refreshBtn.setAttribute('aria-label', 'Refresh');
+    refreshBtn.title = t('brand.refresh_tooltip');
+    refreshBtn.setAttribute('aria-label', t('brand.refresh_tooltip'));
     refreshBtn.textContent = '↻';
     refreshBtn.addEventListener('click', function () { onRefresh(); });
     actions.appendChild(refreshBtn);
@@ -280,6 +282,7 @@
 
     var nav = document.createElement('nav');
     nav.className = 'nav';
+    nav.setAttribute('data-tour', 'nav-root');
 
     var links = document.createElement('div');
     links.className = 'nav-links';
@@ -289,6 +292,9 @@
       btn.type = 'button';
       btn.className = 'nav-link';
       btn.setAttribute('data-view', s.id);
+      // Purpose-built tour target (2026-08-23) alongside data-view — a fixed prefix
+      // means any new section auto-qualifies as a tour target without extra wiring.
+      btn.setAttribute('data-tour', 'nav-' + s.id);
       btn.textContent = s.label;
       // addEventListener (not on*=) keeps us CSP-clean.
       btn.addEventListener('click', function () { onSelect(s.id); });

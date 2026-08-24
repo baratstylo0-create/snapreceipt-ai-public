@@ -4,7 +4,7 @@
 // product has no login concept — it uses the static DASHBOARD_TOKEN). Admin/clerk
 // exchange username+password for an opaque session bearer; staff never log in.
 const express = require('express');
-const { sbSelect, sbSoftDelete, sbHardDelete } = require('../lib/supabase');
+const { sbSelect, sbSelectGlobal, sbSoftDelete, sbHardDelete } = require('../lib/supabase');
 const { verifyPassword, mintSession, lookupSession, revokeSessionsForUser } = require('../lib/auth');
 const { getCapabilities } = require('../lib/account');
 const { signupOwner } = require('../lib/personalAuth');
@@ -123,7 +123,11 @@ module.exports = function mountAuth(app) {
       return res.status(400).json({ error: 'username and password are required' });
     }
     try {
-      const rows = await sbSelect('users', { eq: { username, active: true }, limit: 1 });
+      // sbSelectGlobal (2026-08-22): login must find a user by username BEFORE their
+      // account_id is known — a scoped lookup here would 401 any already-migrated real user
+      // with a correct password, same root cause as lib/personalAuth.js's/googleAuth.js's
+      // matching fix (see lib/supabase.js's doc comment).
+      const rows = await sbSelectGlobal('users', { eq: { username, active: true }, limit: 1 });
       const user = rows[0];
       // Always verify (dummy hash for unknown user) to keep timing uniform.
       const ok = await verifyPassword(password, user && user.password_hash ? user.password_hash : DUMMY_HASH);
@@ -274,7 +278,7 @@ module.exports = function mountAuth(app) {
     }
   }));
 
-  // DELETE /api/account { password } -> { ok:true } | { error }
+  // DELETE /api/account { password, confirmText } -> { ok:true } | { error }
   // Real, irreversible account deletion (2026-08-06) — personal (personalAuth) owner accounts
   // only; business/staff/guest sessions never reach the frontend button that calls this, but
   // the role check below is the actual enforcement, not just UI hiding. Requires password
@@ -285,34 +289,62 @@ module.exports = function mountAuth(app) {
   // owner_user_id is guest-only though (see the per-user-cap work earlier) — a real owner's OWN
   // captured receipts are tagged created_by_user_id instead, which is `on delete set null`, NOT
   // cascade, so they'd survive as invisible orphans unless explicitly cleaned up first below.
+  //
+  // 2026-08-19 BUG FIX: a Google-only owner (routes/googleAuth.js signup, password_hash left
+  // null — "no password to verify against") could NEVER pass this endpoint at all — the old
+  // code unconditionally required `password` and fell back to DUMMY_HASH when password_hash
+  // was null, and DUMMY_HASH is BY DESIGN unmatchable by any input (see its own doc comment
+  // above — built for the login route's user-enumeration defense, not meant for a real,
+  // already-authenticated user with genuinely no password). Live-confirmed: 6 of 8 real
+  // personal accounts on this deployment have no password_hash and were fully unable to
+  // delete their own account through this dialog, no matter what they typed.
+  // Fix: `confirmText` (the frontend's existing "Type DELETE to confirm" field, previously
+  // client-side-only friction, never sent to the server) is now the universal server-side
+  // confirmation for EVERYONE — a real gate that didn't exist before, not just a UI nicety.
+  // Password re-entry is ADDITIONALLY required on top of that, but ONLY when the account
+  // actually has one; a password-less (Google) account has nothing valid to re-enter, so the
+  // confirmText check alone (plus already holding a live session for THIS account) is its gate.
   app.delete('/api/account', express.json({ limit: '4kb' }), (req, res) => deleteAccountLimiter(req, res, async () => {
     if (!getCapabilities().personalAuth) return res.status(404).json({ error: 'not found' });
     const a = req.get('Authorization') || '';
     const token = a.startsWith('Bearer ') ? a.slice(7) : '';
-    const { password } = req.body || {};
+    const { password, confirmText } = req.body || {};
     if (!token) return res.status(401).json({ error: 'unauthorized' });
-    if (!password || typeof password !== 'string') return res.status(400).json({ error: 'password is required' });
+    if (confirmText !== 'DELETE') return res.status(400).json({ error: 'type DELETE to confirm' });
     try {
       const sess = await lookupSession(token);
       if (!sess) return res.status(401).json({ error: 'unauthorized' });
-      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
+      // 2026-08-22: scope required — see the matching fix + comment in routes/expenses.js's
+      // /api/config account_info lookup (same root cause: unscoped sbSelect defaults to
+      // cfg.ACCOUNT_ID, which no longer matches a migrated user's own unique account_id).
+      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1, scope: sess });
       const user = rows[0];
       if (!user || user.role !== 'owner') return res.status(403).json({ error: 'forbidden' });
-      // 400, NOT 401: the session token itself is still valid — only the re-entered
-      // password is wrong. A 401 here would wrongly trip Api.js's global
-      // notifyAuthExpired() (any 401 with a valid Authorization header = "session
-      // expired, log in again"), which would confusingly boot the user out of the
-      // whole app just for mistyping their password during delete confirmation.
-      const ok = await verifyPassword(password, user.password_hash || DUMMY_HASH);
-      if (!ok) return res.status(400).json({ error: 'wrong password' });
+      if (user.password_hash) {
+        if (!password || typeof password !== 'string') return res.status(400).json({ error: 'password is required' });
+        // 400, NOT 401: the session token itself is still valid — only the re-entered
+        // password is wrong. A 401 here would wrongly trip Api.js's global
+        // notifyAuthExpired() (any 401 with a valid Authorization header = "session
+        // expired, log in again"), which would confusingly boot the user out of the
+        // whole app just for mistyping their password during delete confirmation.
+        const ok = await verifyPassword(password, user.password_hash);
+        if (!ok) return res.status(400).json({ error: 'wrong password' });
+      }
+      // else: no password on file (Google-only signup) — confirmText above, plus already
+      // holding a valid session minted for THIS user, is the account's own confirmation.
       // Close the cascade gap: soft-delete every expense this owner personally captured
       // (created_by_user_id) BEFORE hard-deleting the user row — on delete set null would
       // otherwise leave them intact but permanently unowned/invisible.
-      const owned = await sbSelect('expenses', { eq: { created_by_user_id: sess.user_id }, extra: 'deleted_at=is.null' });
+      // 2026-08-22: scope required on all three calls below too — same root cause as the
+      // sbSelect fix above. Without it: the expense lookup finds nothing (their captured
+      // receipts never get soft-deleted), and the final sbHardDelete silently matches zero
+      // rows (the route reports {ok:true} but the user row — and their real account —
+      // survives untouched).
+      const owned = await sbSelect('expenses', { eq: { created_by_user_id: sess.user_id }, extra: 'deleted_at=is.null', scope: sess });
       for (const row of owned) {
-        try { await sbSoftDelete('expenses', { id: row.id }); } catch (e) { console.error('[delete-account] soft-delete expense failed:', row.id, e.message); }
+        try { await sbSoftDelete('expenses', { id: row.id, scope: sess }); } catch (e) { console.error('[delete-account] soft-delete expense failed:', row.id, e.message); }
       }
-      await sbHardDelete('users', { id: sess.user_id });
+      await sbHardDelete('users', { id: sess.user_id, scope: sess });
       return res.json({ ok: true });
     } catch (e) {
       console.error('[delete-account]', e.message);
@@ -341,7 +373,9 @@ module.exports = function mountAuth(app) {
     try {
       const sess = await lookupSession(token);
       if (!sess) return res.status(401).json({ error: 'unauthorized' });
-      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
+      // 2026-08-22: scope required — see the matching fix + comment in routes/expenses.js's
+      // /api/config account_info lookup (same root cause).
+      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1, scope: sess });
       const user = rows[0];
       if (!user) return res.status(401).json({ error: 'unauthorized' });
       const result = await sendFeedbackEmail(user.username, message.trim());
