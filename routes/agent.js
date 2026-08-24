@@ -6,6 +6,8 @@ const { orChatTools } = require('../lib/openrouter');
 const { sbSelect, sbUpdate, sbSoftDelete } = require('../lib/supabase');
 const { saveTemplate, getFieldSpec } = require('../lib/templates');
 const { createRateLimiter } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 
 const MAX_PROPOSAL_ID_LEN = 200; // proposal ids are short 'p_'+uuid strings; generous headroom
 
@@ -36,7 +38,7 @@ const ALLOWED_ROLES = new Set(['user', 'assistant']);
 // flood), not a throttle. Not unlimited on purpose: a runaway would otherwise drain the
 // account's OpenRouter balance with no ceiling (single-key provider, ADR-016's Groq pool
 // rotation doesn't apply here — see AGENT_MODEL's own doc comment, 2026-08-19).
-const agentLimiter = createRateLimiter({ max: Number(process.env.AGENT_RATE_MAX) || 120 });
+const agentLimiter = createAbuseLimiter({ name: 'agent', max: Number(process.env.AGENT_RATE_MAX) || 120 });
 
 // deps injected in tests; default to the real modules in production.
 module.exports = function mountAgent(app, deps = {}) {

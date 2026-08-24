@@ -10,7 +10,8 @@ const { getCapabilities } = require('../lib/account');
 const { signupOwner } = require('../lib/personalAuth');
 const { requestPasswordReset, resetPassword } = require('../lib/passwordReset');
 const { sendResetEmail, sendFeedbackEmail, sendEmailVerification } = require('../lib/mailer');
-const { createRateLimiter } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 const { cfg } = require('../lib/config');
 const {
   requestVerification, confirmByCode, confirmByToken, verificationState, issueChallenge,
@@ -19,25 +20,25 @@ const {
 const { deviceFromRequest, recordAuthEvent, isNewDevice } = require('../lib/deviceSessions');
 
 // Brute-force defense on the credential endpoint (§7.2). Per-IP fixed window.
-const loginLimiter = createRateLimiter({ max: Number(process.env.LOGIN_RATE_MAX) || 20 });
+const loginLimiter = createAbuseLimiter({ name: 'auth.login', max: Number(process.env.LOGIN_RATE_MAX) || 20 });
 // POST /api/signup is public/unauthenticated (unlike everything else in routes/branches.js,
 // which requires an already-authenticated admin) — rate-limited the same way login is, to
 // blunt automated account-creation abuse.
-const signupLimiter = createRateLimiter({ max: Number(process.env.SIGNUP_RATE_MAX) || 10 });
+const signupLimiter = createAbuseLimiter({ name: 'auth.signup', max: Number(process.env.SIGNUP_RATE_MAX) || 10 });
 // Password-reset endpoints (2026-07-27) — public/unauthenticated by nature (that's the
 // whole point), so both get their own per-IP limits, same pattern as login/signup.
 // forgot-password is tighter (it triggers an email send, an external side-effect with its
 // own cost/abuse surface); reset-password matches login's brute-force budget since it's
 // effectively "try to guess a token," structurally the same threat as guessing a password.
-const forgotPasswordLimiter = createRateLimiter({ max: Number(process.env.FORGOT_PASSWORD_RATE_MAX) || 6 });
-const resetPasswordLimiter = createRateLimiter({ max: Number(process.env.RESET_PASSWORD_RATE_MAX) || 20 });
+const forgotPasswordLimiter = createAbuseLimiter({ name: 'auth.forgot', max: Number(process.env.FORGOT_PASSWORD_RATE_MAX) || 6 });
+const resetPasswordLimiter = createAbuseLimiter({ name: 'auth.reset', max: Number(process.env.RESET_PASSWORD_RATE_MAX) || 20 });
 // Delete-account (2026-08-06) — irreversible, so worth throttling the same way login guesses
 // are: a wrong-password attempt here is structurally the same brute-force surface as login.
-const deleteAccountLimiter = createRateLimiter({ max: Number(process.env.DELETE_ACCOUNT_RATE_MAX) || 10 });
+const deleteAccountLimiter = createAbuseLimiter({ name: 'auth.delete', max: Number(process.env.DELETE_ACCOUNT_RATE_MAX) || 10 });
 // In-app feedback (2026-08-09) — an authenticated action (only reachable from inside the
 // dashboard header, personal accounts only), but still worth throttling: it triggers a real
 // outbound email send per request, an external cost/abuse surface same as forgot-password.
-const feedbackLimiter = createRateLimiter({ max: Number(process.env.FEEDBACK_RATE_MAX) || 10 });
+const feedbackLimiter = createAbuseLimiter({ name: 'auth.feedback', max: Number(process.env.FEEDBACK_RATE_MAX) || 10 });
 // Email verification (P-01, 2026-08-24). Two different threats, so two different budgets:
 //   request — triggers an outbound send, so it is an inbox-flooding/cost surface. Matched to
 //             forgot-password's tighter budget for exactly that reason. lib/emailChallenge.js
@@ -46,8 +47,12 @@ const feedbackLimiter = createRateLimiter({ max: Number(process.env.FEEDBACK_RAT
 //   confirm — structurally "guess a 6-digit code," i.e. the same brute-force shape as login,
 //             so it gets login's budget. The per-challenge attempt counter is the real cap;
 //             this limiter just stops the noise before it reaches the database.
-const verifyEmailRequestLimiter = createRateLimiter({ max: Number(process.env.VERIFY_EMAIL_REQUEST_RATE_MAX) || 6 });
-const verifyEmailConfirmLimiter = createRateLimiter({ max: Number(process.env.VERIFY_EMAIL_CONFIRM_RATE_MAX) || 20 });
+// P-04a (#37, wired during the #46/#48/#51 rebase per Codex's cross-lane review on #51): these
+// two endpoints did not exist when P-04a was first written, so they were left on the bare
+// in-process limiter. An OTP request/confirm surface behind a load balancer needs the same
+// GLOBAL budget every other auth endpoint in this file already has, so they are wrapped here.
+const verifyEmailRequestLimiter = createAbuseLimiter({ name: 'auth.verify_email.request', max: Number(process.env.VERIFY_EMAIL_REQUEST_RATE_MAX) || 6 });
+const verifyEmailConfirmLimiter = createAbuseLimiter({ name: 'auth.verify_email.confirm', max: Number(process.env.VERIFY_EMAIL_CONFIRM_RATE_MAX) || 20 });
 
 // A constant, well-formed scrypt hash for the unknown-user path so verifyPassword does
 // real work (equal-ish timing) whether or not the username exists — no user enumeration

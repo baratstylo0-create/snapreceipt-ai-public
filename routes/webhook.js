@@ -3,12 +3,14 @@ const express = require('express');
 const { cfg } = require('../lib/config');
 const { handleUpdate } = require('../lib/bot');
 const { createRateLimiter } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 
 // P6 abuse defense: cap requests per source IP on the PUBLIC webhook (it's reachable
 // by anyone, and the secret check below can be probed). Generous default — Telegram
 // delivers a bot's updates from its own IPs, so real traffic stays well under this;
 // tune via WEBHOOK_RATE_MAX. Runs before JSON parsing so limited requests aren't parsed.
-const webhookLimiter = createRateLimiter({ max: Number(process.env.WEBHOOK_RATE_MAX) || 240 });
+const webhookLimiter = createAbuseLimiter({ name: 'bot.webhook', max: Number(process.env.WEBHOOK_RATE_MAX) || 240 });
 
 let warnedNoSecret = false;
 

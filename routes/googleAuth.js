@@ -17,12 +17,14 @@ const { deviceFromRequest, recordAuthEvent, isNewDevice } = require('../lib/devi
 const { normaliseEmail, genBindingToken, genAccountId, BIND_TTL_MS } = require('../lib/personalAuth');
 const { isConfigured, buildAuthUrl, exchangeCode, verifyIdToken } = require('../lib/googleAuth');
 const { createRateLimiter } = require('../lib/ratelimit');
+// P-04a (#37): the shared, multi-instance layer that wraps the in-process limiter above.
+const { createAbuseLimiter } = require('../lib/sharedLimit');
 
 const STATE_COOKIE = 'g_oauth_state';
 const STATE_TTL_S = 600; // 10 minutes — plenty for a real consent flow, short enough to limit replay
 
-const startLimiter = createRateLimiter({ max: Number(process.env.GOOGLE_AUTH_RATE_MAX) || 20 });
-const callbackLimiter = createRateLimiter({ max: Number(process.env.GOOGLE_AUTH_RATE_MAX) || 20 });
+const startLimiter = createAbuseLimiter({ name: 'google.start', max: Number(process.env.GOOGLE_AUTH_RATE_MAX) || 20 });
+const callbackLimiter = createAbuseLimiter({ name: 'google.callback', max: Number(process.env.GOOGLE_AUTH_RATE_MAX) || 20 });
 
 function baseUrl(req) {
   return cfg.PUBLIC_URL || (req.protocol + '://' + req.get('host'));
