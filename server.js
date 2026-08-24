@@ -11,6 +11,7 @@ const securityHeaders = require('./lib/security-headers');
 const corsPreflight = require('./lib/cors-preflight');
 const securityEvents = require('./lib/security-events'); // SEC-6 security-event logging (ADR-025)
 const { logError } = require('./lib/log'); // #12 structured error logging
+const sentry = require('./lib/sentry');
 
 const mountWebhook = require('./routes/webhook');
 const mountAuth = require('./routes/auth');       // ADR-021 business login (multiUser only)
@@ -35,6 +36,7 @@ const mountGuest = require('./routes/guest'); // Guest Mode (2026-07-28) — /ap
 const mountGoogleAuth = require('./routes/googleAuth'); // Google Sign-In (2026-07-30, personalAuth only)
 
 assertConfig();
+sentry.initSentry();
 
 // Auto-provision the credential-encryption key (ADR-025 amendment) BEFORE serving, so the
 // very first branch created has a key and its password is stored recoverably. Explicit
@@ -92,6 +94,7 @@ app.use((err, req, res, next) => {
   const safe = status < 500 ? status : 400;
   // #12 structured error log — ADR-002 safe (message + scalar route context only; no body/PII).
   logError('unhandled', err, { status: safe, method: req.method, path: req.path });
+  sentry.captureException(err, req, { status: safe });
   res.status(safe).json({ error: 'invalid request' });
 });
 
