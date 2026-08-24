@@ -172,6 +172,27 @@
     nav.appendChild(navLeft);
 
     var navRight = el('div', 'landing-nav-actions');
+    // Install as desktop app (2026-08-25) — shown to EVERY visitor, before they've
+    // logged in or signed up (the same way Claude.ai offers its desktop app right
+    // from the marketing site). opts.installApp/canInstallApp are optional (set by
+    // app.js's boot()) so an older cached bundle without them just never shows this.
+    // No native prompt captured yet (or an unsupported browser, e.g. Safari)?
+    // Briefly swap the label to a short pointer at the browser's own install
+    // affordance instead of doing nothing, then revert — avoids new layout/CSS.
+    if (typeof opts.installApp === 'function' && typeof opts.canInstallApp === 'function' && opts.canInstallApp()) {
+      var installBtn = text('button', 'landing-nav-btn landing-nav-btn--login', t('landing.install_app'));
+      installBtn.type = 'button';
+      var installRevertTimer = null;
+      installBtn.addEventListener('click', function () {
+        opts.installApp().then(function (result) {
+          if (result !== 'unavailable') return;
+          if (installRevertTimer) clearTimeout(installRevertTimer);
+          Escape.setText(installBtn, t('landing.install_app_hint'));
+          installRevertTimer = setTimeout(function () { Escape.setText(installBtn, t('landing.install_app')); }, 4000);
+        });
+      });
+      navRight.appendChild(installBtn);
+    }
     var loginBtn = text('button', 'landing-nav-btn landing-nav-btn--login', t('landing.login'));
     loginBtn.type = 'button';
     loginBtn.addEventListener('click', function () { if (typeof opts.onLogin === 'function') opts.onLogin(); });

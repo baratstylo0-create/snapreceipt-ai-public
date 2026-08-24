@@ -47,6 +47,20 @@
 - **What's next:** merge this branch (bundles the tour redesign + W-01 + this), then get it
   live — recall the deploy workflow is still non-functional (missing VPS secrets), so landing
   on `main` will NOT auto-deploy; a manual deploy decision is still open from the last session.
+- **Follow-up same day, before merge:** Barat caught a real gap — the Install button only
+  existed inside Settings > About, which a brand-new (not-yet-signed-up) visitor can never
+  reach. Moved `deps.installApp`/`deps.canInstallApp` from `renderApp()` up into `boot()` so
+  they exist before the auth decision picks a screen, and added a "Download App" button to
+  **Landing's nav bar** (`landing.js`, next to Login/Register — the actual first screen a new
+  personal-mode visitor sees), matching how Claude.ai puts its desktop-app download in the
+  marketing nav, not behind a signed-in settings page. Settings' own row is unchanged/still
+  there for existing users. New i18n keys `landing.install_app`/`landing.install_app_hint`
+  (EN+MS). Verified live (same static-preview DOM technique): button shows before
+  login/register, hides once `canInstallApp()` is false (already installed), and the fallback
+  hint text swaps in correctly on click when no native prompt is available yet. Full suite
+  2376/2376 still green. Deliberately did NOT add the same button to `login.js` — business
+  (multiUser) accounts are admin-provisioned, not self-serve installers, and a personal-mode
+  visitor already had the chance to install on Landing before ever reaching Login.
 
 ## 2026-08-24 · Claude (Barat/web lane, W-01) · feature/tour-premium-redesign-2026-08-23 · Email-verification UI built against Jeevan/Claude-P's P-01 contract + a real Google-OAuth-error bug fixed
 

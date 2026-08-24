@@ -790,21 +790,8 @@
     deps.startTour = function () {
       if (Tour && typeof Tour.start === 'function') Tour.start(deps);
     };
-
-    // Install as desktop/home-screen app (2026-08-25, Settings > About > "Install
-    // App"). canInstallApp hides the row once already running installed (nothing
-    // to install). installApp() shows the browser's real prompt if it fired
-    // early enough to be captured (deferredInstallPrompt, set above); otherwise
-    // resolves 'unavailable' so the button can point the user at the browser's
-    // own install icon/menu instead of doing nothing.
-    deps.canInstallApp = function () { return !isStandalone(); };
-    deps.installApp = function () {
-      if (!deferredInstallPrompt) return Promise.resolve('unavailable');
-      var promptEvent = deferredInstallPrompt;
-      deferredInstallPrompt = null;
-      promptEvent.prompt();
-      return promptEvent.userChoice ? promptEvent.userChoice.then(function () {}) : Promise.resolve();
-    };
+    // deps.installApp/canInstallApp are set once in boot() (before this function
+    // runs) so Landing/Login can offer install pre-login too — reused as-is here.
 
     var instances = mount ? buildViews(sections, mount, deps) : {};
 
@@ -932,6 +919,12 @@
       appName: (cfg && cfg.app_name) || 'SnapReceipt AI',
       onLogin: function () { mountLogin(deps, undefined, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined }); },
       onRegister: function () { mountOnboarding(deps, cfg); },
+      // Install as desktop app (2026-08-25) — the FIRST screen a brand-new visitor
+      // sees, so this is where "download it like Claude's desktop app" belongs,
+      // not buried in Settings behind a signup. Optional dep, same guard style as
+      // startTour: an older cached bundle without deps.installApp just never shows it.
+      installApp: deps.installApp,
+      canInstallApp: deps.canInstallApp,
     });
   }
 
@@ -1191,6 +1184,23 @@
     if (!deps.I18n) deps.I18n = { t: function (k) { return k; }, tp: function (k) { return k; }, lang: function () { return 'en'; }, setLang: function () { return 'en'; }, LANGS: [['en', 'English']] };
     deps.t = deps.I18n.t;
     if (document.documentElement) document.documentElement.lang = deps.I18n.lang();
+
+    // Install as desktop/home-screen app (2026-08-25). Set here — BEFORE the auth
+    // decision below picks Landing/Login/signup/dashboard — so a brand-new visitor
+    // can install straight from the marketing/login screen, not just from a signed-
+    // in dashboard's Settings page (Barat: "how new user can download from login
+    // page"). canInstallApp hides the control once already running installed.
+    // installApp() shows the browser's real prompt if it fired early enough to be
+    // captured (deferredInstallPrompt, set above); otherwise resolves 'unavailable'
+    // so the caller can point the user at the browser's own install icon/menu.
+    deps.canInstallApp = function () { return !isStandalone(); };
+    deps.installApp = function () {
+      if (!deferredInstallPrompt) return Promise.resolve('unavailable');
+      var promptEvent = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      promptEvent.prompt();
+      return promptEvent.userChoice ? promptEvent.userChoice.then(function () {}) : Promise.resolve();
+    };
 
     // Subscribe once, before any view can possibly fetch and hit a dead session.
     if (deps.Api.onAuthExpired) deps.Api.onAuthExpired(handleAuthExpired);
