@@ -32,10 +32,14 @@
   <link rel="stylesheet" href="css/landing.css?v=20260819j" />
   <!-- Installable web app (PWA). Lets the client "Install"/"Add to Home screen" so the
        dashboard opens in its own window with an app icon — no APK, no .exe, no store
-       (ADR-020 per-client delivery). Deliberately NO service worker: financial data is
-       never cached offline (ADR-025). Per-client rebrand = edit name/short_name in
-       manifest.webmanifest + swap icons/app-icon.svg. CSP: manifest-src falls back to
-       default-src 'self'; the icon is covered by img-src 'self' — no header change. -->
+       (ADR-020 per-client delivery), the same way Claude.ai offers a downloadable
+       desktop app. Per-client rebrand = edit name/short_name in manifest.webmanifest +
+       swap icons/app-icon.svg. CSP: manifest-src falls back to default-src 'self'; the
+       icon is covered by img-src 'self' — no header change.
+       2026-08-25: added sw.js (registered in app.js) so Chrome/Edge actually offer the
+       Install prompt — a manifest alone isn't enough. ADR-025 ("financial data is never
+       cached offline") still holds: sw.js never touches /api/, so no receipt/expense/
+       account data is ever cached — see sw.js's own header comment for the exact scope. -->
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#2563eb" />
   <meta name="application-name" content="SnapReceipt AI" />
@@ -90,7 +94,7 @@
   <script src="js/components/agent.js?v=20260822a"></script>
   <!-- settings.js reuses legal.js (the in-app Privacy Policy / Account Deletion modal), so it must load after it. -->
   <script src="js/components/legal.js?v=20260819j"></script>
-  <script src="js/components/settings.js?v=20260822b"></script>
+  <script src="js/components/settings.js?v=20260825a"></script>
   <!-- falc.js reuses agent.js (the Agent chat module), so it must load after it. -->
   <script src="js/components/falc.js?v=20260822a"></script>
   <script src="js/components/ratemeter.js?v=20260819j"></script>
@@ -109,6 +113,6 @@
   <!-- manage.js is the Manage shell; it mounts templates.js + grid.js as sub-pages, so it
        must load after both. -->
   <script src="js/components/manage.js?v=20260819j"></script>
-  <script src="js/app.js?v=20260824a"></script>
+  <script src="js/app.js?v=20260825a"></script>
 </body>
 </html>

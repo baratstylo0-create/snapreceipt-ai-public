@@ -791,6 +791,21 @@
       if (Tour && typeof Tour.start === 'function') Tour.start(deps);
     };
 
+    // Install as desktop/home-screen app (2026-08-25, Settings > About > "Install
+    // App"). canInstallApp hides the row once already running installed (nothing
+    // to install). installApp() shows the browser's real prompt if it fired
+    // early enough to be captured (deferredInstallPrompt, set above); otherwise
+    // resolves 'unavailable' so the button can point the user at the browser's
+    // own install icon/menu instead of doing nothing.
+    deps.canInstallApp = function () { return !isStandalone(); };
+    deps.installApp = function () {
+      if (!deferredInstallPrompt) return Promise.resolve('unavailable');
+      var promptEvent = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      promptEvent.prompt();
+      return promptEvent.userChoice ? promptEvent.userChoice.then(function () {}) : Promise.resolve();
+    };
+
     var instances = mount ? buildViews(sections, mount, deps) : {};
 
     // Falc — the floating expense assistant (Phase 2). Mounted once, globally,
@@ -1381,6 +1396,20 @@
     });
   }
 
+  // Installable web app (2026-08-25): the one missing piece for Chrome/Edge to
+  // actually offer an Install prompt (manifest.webmanifest + icons already
+  // existed) — see sw.js's own header for the exact, deliberately narrow scope
+  // (never touches /api/, so ADR-025 still holds). deferredInstallPrompt holds
+  // the browser's install event until Settings > About's "Install App" button
+  // (deps.installApp below) chooses to show it — Chrome requires calling
+  // .preventDefault() up front to control timing like this.
+  var deferredInstallPrompt = null;
+  function isStandalone() {
+    try {
+      return !!((root.matchMedia && root.matchMedia('(display-mode: standalone)').matches) || root.navigator.standalone);
+    } catch (e) { return false; }
+  }
+
   // Auto-boot only in a real browser (DOM present). Node require() must not boot.
   if (typeof document !== 'undefined' && root && root.addEventListener) {
     if (document.readyState === 'loading') {
@@ -1388,6 +1417,18 @@
     } else {
       boot();
     }
+    if (root.navigator && 'serviceWorker' in root.navigator) {
+      root.addEventListener('load', function () {
+        // Never let a registration failure (unsupported browser quirk, etc.)
+        // affect anything else — installability just silently degrades.
+        root.navigator.serviceWorker.register('/sw.js').catch(function () {});
+      });
+    }
+    root.addEventListener('beforeinstallprompt', function (ev) {
+      ev.preventDefault();
+      deferredInstallPrompt = ev;
+    });
+    root.addEventListener('appinstalled', function () { deferredInstallPrompt = null; });
   }
 
   return {

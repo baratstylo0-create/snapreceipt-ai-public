@@ -1,5 +1,53 @@
 # WORKLOG — Receipt Analyser SaaS
 
+## 2026-08-25 · Claude (Barat/web lane) · feature/tour-premium-redesign-2026-08-23 · Installable desktop/home-screen app (PWA, Option 1 of the "download as desktop app" plan)
+
+- **Context:** Barat asked ("i want user download it from web and use as desktop app like how
+  download claude from web and use as desktop app") for a way to install SnapReceipt AI like a
+  desktop app. Presented two options first (installable PWA vs. a wrapped Electron/Tauri app,
+  analogous to the existing Capacitor Android wrapper); Barat picked Option 1 (installable PWA)
+  — no separate app/codebase to maintain, ships instantly with every existing deploy.
+- **What was already in place:** `manifest.webmanifest` + icons + PWA meta tags in `index.html`
+  already existed. The one missing piece was a service worker — browsers require one (a `fetch`
+  handler specifically) before they'll offer an Install prompt at all.
+- **Respected an existing ADR while building this:** `index.html` had a comment saying
+  "Deliberately NO service worker: financial data is never cached offline (ADR-025)." Rather
+  than override that silently, scoped the new worker so that concern still holds exactly as
+  before: `sw.js` never intercepts or caches anything under `/api/` — every receipt/expense/
+  account value still comes straight from the network on every request, identically to before
+  this file existed. It only caches the static app shell (`/`, `manifest.webmanifest`, the two
+  icon files, plus same-origin static assets picked up at runtime) — GET-only, same-origin
+  only, `/api/` always bypassed. Updated `index.html`'s own comment to describe the new (still
+  ADR-025-compliant) reality instead of leaving the old "no service worker" claim in place.
+- **New file:** `public/sw.js` — install/activate/fetch handlers, network-first with
+  cache-as-you-go for the static shell, cache fallback only if the network request itself fails.
+- **`public/js/app.js` changes:** registers `/sw.js` on `load`; captures the browser's
+  `beforeinstallprompt` event (deferred, per Chrome's own requirement) instead of letting it
+  auto-fire; exposes `deps.installApp()` (shows the captured prompt, or resolves `'unavailable'`
+  if the browser hasn't offered one) and `deps.canInstallApp()` (false once already running
+  installed, via the `display-mode: standalone` media query) — same optional-dep pattern as
+  `deps.startTour`.
+- **`public/js/components/settings.js` changes:** new "Desktop app" row in Settings > About,
+  right after "Take a Tour" — an "Install App" button. Hidden entirely if already installed. If
+  clicked before the browser's install event has fired (or on a browser that doesn't support
+  it, e.g. Safari), shows an inline fallback pointing at the browser's own install icon/menu
+  instead of silently doing nothing.
+- **Tests:** Full serial suite 2376/2376 (`.env` moved aside/restored) — no regressions. Live
+  DOM verification via the DB-free static-preview harness (same technique as the tour/
+  emailverify work): confirmed the service worker registers and activates, confirmed via
+  `caches.open()` that the shell cache contains only static paths and zero `/api/` URLs,
+  confirmed the Settings row renders, is hidden when `canInstallApp()` is false, and shows the
+  correct fallback hint text on click when no native prompt is available.
+- **Not deployed yet** — same as the rest of this branch's unmerged work. `beforeinstallprompt`
+  itself could not be exercised end-to-end in this harness (Chrome only fires it against a
+  real, publicly-served HTTPS origin meeting its heuristics) — the deferred-prompt path is
+  reviewed by inspection + confirmed to degrade gracefully to the fallback hint, but the actual
+  native browser install dialog should get one real pass on `https://snapreceiptai.friction.com.my`
+  once this is live, the same way the tour got a live pass after deploy.
+- **What's next:** merge this branch (bundles the tour redesign + W-01 + this), then get it
+  live — recall the deploy workflow is still non-functional (missing VPS secrets), so landing
+  on `main` will NOT auto-deploy; a manual deploy decision is still open from the last session.
+
 ## 2026-08-24 · Claude (Barat/web lane, W-01) · feature/tour-premium-redesign-2026-08-23 · Email-verification UI built against Jeevan/Claude-P's P-01 contract + a real Google-OAuth-error bug fixed
 
 - **Context:** Jeevan pushed a full-app team-restructure plan today (`codex/full-app-team-plan`,
