@@ -25,9 +25,15 @@ existing contract, so it can be reviewed and merged without waiting on another l
 
 ## 2. What P-02a changes
 
-**Nothing about how a session is resolved.** `lookupSession` and `checkDashSession` are untouched. Every
-existing web and native client behaves byte-for-byte as before. This is worth checking in the diff
-rather than taking on trust — it is the claim that makes the PR low-risk.
+**Session RESOLUTION and AUTHORIZATION are unchanged.** `lookupSession`'s and `checkDashSession`'s
+decision logic — what token resolves to what identity, what scope it gets, whether a request is
+allowed — is byte-for-byte the same as before. Every existing web and native client behaves
+identically. **Update (post cross-lane review, see WORKLOG):** `checkDashSession` DOES gain one line —
+a fire-and-forget `touchDevice(...)` call after `req.scope` is set, so the device list's
+`last_seen_at` reflects real activity instead of freezing at login. It cannot change any request's
+outcome (`touchDevice` never throws, is not awaited, and its result is discarded) — the ORIGINAL claim
+was about resolution/authorization, and that half is still exactly true. This is worth checking in the
+diff rather than taking on trust.
 
 ### Endpoints (all authenticated; 404 without `personalAuth` or `multiUser`)
 
