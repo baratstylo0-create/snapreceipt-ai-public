@@ -41,6 +41,177 @@
   `https://snapreceiptai.friction.com.my` (couldn't be exercised in the local harness, per
   PR #57) would close out the PWA work fully.
 
+## 2026-08-25 · Codex · codex/sentry-free-tier — OPS: Sentry free-tier error tracking
+
+- **Files:** `lib/sentry.js`, `server.js`, `lib/config.js`, `.env.example`, `docs/DECISIONS.md`, `docs/ops/2026-08-25-sentry-free-tier.md`, `tests/sentry.test.js`, `package.json`, `package-lock.json`.
+- **What:** implemented the Owner direction to use one Sentry free-tier setup for SnapReceipt AI. Added `@sentry/node`, DSN-gated initialization, boot-summary visibility (`sentry=on/off`), global Express error capture, strict `beforeSend` scrubbing, Sentry setup docs, and tests that prove request bodies, cookies, auth context, receipt/OCR fields, merchant/amount/card data, user identifiers, long IDs, and query strings do not leave the app.
+- **Privacy/ops boundary:** Claude owns Sentry account/project setup and deployment env (`SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`); Codex only added application wiring. Local/CI stays default-off unless a DSN is explicitly configured. Tracing defaults to `0` to preserve free-tier quota.
+- **Verification:** `node --test tests/sentry.test.js tests/config-summary.test.js`; full `npm test` passed 2387/2387; `git diff --check` clean. `npm audit --omit=dev` still reports an existing `brace-expansion` high-severity finding through `exceljs`/`archiver` paths; the Sentry lockfile diff does not touch `brace-expansion`.
+
+## 2026-08-24 · Claude-P (platform/trust) · feature/claude-p-P-04-distributed-abuse-controls · P-04a shared rate limiting
+
+- **Issue:** #37 [P-04] · Gate 1 · **Risk tier 2** · **first slice of two**.
+- **Files:** added `lib/sharedLimit.js`, `tests/sharedLimit.test.js`,
+  `docs/security/P-04-abuse-controls.md`; modified `schema.sql` and 7 route files
+  (`auth`, `googleAuth`, `guest`, `upload`, `agent`, `statement`, `webhook`), this worklog.
+- **Why this next:** P-01 and P-02a both shipped with the same open risk written into their own
+  docs — "the limiter under this is still single-process in-memory, P-04 owns the distributed
+  replacement." Adding more auth surface while leaving that open makes the earlier work weaker
+  than it reads. The gap audit lists single-process limiting as a P0 launch blocker.
+- **What changed:** a **two-layer** limiter, not a replacement. Layer 1 is the existing
+  in-memory limiter, unchanged and checked FIRST (a flood is refused at zero database cost —
+  otherwise the limiter becomes the amplification vector). Layer 2 is an atomic Postgres
+  counter (`bump_rate_limit`, one `INSERT .. ON CONFLICT DO UPDATE`) shared by every instance.
+  13 abuse-critical endpoints rewired, each with a unique bucket name.
+- **Failure posture (a deliberate security decision, not an accident):** if the shared store is
+  unreachable this **fails OPEN**, but layer 1 still applies — so an outage degrades protection
+  to exactly today's behaviour, never to none. Fail-closed would turn a Supabase blip into a
+  total login lockout. That trade is right for a limiter and would be wrong for an
+  authorization check; the reasoning does not generalise.
+- **No new dependency.** Postgres rather than Redis, per the standing rule.
+- **Privacy (PDPA / C-02):** the bucket key is a salted hash — a rate limiter is not a reason
+  to start retaining IP addresses.
+- **A REAL BUG found by testing, not by review:** `bumpShared` used `Number(count)`, and
+  `Number(null) === 0` in JavaScript — so a null response body (which PostgREST can legitimately
+  return) read as a genuine count of zero: a full budget advertised on every malformed answer.
+  Found because mutation testing exposed the malformed-response path as uncovered; the test I
+  then wrote **failed at baseline**. Fixed with a type-check before coercion.
+- **Verification run:** `npm test` → **2231/2231 pass, 0 fail** (14 new; branch baseline 2217
+  confirmed before any edit). Every pre-existing test for the 13 rewired endpoints still passes,
+  which is the compatibility evidence: the swap is behaviour-preserving when the shared store is
+  absent. **Mutation-tested**: fail-closed instead of open, conflating unknown with zero,
+  dropping the endpoint name from the bucket key, storing a raw client id, never enforcing the
+  global budget, and removing the name-uniqueness guard each turn the suite red.
+  **Process note:** my first mutation run reported all six "caught" — but the shell had mangled
+  the mutator and **not one mutation actually applied**. Re-run with a mutator that exits
+  non-zero when a mutation does not apply. Same class of mistake as the one caught in P-02a;
+  the harness now makes it impossible to miss.
+- **Deferred to P-04b:** idempotency keys, duplicate/replay control, and file/page/concurrency/
+  spend limits on upload/OCR/export. The ticket names them; this slice is the shared-limiter
+  half only.
+- **Open risks:** each limited request now costs one extra round-trip on those 13 endpoints
+  (deliberately not applied to the ordinary dashboard read path); `SHARED_RATE_LIMIT=false`
+  restores previous behaviour exactly; `rate_limits` rows need sweeping (`sweep_rate_limits()`
+  is provided, **P-07** owns scheduling it); no live database has been migrated.
+- **Conflict note:** this is my third open branch touching `routes/auth.js` (after #46 and #48).
+  All three are additive one-liners in limiter declarations. Resolution order: #46, then #48,
+  then this.
+
+## 2026-08-24 · Claude-P (platform/trust) · feature/claude-p-P-02-session-hardening · P-02a device sessions + auth timeline
+
+- **Issue:** #35 [P-02] · Gate 1 · **Risk tier 2** (session surface + schema) · **first slice of three**.
+- **Files:** added `lib/deviceSessions.js`, `routes/sessions.js`, `tests/deviceSessions.test.js`,
+  `tests/sessions.route.test.js`, `tests/fixtures/fakePostgrest.js`; modified `schema.sql`, `lib/auth.js`,
+  `lib/passwordReset.js`, `routes/auth.js`, `server.js`, this worklog.
+- **Scope split (deliberate).** #35 bundles seven security changes; delivering them as one ~2000-line
+  Tier-2 diff touching every authenticated request would be unreviewable, and governance rule 8 warns
+  against it. **P-02a (this) = the durable record**: device list, revoke one / revoke others,
+  authentication timeline, new-device detection, password-change audit stamp.
+  **P-02b = the cookie/CSRF transport switch** — deferred because it changes the session contract that
+  W-01 and M-02 both build against, so it needs their agreement first. **P-02c = step-up/recent-auth.**
+- **Compatibility:** the bearer contract is **untouched** — `lookupSession` and `checkDashSession` are
+  not modified, so every existing web and native client behaves identically. Schema is additive
+  (`sessions.id/last_seen_at/user_agent/ip_hash`, `users.password_changed_at`, new `auth_events`).
+  `mintSession` gained an OPTIONAL third arg; all four existing call sites work unchanged.
+- **New endpoints:** `GET /api/sessions`, `GET /api/sessions/events`, `DELETE /api/sessions/:id`,
+  `POST /api/sessions/revoke-others`. All authenticated; 404 without personalAuth/multiUser.
+- **Privacy (PDPA / C-02):** the raw client IP is **never stored**. `ip_hash` is salted sha-256, and
+  the salt is derived per-deployment (a fixed salt would be rainbow-table-able back to an IP in
+  seconds). `ip_hash` and `token_hash` are both withheld from every API response.
+- **Isolation:** `user_id` is folded into the DELETE's own WHERE clause, not checked in a preceding
+  SELECT — no check-then-act window, and a cross-account attempt returns 404 (not 403, which would
+  confirm the id exists).
+- **One bug I introduced and fixed:** the first write of `lib/deviceSessions.js` put **literal control
+  bytes** (0x00, 0x1f, 0x7f) into the source, which made git treat the file as binary. Replaced with
+  proper `\u` escapes; verified 0 control bytes and `file` reports UTF-8 text.
+- **Verification run:** `npm test` → **2251/2251 pass, 0 fail** (34 new; baseline on this branch was
+  2217/2217, confirmed before any edit). **Mutation-tested**: dropping the `user_id` revoke boundary,
+  dropping revoke-others' self-exemption, leaking `token_hash` into the device list, returning a raw
+  IP instead of a hash, storing a raw IP on an auth event, or dropping the expiry filter each turns
+  the suite red. One mutation initially reported clean because its `sed` silently failed to apply —
+  re-run properly with node before being counted.
+- **Open risks:** `touchDevice`'s throttle cache is per-process (a multi-instance deploy writes once
+  per instance — harmless, just chattier); `isNewDevice` is an honest heuristic, not a security
+  control, and fails quiet; `auth_events` has no retention sweep yet (**P-07**); no live database
+  has been migrated.
+- **Workspace note:** built in a **git worktree** (`../SnapReceiptAI-p02`) because Codex is working
+  M-01 in the main checkout. Their uncommitted `android/**` work was never touched.
+- **What's next:** independent (non-author) review, then Jeevan or Barat merges. P-02b needs a
+  cross-lane session-contract agreement before it starts.
+
+## 2026-08-24 · Claude-P (platform/trust) · feature/claude-p-P-02-session-hardening · fix: Codex cross-lane review findings on #48
+
+- **Issue:** #35 [P-02] · Gate 1 · Risk tier 2 · applied directly to the #48 (P-02a) branch, still unmerged.
+- **Source:** Codex's cross-lane agent pre-review on #48 (posted per the workflow in #53), independently
+  verified against the real code before any fix was written — grep-confirmed both claims true, not taken
+  on the review's word alone.
+- **Files:** `routes/expenses.js`, `routes/googleAuth.js`, `routes/guest.js`; added
+  `tests/checkdash.touchdevice.test.js`, `tests/guest.deviceInstrumentation.test.js`; this worklog.
+
+### Finding 1 (P2) — `touchDevice()` was dead code
+
+`lib/deviceSessions.js` fully implemented, exported and unit-tested `touchDevice()`, but no route ever
+called it. `last_seen_at` was set once at session creation and then frozen forever regardless of actual
+activity — the device list could show a session as last-seen at login time while it was being used
+continuously.
+
+**Fix:** `checkDashSession` (the one place a bearer resolves to a live session, `routes/expenses.js`)
+now calls `touchDevice(tokenHash(presented), deviceFromRequest(req))` immediately after resolving
+`req.user`/`req.scope`. Deliberately **fire-and-forget** (not awaited) so it can never add latency to
+the hot auth path every dashboard/API request goes through — `touchDevice` already throttles itself to
+one write per session per `SESSION_TOUCH_INTERVAL_MS` and never throws by contract. Session
+**resolution/authorization** semantics are unchanged; only a best-effort bookkeeping side-effect was
+added. (This narrows the PR's original claim that `checkDashSession` is "not modified" — it is modified,
+in a way that cannot change any request's outcome. The PR body/contract doc will be updated to say so.)
+
+### Finding 2 (P2) — Google OAuth and guest sign-in bypassed the device/timeline instrumentation
+
+Password signup/login recorded device metadata and `login_ok`/`new_device` events; `routes/googleAuth.js`
+and `routes/guest.js` called `mintSession(user)` with no device argument and recorded nothing. A user
+signing in with Google, or starting a guest trial, had a silently incomplete device list and security
+timeline relative to a password account — the feature was mis-described as covering "the authentication
+timeline" when it covered one of three session-creating surfaces.
+
+**Fix:** both routes now build `deviceFromRequest(req)`, pass it into `mintSession`, and call
+`recordAuthEvent({ userId, event: 'login_ok', device })`. `googleAuth.js` additionally runs the same
+new-device check `routes/auth.js`'s password login already does, **before** the session row is written
+(checking after would always match itself). `guest.js` deliberately does **not** run a new-device check —
+a guest identity is single-use and ephemeral (≤24h), so "is this a new device" has no meaningful prior
+session to compare against; recorded as a reasoned exclusion, not an oversight.
+
+### Verification — stated precisely so nothing here is oversold
+
+- `npm test` → **2256/2256 pass, 0 fail** (5 new: 2 for the `checkDashSession`→`touchDevice` wiring,
+  3 for `guest.js`'s instrumentation). Confirmed by an independent full-suite run, not taken from a
+  prior run's number.
+- **Both new tests are mutation-tested against the EXACT pre-fix code**: reverting `checkDashSession`
+  to the original (no `touchDevice` call) turns its new test red; reverting `guest.js`'s mint call to
+  `mintSession(user, GUEST_SESSION_TTL_MS)` (no device, no event) turns its new test red. Each proves it
+  actually catches the specific regression Codex reported, not just that the happy path is green.
+- **`routes/googleAuth.js` has NO new automated test**, stated honestly rather than left implicit. There
+  is no pre-existing test file for this route at all (`routes/guest.js` had none either, but was cheap to
+  add one for — no external dependency). Testing the OAuth callback meaningfully requires stubbing
+  `exchangeCode`/`verifyIdToken`, both destructured from `lib/googleAuth` at require time, which needs a
+  module-cache monkeypatch this codebase has no existing pattern for. Building that harness from scratch
+  is a materially bigger task than the 10-line fix it would cover, and rushing it under an already-active
+  WIP-limit constraint risked a worse outcome than an honest gap. Confidence here rests on: the change
+  mirrors, near line-for-line, `routes/auth.js`'s own login handler (which the full suite does exercise),
+  and the full suite's 2256 pass with this route's module load succeeding confirms no syntax/require error.
+  **A reviewer should weigh this gap explicitly** — it is real, not hidden.
+- A CRLF hazard was hit and fixed WHILE editing, not after: a first string-replace script assumed bare
+  `\n` line endings; this repo's checkout is CRLF. The script was written to fail loudly on a non-matching
+  target rather than silently corrupt the file (same discipline as the mutation-testing harness earlier in
+  this lane) — it caught its own mismatch before any byte was written, was corrected to normalise against
+  the file's actual line ending, and a post-edit check confirmed zero bare-LF characters in any of the
+  three touched files.
+
+### What's next
+
+Codex's review is otherwise clear on #48 — no other blocking finding. These three fixes are applied
+directly to the existing #48 branch (not a new PR); the PR body and `docs/security/P-02-session-contract.md`
+need a short update reflecting the corrected "unmodified" claim and the stated googleAuth test gap before
+#48 is marked ready for human review. Still not pushed from this pass.
+
 ## 2026-08-25 · Claude (Barat/web lane) · feature/tour-premium-redesign-2026-08-23 · Installable desktop/home-screen app (PWA, Option 1 of the "download as desktop app" plan)
 
 - **Context:** Barat asked ("i want user download it from web and use as desktop app like how
