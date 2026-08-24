@@ -637,3 +637,67 @@ create unique index if not exists guest_ip_log_ip_idx on guest_ip_log (account_i
 alter table guest_ip_log enable row level security;
 -- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).
 update bot_bindings set last_active_at = coalesce(bound_at, created_at) where last_active_at is null;
+
+-- ============================================================================
+-- Migration: verified-email challenge service (P-01, 2026-08-24)
+-- Program: docs/FULL_APP_EXECUTION_PLAN.md Gate 1 (trust foundation), issue #34.
+--
+-- Until now the ONLY proof-of-email-ownership in the product lived in lib/bot.js's
+-- in-bot signup flow, where the 6-digit code sat in a per-process in-memory Map, in
+-- PLAINTEXT, and never touched the database. Web signup (POST /api/signup) had no
+-- email verification at all — it minted a session immediately. This migration adds
+-- the durable, hashed, single-use challenge record that both clients (web/W-01 and
+-- Android/M-02) verify against.
+--
+-- Deliberately ADDITIVE and backward-compatible:
+--   * users.email_verified_at is NULLABLE with no backfill. Every existing row stays
+--     null = "not yet verified". Nothing reads it as a gate unless an operator turns
+--     on CAP_REQUIRE_EMAIL_VERIFICATION (lib/account.js), which defaults to FALSE —
+--     so every already-deployed instance (Premala included) is byte-for-byte
+--     unchanged until that flag is flipped in a separate, reviewed decision.
+--   * email_challenges is a new table; dropping it restores the previous behaviour
+--     exactly (rollback = `drop table email_challenges;` + drop the column).
+--
+-- Shape notes (why it differs from password_resets above):
+--   * BOTH a code_hash and a token_hash live on ONE row — the 6-digit code and the
+--     magic link are two delivery forms of the SAME single-use challenge, so
+--     consuming either one consumes the other. Neither the code nor the token is
+--     ever stored raw (same sha-256 discipline as sessions.token_hash).
+--   * `email` snapshots the address the challenge was actually sent to, so a
+--     challenge issued before an email change cannot verify the new address.
+--   * `attempts`/`max_attempts` give each challenge its own guess budget, on top of
+--     the per-IP rate limiter — a limiter alone resets every window and would let a
+--     patient attacker keep guessing one long-lived code forever.
+--   * `consumed_at` is claimed by a CONDITIONAL update (`consumed_at=is.null` in the
+--     WHERE), which is a single atomic Postgres UPDATE. lib/emailChallenge.js treats
+--     a zero-row result as "already consumed" — this is the replay defense, and it is
+--     deliberately NOT the read-then-write pattern password_resets uses (recorded as
+--     a medium finding in docs/FULL_APP_GAP_AUDIT_2026-08-24.md).
+-- ============================================================================
+alter table users add column if not exists email_verified_at timestamptz;
+
+create table if not exists email_challenges (
+  id            uuid        primary key default gen_random_uuid(),
+  account_id    text        not null default 'default',
+  user_id       uuid        not null references users(id) on delete cascade,
+  purpose       text        not null default 'verify_email'
+    check (purpose in ('verify_email')),  -- extensible: step-up/email-change land here in P-02
+  email         text        not null,     -- address this challenge was sent to (snapshot)
+  code_hash     text        not null,     -- sha-256 hex of the 6-digit code; code never stored
+  token_hash    text        not null,     -- sha-256 hex of the magic-link token; token never stored
+  expires_at    timestamptz not null,
+  consumed_at   timestamptz,              -- non-null once used (single-use, claimed atomically)
+  attempts      int         not null default 0,
+  max_attempts  int         not null default 5,
+  created_at    timestamptz not null default now()
+);
+-- Lookup paths: by token (magic link) and by user+purpose (newest challenge, for code
+-- entry and for the resend cooldown check).
+create unique index if not exists email_challenges_token_hash_idx on email_challenges (token_hash);
+create index if not exists email_challenges_user_idx on email_challenges (account_id, user_id, purpose, created_at desc);
+-- Retention (P-07 will automate the sweep): consumed/expired challenges are short-lived
+-- credentials with no analytical value — they should not outlive their expiry by much.
+create index if not exists email_challenges_expiry_idx on email_challenges (expires_at);
+
+alter table email_challenges enable row level security;
+-- service_role bypasses RLS; no anon policy → anon denied (SEC-8, same as every table).

@@ -86,6 +86,47 @@
 - **What's next:** review/merge PR #13 (Jeevan or named Deputy per SOP §2), then pick up the `docs/backend-issues.md` items — OCR ones first since they're unambiguously yours.
 - **Assumptions:** "backend developer" in this handoff means whichever Claude session next picks up `lib/`/`routes/` work under the Barat(Deputy)/BARAT.md brief — there was no other session reachable to message directly when this was written, hence landing it here per SOP §0.1.4 (WORKLOG is the sync ledger other Claudes read on startup).
 
+## 2026-08-24 · Claude-P (platform/trust) · feature/claude-p-P-01-verified-email-challenge · P-01 verified-email challenge service
+
+- **Issue:** #34 [P-01] · Gate 1 (trust foundation) · **Risk tier 2** (auth + schema) · not merged, not pushed.
+- **Files (all inside the platform lane):** added `lib/emailChallenge.js`, `tests/emailChallenge.test.js`,
+  `tests/verifyEmail.route.test.js`, `tests/fixtures/fakePostgrest.js`, `docs/security/P-01-email-verification-contract.md`;
+  modified `schema.sql`, `lib/mailer.js`, `lib/account.js`, `routes/auth.js`, this worklog.
+- **Starting state (verified in source, not assumed):** there was NO email verification on the web at all.
+  `POST /api/signup` minted a session immediately; `users` had no verification column; the only
+  proof-of-ownership anywhere was `lib/bot.js`'s in-bot code, kept in a per-process in-memory `Map`
+  in **plaintext** and reachable only from Telegram.
+- **What changed:** a durable, hashed, single-use challenge (6-digit code **and** magic link on ONE row —
+  using either consumes both), with expiry, per-challenge attempt budget, per-account resend cooldown and
+  enumeration-safe responses. New endpoints `POST /api/verify-email/request`, `POST /api/verify-email/confirm`,
+  `GET /api/verify-email/status`. Signup now issues + mails a challenge and reports `email_verified:false`.
+- **Compatibility — deliberately non-breaking:** `users.email_verified_at` is nullable with no backfill, and
+  `CAP_REQUIRE_EMAIL_VERIFICATION` **defaults false**, so nothing is refused anywhere. Every existing
+  deployment (Premala included) behaves exactly as before; only additive response fields appear. Turning
+  enforcement ON is a separate reviewed decision that belongs with W-01's UI and a grace/backfill plan.
+- **Two defects found and fixed during the work, not after:**
+  1. My own first draft short-circuited `confirmByCode` to success for an already-verified account
+     *before* checking the code — an enumeration oracle. Removed; the idempotent re-tap case now lives
+     only in `confirmByToken`, where holding the 256-bit token is itself proof of ownership.
+  2. Type confusion: `String(['123456']) === '123456'`, so an array body was accepted as a valid code.
+     Both confirm paths now type-check before coercing.
+- **Deliberately NOT repeated here:** the mailed link is built from `cfg.PUBLIC_URL` only, with **no**
+  `req.get('host')` fallback — that fallback in `/api/forgot-password` is the High "reset-link poisoning"
+  finding in the gap audit. Fixing that existing route is out of scope for this PR (governance rule 8).
+  Likewise the single-use claim is an atomic conditional UPDATE, not the read-then-write that made
+  password reset a medium finding.
+- **Verification run:** `npm test` → **2266/2266 pass, 0 fail** (49 new). New files alone: 49/49.
+  No `.env` is present in this clone, so the env-contamination gotcha did not apply.
+  Suite was **mutation-tested**: deleting the single-use claim, the attempts compare-and-swap, the expiry
+  check, the resend cooldown or the code hashing each makes it fail. The first two initially SURVIVED —
+  two isolating tests were added specifically to kill them.
+- **Open risks (honest):** the attempt counter is compare-and-swap but the limiter under it is still
+  single-process in-memory (P-04 owns the distributed replacement); the magic-link token lands in a URL
+  and therefore in browser history (W-01 must strip it after read); challenge rows are not yet swept
+  (P-07 retention); no live database has been migrated — this is code + SQL only.
+- **What's next:** needs an independent (non-author) reviewer per Tier 2, then Jeevan or Barat merges.
+  Not pushed — no branch, PR or issue comment was created from this session.
+
 ## 2026-08-13 · Codex · codex/android-capacitor-wrapper · Play Console privacy policy page
 
 - **Files:** added `public/privacy.html`, `public/accountdeletion.html`, and `tests/privacy.policy.test.js`; updated `public/index.html`, `public/css/app.css`, `routes/misc.js`, and this worklog.
