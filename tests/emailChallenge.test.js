@@ -415,3 +415,74 @@ test('verificationState: reports the shape both clients render from', () => {
   assert.deepStrictEqual(ec.verificationState(null),
     { email: null, verified: false, verified_at: null });
 });
+
+// ---- migrated (non-default account_id) personal accounts (2026-08-25 regression) ----
+//
+// Every fixture above uses owner()'s default account_id: 'default' -- which happens to be
+// the SAME value lib/config.js's cfg.ACCOUNT_ID falls back to, so an unscoped sbSelect/
+// sbUpdate call would have passed every test above even with the bug this section catches:
+// findOwner/markVerified/claim/spendAttempt/latestChallenge were all missing scope, so any
+// REAL migrated account (its own unique account_id, e.g. "p_<uuid>", every personal signup
+// since 2026-08-14) got silently matched against nothing. These tests use a non-default
+// account_id specifically so a regression here fails LOUDLY instead of hiding behind the
+// coincidence above.
+function migratedOwner(over = {}) {
+  return owner({ id: 'u-migrated', account_id: 'p_migrated123', ...over });
+}
+
+test('findOwner: finds a migrated account (non-default account_id), not just the shared default bucket', async () => {
+  await withDb({ users: [migratedOwner()] }, async () => {
+    const found = await ec.findOwner('ann@example.com');
+    assert.ok(found, 'findOwner must not come up empty for a migrated account');
+    assert.strictEqual(found.account_id, 'p_migrated123');
+  });
+});
+
+test('requestVerification: issues a real challenge for a migrated account, stamped with ITS OWN account_id', async () => {
+  await withDb({ users: [migratedOwner()] }, async (fake) => {
+    const issued = await ec.requestVerification('ann@example.com', NOW);
+    assert.ok(issued, 'must not silently no-op for a migrated account');
+    const row = fake.db.email_challenges[0];
+    assert.strictEqual(row.account_id, 'p_migrated123', 'the challenge must be stamped with the OWNER\'s real account_id, not the shared default');
+  });
+});
+
+test('confirmByCode: the full happy path works end-to-end for a migrated account', async () => {
+  await withDb({ users: [migratedOwner()] }, async (fake) => {
+    const { code } = await ec.requestVerification('ann@example.com', NOW);
+    const result = await ec.confirmByCode('ann@example.com', code, NOW + MIN);
+    assert.strictEqual(result.ok, true);
+    const userRow = fake.db.users.find((u) => u.id === 'u-migrated');
+    assert.ok(userRow.email_verified_at, 'markVerified must actually persist for a migrated account\'s users row');
+  });
+});
+
+test('confirmByToken: the full happy path (magic link) works end-to-end for a migrated account', async () => {
+  await withDb({ users: [migratedOwner()] }, async (fake) => {
+    const { token } = await ec.requestVerification('ann@example.com', NOW);
+    const result = await ec.confirmByToken(token, NOW + MIN);
+    assert.strictEqual(result.ok, true);
+    const userRow = fake.db.users.find((u) => u.id === 'u-migrated');
+    assert.ok(userRow.email_verified_at, 'markVerified must actually persist for a migrated account\'s users row');
+  });
+});
+
+test('confirmByToken: the idempotent re-tap path also resolves for a migrated account', async () => {
+  await withDb({ users: [migratedOwner()] }, async () => {
+    const { token } = await ec.requestVerification('ann@example.com', NOW);
+    await ec.confirmByToken(token, NOW + MIN);
+    const again = await ec.confirmByToken(token, NOW + 2 * MIN);
+    assert.strictEqual(again.ok, true);
+    assert.strictEqual(again.already, true);
+  });
+});
+
+test('two migrated accounts under DIFFERENT account_ids never see each other\'s challenges', async () => {
+  await withDb({ users: [migratedOwner(), owner({ id: 'u-other', account_id: 'p_other456', username: 'bob@example.com' })] }, async (fake) => {
+    await ec.requestVerification('ann@example.com', NOW);
+    const annChallenge = fake.db.email_challenges.find((c) => c.user_id === 'u-migrated');
+    const bobLatest = await ec.latestChallenge('u-other', 'p_other456');
+    assert.strictEqual(annChallenge.account_id, 'p_migrated123');
+    assert.strictEqual(bobLatest, null, 'bob has no challenge of his own; must never see ann\'s');
+  });
+});

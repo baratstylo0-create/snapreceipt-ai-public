@@ -311,6 +311,27 @@ test('status: flips to verified once a challenge is confirmed', async () => {
   });
 });
 
+// 2026-08-25 regression (live incident — Google-login redirect bug, root-caused via pm2
+// logs + a direct DB check): every test above uses account_id: 'default', which happens to
+// equal cfg.ACCOUNT_ID's own fallback, so the handler's `sbSelect('users', {eq:{id:
+// sess.user_id}})` with no `scope` would have passed them even with the bug this test
+// catches. A real migrated personal account (its own unique account_id, e.g. "p_<uuid>",
+// every signup since 2026-08-14) got a 401 here on every call — this is what forced the
+// full-app logout+reload the user reported, ~19s into a fresh Google login.
+test('status: 200s for a MIGRATED account (non-default account_id) — the exact live bug', async () => {
+  const raw = 'session-token-migrated';
+  const seed = {
+    users: [ownerRow({ id: 'u-migrated', account_id: 'p_migrated123' })],
+    sessions: [{ token_hash: tokenHash(raw), user_id: 'u-migrated', account_id: 'p_migrated123', role: 'owner', branch_id: null, expires_at: FUTURE }],
+  };
+  await withServer(seed, async ({ req }) => {
+    const r = await req('GET', '/api/verify-email/status', { headers: { Authorization: 'Bearer ' + raw } });
+    assert.strictEqual(r.status, 200, 'a valid, unexpired session for a migrated account must not 401 here');
+    assert.strictEqual(r.json.email, 'ann@example.com');
+    assert.strictEqual(r.json.verified, false);
+  });
+});
+
 // ---- the additive fields on the existing endpoints --------------------------
 
 test('login: an owner learns their verification state; a clerk is not told anything', async () => {

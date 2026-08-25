@@ -228,7 +228,13 @@ module.exports = function mountAuth(app) {
     try {
       const sess = await lookupSession(bearer);
       if (!sess) return res.status(401).json({ error: 'unauthorized' });
-      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1 });
+      // 2026-08-25: was missing `scope: sess` -- sbSelect defaults to account_id=cfg.ACCOUNT_ID
+      // (the old shared bucket) with no scope, so this ALWAYS came up empty for any migrated
+      // personal account (their real row lives under their own unique account_id). Same root
+      // cause as every other unscoped-lookup fix this session -- see lib/supabase.js's doc
+      // comment on sbSelectGlobal, and routes/expenses.js's /api/config account_info lookup
+      // for the same fix applied to a sibling endpoint.
+      const rows = await sbSelect('users', { eq: { id: sess.user_id }, limit: 1, scope: sess });
       const user = rows[0];
       if (!user) return res.status(401).json({ error: 'unauthorized' });
       return res.json({
