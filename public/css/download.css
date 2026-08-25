@@ -1,0 +1,194 @@
+/* download.css — desktop-app download page. Extends landing.css's nav/steps/wordmark
+   classes (same "ink navy / paper white / signal blue" marketing palette) with the
+   handful of elements unique to this page: the OS-aware download card and the spec line.
+   2026-08-25: built for the "Download SnapReceipt AI for Windows" feature. */
+
+body.download-mode { background: #fbfaf7; }
+body.download-mode::before, body.download-mode::after { display: none; }
+body.download-mode .app-header, body.download-mode .app-footer { padding: 0; }
+body.download-mode .app-main { padding: 0; max-width: none; margin: 0; }
+
+.dl-root {
+  --lp-ink: #101826;
+  --lp-paper: #fbfaf7;
+  --lp-paper-2: #f3f1ea;
+  --lp-thermal: #6b7280;
+  --lp-line: #e4e1d6;
+  --lp-blue: #2563eb;
+  --lp-blue-strong: #1d4ed8;
+  --lp-mint: #10b981;
+  min-height: 100vh;
+  background: var(--lp-paper);
+  color: var(--lp-ink);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+.dl-nav {
+  background: var(--lp-paper);
+  border-bottom: 1px solid var(--lp-line);
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dl-wordmark { display: block; width: 184px; height: auto; }
+.dl-back {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--lp-thermal);
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+}
+.dl-back:hover { color: var(--lp-ink); }
+
+.dl-hero {
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 72px 32px 24px;
+  text-align: center;
+}
+.dl-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px; letter-spacing: .06em;
+  color: var(--lp-blue); text-transform: uppercase; margin-bottom: 18px;
+}
+.dl-eyebrow::before, .dl-eyebrow::after { content: ''; width: 16px; height: 1px; background: var(--lp-blue); }
+.dl-title {
+  margin: 0 0 14px;
+  font-weight: 800;
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+.dl-title em { font-style: normal; color: var(--lp-blue); }
+.dl-sub { margin: 0 0 40px; color: var(--lp-thermal); font-size: 16px; line-height: 1.6; }
+
+/* --- download card --- */
+.dl-card {
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 32px 64px;
+}
+.dl-panel {
+  background: #fff;
+  border: 1px solid var(--lp-line);
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+}
+.dl-os-icon {
+  width: 48px; height: 48px;
+  margin: 0 auto 18px;
+  color: var(--lp-ink);
+}
+.dl-btn {
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 16px 32px;
+  font-weight: 700;
+  font-size: 17px;
+  text-decoration: none;
+  background: var(--lp-blue);
+  color: #fff;
+  border: none;
+}
+.dl-btn:hover { background: var(--lp-blue-strong); }
+.dl-btn svg { width: 20px; height: 20px; flex: none; }
+.dl-spec {
+  margin: 16px 0 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--lp-thermal);
+  letter-spacing: .02em;
+}
+.dl-panel-title { margin: 0 0 10px; font-size: 19px; font-weight: 700; }
+.dl-panel-desc { margin: 0 0 26px; color: var(--lp-thermal); font-size: 15px; line-height: 1.6; }
+.dl-mac-note {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  background: var(--lp-paper-2);
+  border: 1px solid var(--lp-line);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--lp-ink);
+  text-align: left;
+}
+.dl-btn--secondary {
+  background: transparent;
+  color: var(--lp-ink);
+  border: 1px solid var(--lp-line);
+}
+.dl-btn--secondary:hover { border-color: #c7cdd5; background: transparent; }
+
+.dl-browser-note {
+  margin: 20px auto 0;
+  max-width: 640px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--lp-thermal);
+}
+.dl-browser-note a { color: var(--lp-blue); text-decoration: none; }
+.dl-browser-note a:hover { text-decoration: underline; }
+
+/* --- steps (mirrors landing.css's .landing-step-card) --- */
+.dl-steps {
+  background: var(--lp-paper-2);
+  border-top: 1px solid var(--lp-line);
+  padding: 56px 32px;
+}
+.dl-steps-title {
+  text-align: center;
+  margin: 0 0 36px;
+  font-size: 24px;
+  font-weight: 800;
+}
+.dl-steps-list {
+  max-width: 900px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+@media (max-width: 720px) { .dl-steps-list { grid-template-columns: 1fr; } }
+.dl-step-card {
+  background: var(--lp-paper);
+  border: 1px solid var(--lp-line);
+  border-radius: 12px;
+  padding: 24px;
+}
+.dl-step-num {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--lp-blue);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.dl-step-title { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+.dl-step-desc { margin: 0; font-size: 13px; color: var(--lp-thermal); line-height: 1.5; }
+
+.dl-footer {
+  padding: 24px 32px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--lp-thermal);
+}
+.dl-footer a { color: var(--lp-thermal); text-decoration: none; }
+.dl-footer a:hover { color: var(--lp-ink); }
+.dl-footer-sep { margin: 0 8px; }
+
+[hidden] { display: none !important; }
