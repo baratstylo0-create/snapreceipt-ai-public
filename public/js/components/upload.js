@@ -129,6 +129,13 @@
     return ids.length === 1 ? ids[0] : null;
   }
 
+  // Staff assignment only means anything in business/multi-user mode (branches + a staff
+  // directory exist). A personal account has neither, so showing the grid there is just a
+  // confusing, always-disabled "Unassigned" dropdown on every saved receipt.
+  function showStaffAssignment(config) {
+    return !!(config && config.multi_user);
+  }
+
   function normalizeStaff(resp) {
     var rows = resp && Array.isArray(resp.staff) ? resp.staff : [];
     return rows.filter(function (r) { return r && r.id; }).map(function (r) {
@@ -498,11 +505,13 @@
       // with nothing else read as "maybe it didn't upload" / "did it read this right?".
       if (vm.savedItems.length) {
         summaryArea.appendChild(textHead('up-list-title', 'Saved'));
-        if (staffMsg) summaryArea.appendChild(msg('up-staff-msg', staffMsg));
-        var staffHost = el('div', 'up-staff-host');
-        summaryArea.appendChild(staffHost);
-        renderStaffGrid(staffHost);
-        loadStaffForSavedItems(staffHost);
+        if (showStaffAssignment(opts.config)) {
+          if (staffMsg) summaryArea.appendChild(msg('up-staff-msg', staffMsg));
+          var staffHost = el('div', 'up-staff-host');
+          summaryArea.appendChild(staffHost);
+          renderStaffGrid(staffHost);
+          loadStaffForSavedItems(staffHost);
+        }
         if (switchView) {
           var viewBtn = el('button', 'up-view-activity');
           viewBtn.type = 'button';
@@ -834,6 +843,7 @@
     selectionHints: selectionHints,
     branchIdsForSavedItems: branchIdsForSavedItems,
     selectedBranchId: selectedBranchId,
+    showStaffAssignment: showStaffAssignment,
     normalizeStaff: normalizeStaff,
     applyStaffAssignResult: applyStaffAssignResult,
     flaggedDisplay: flaggedDisplay,

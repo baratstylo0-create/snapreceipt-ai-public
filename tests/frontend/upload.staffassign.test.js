@@ -4,6 +4,14 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Upload = require('../../public/js/components/upload');
 
+test('showStaffAssignment: only true in business/multi-user mode', () => {
+  assert.strictEqual(Upload.showStaffAssignment({ multi_user: true }), true);
+  assert.strictEqual(Upload.showStaffAssignment({ multi_user: false }), false);
+  assert.strictEqual(Upload.showStaffAssignment({}), false);
+  assert.strictEqual(Upload.showStaffAssignment(null), false);
+  assert.strictEqual(Upload.showStaffAssignment(undefined), false);
+});
+
 test('branchIdsForSavedItems: unique sorted non-empty branch ids only', () => {
   assert.deepStrictEqual(Upload.branchIdsForSavedItems([
     { id: 'e1', branch_id: 'b2' },
