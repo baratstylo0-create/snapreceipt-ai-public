@@ -145,10 +145,12 @@
   }
 
   // buildWordmark() — use the shared SVG brand asset so the website and downloadable logo
-  // cannot drift apart. The dark navigation variant keeps the supplied wordmark readable.
+  // cannot drift apart. The nav is light (--lp-paper), so this needs the navy-text variant
+  // — NOT wordmark-dark.svg (white "Snap", meant for a dark navy nav), which was invisible
+  // against this light bar (2026-08-25: caught live, "why the snap become white").
   function buildWordmark() {
     var logo = el('img', 'landing-wordmark');
-    logo.src = 'icons/snapreceipt-wordmark-dark.svg';
+    logo.src = 'icons/snapreceipt-wordmark.svg?v=20260825a'; // cache-bust: same convention as index.html's JS/CSS (see its header comment) — this SVG had none before, so the AI-badge-spacing fix below could silently sit behind a stale cached copy otherwise
     logo.alt = 'Snap Receipt AI';
     return logo;
   }
@@ -172,35 +174,13 @@
     nav.appendChild(navLeft);
 
     var navRight = el('div', 'landing-nav-actions');
-    // Install as desktop app (2026-08-25) — shown to EVERY visitor, before they've
-    // logged in or signed up (the same way Claude.ai offers its desktop app right
-    // from the marketing site). opts.installApp/canInstallApp are optional (set by
-    // app.js's boot()) so an older cached bundle without them just never shows this.
-    // No native prompt captured yet (or an unsupported browser, e.g. Safari)?
-    // Briefly swap the label to a short pointer at the browser's own install
-    // affordance instead of doing nothing, then revert — avoids new layout/CSS.
-    if (typeof opts.installApp === 'function' && typeof opts.canInstallApp === 'function' && opts.canInstallApp()) {
-      var installBtn = text('button', 'landing-nav-btn landing-nav-btn--login', t('landing.install_app'));
-      installBtn.type = 'button';
-      var installRevertTimer = null;
-      installBtn.addEventListener('click', function () {
-        opts.installApp().then(function (result) {
-          if (result !== 'unavailable') return;
-          if (installRevertTimer) clearTimeout(installRevertTimer);
-          Escape.setText(installBtn, t('landing.install_app_hint'));
-          installRevertTimer = setTimeout(function () { Escape.setText(installBtn, t('landing.install_app')); }, 4000);
-        });
-      });
-      navRight.appendChild(installBtn);
-    }
+    // Download desktop app nav link removed (2026-08-25c, Barat: "remove the download
+    // option from beside login") — the same /download.html download is still offered
+    // as the hero's secondary CTA button (see ctaRow below), just not duplicated here.
     var loginBtn = text('button', 'landing-nav-btn landing-nav-btn--login', t('landing.login'));
     loginBtn.type = 'button';
     loginBtn.addEventListener('click', function () { if (typeof opts.onLogin === 'function') opts.onLogin(); });
-    var registerBtn = text('button', 'landing-nav-btn landing-nav-btn--register', t('landing.register'));
-    registerBtn.type = 'button';
-    registerBtn.addEventListener('click', function () { if (typeof opts.onRegister === 'function') opts.onRegister(); });
     navRight.appendChild(loginBtn);
-    navRight.appendChild(registerBtn);
     nav.appendChild(navRight);
     root.appendChild(nav);
 
@@ -218,17 +198,25 @@
     heroCopy.appendChild(text('p', 'landing-hero-sub', t('landing.hero_sub')));
 
     var ctaRow = el('div', 'landing-cta-row');
-    var tryBtn = text('button', 'landing-btn landing-btn--primary', t('landing.try_free'));
+    // 2026-08-25d (Barat: "download button use try-for-free design, try-for-free
+    // becomes black and white") — swapped from the original blue-primary/outline
+    // pairing: Download App now takes the solid-blue .landing-btn--primary look,
+    // Try for Free takes the solid black/white .landing-btn--mono look.
+    var tryBtn = text('button', 'landing-btn landing-btn--mono', t('landing.try_free'));
     tryBtn.type = 'button';
     tryBtn.addEventListener('click', function () { if (typeof opts.onRegister === 'function') opts.onRegister(); });
-    var learnBtn = text('button', 'landing-btn landing-btn--secondary', t('landing.learn_more'));
-    learnBtn.type = 'button';
-    learnBtn.addEventListener('click', function () {
-      var target = root.querySelector('#landing-how');
-      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
     ctaRow.appendChild(tryBtn);
-    ctaRow.appendChild(learnBtn);
+    // "Learn More" (scroll-to-#landing-how) replaced with a Download App link
+    // (2026-08-25) — same nav.canInstallApp gate as the nav's own download
+    // link above, so it stays hidden once someone is already running inside
+    // the installed/standalone app.
+    if (typeof opts.canInstallApp === 'function' && opts.canInstallApp()) {
+      var downloadBtn = document.createElement('a');
+      downloadBtn.className = 'landing-btn landing-btn--primary';
+      downloadBtn.href = '/download.html';
+      Escape.setText(downloadBtn, t('landing.install_app'));
+      ctaRow.appendChild(downloadBtn);
+    }
     heroCopy.appendChild(ctaRow);
     hero.appendChild(heroCopy);
 

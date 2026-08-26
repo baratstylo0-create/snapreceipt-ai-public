@@ -666,7 +666,14 @@
     });
     if (header && brandHeader) header.appendChild(brandHeader.el);
 
-    var nav = Nav.buildNav({ onSelect: select, sections: sections });
+    // withIcons (2026-08-26): personal-only flat tab-bar-with-icons nav design —
+    // same signal as the personal-mode body class above, so business (Premala)
+    // keeps its original text-only pill nav byte-for-byte, no icon markup added.
+    var nav = Nav.buildNav({
+      onSelect: select,
+      sections: sections,
+      withIcons: !!(deps.config && deps.config.personal_auth),
+    });
     if (header && nav) header.appendChild(nav.el);
 
     // Guest Mode (2026-07-28): a persistent, non-dismissible reminder across every view (not
@@ -693,10 +700,18 @@
     // silently shows nothing rather than breaking boot — the banner is a reminder, not a gate.
     // `header` is captured in this closure and still the live DOM node the promise resolves
     // against, exactly like buildTelegramBanner's own "survives every select() call" comment.
+    //
+    // skipAuthExpiredNotify (2026-08-25 fix, "Google Login -> Dashboard -> unexpected
+    // redirect back to Landing Page"): this call's own .catch below already says "stay
+    // silent" on failure, but api.js's apiFetch used to call notifyAuthExpired() on ANY
+    // 401 regardless — nuking the whole session + reloading to Landing, even though this
+    // is explicitly a best-effort, non-critical check. Confirmed live via server logs
+    // (/api/verify-email/status 401ing shortly after a fresh Google sign-in) — see
+    // api.js's own comment on the flag for the full story.
     if (header && deps.session && deps.session.role === 'owner' && acctInfo && acctInfo.email
       && deps.EmailVerify && typeof deps.EmailVerify.buildBanner === 'function'
       && deps.Api && typeof deps.Api.apiFetch === 'function') {
-      deps.Api.apiFetch('/api/verify-email/status').then(function (status) {
+      deps.Api.apiFetch('/api/verify-email/status', { skipAuthExpiredNotify: true }).then(function (status) {
         if (status && status.verification_required && !status.verified) {
           header.appendChild(deps.EmailVerify.buildBanner(deps, acctInfo.email));
         }
@@ -720,30 +735,136 @@
     // textContent (identity values are still untrusted display text). Personal mode
     // (no session) renders nothing — header unchanged.
     if (deps.session && rateMeterHost) {
-      var who = document.createElement('span');
-      who.className = 'session-chip';
       var roleLabel = deps.session.role === 'admin' ? 'Admin' : deps.session.role === 'clerk' ? 'Clerk' : '';
-      who.textContent = (deps.session.display_name || 'Signed in') + (roleLabel ? ' · ' + roleLabel : '');
-      rateMeterHost.appendChild(who);
+      var whoText = (deps.session.display_name || 'Signed in') + (roleLabel ? ' · ' + roleLabel : '');
+      var isPersonalChip = !!(deps.config && deps.config.personal_auth);
 
-      var out = document.createElement('button');
-      out.type = 'button';
-      out.className = 'icon-btn';
-      out.title = 'Sign out';
-      out.setAttribute('aria-label', 'Sign out');
-      // 2026-07-27 (Barat: real logout icon, bigger) — a proper door+arrow glyph
-      // instead of the '⎋' escape-key Unicode symbol, which read as an unrelated
-      // "no entry" circle at small sizes. stroke="currentColor" so it still
-      // inherits the button's themed text color automatically, exactly like the
-      // old text glyph did — works unchanged across every theme, business included.
-      out.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-        + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-        + '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
-        + '<polyline points="16 17 21 12 16 7"/>'
-        + '<line x1="21" y1="12" x2="9" y2="12"/>'
-        + '</svg>';
-      out.addEventListener('click', function () { logout(); });
-      rateMeterHost.appendChild(out);
+      if (isPersonalChip) {
+        // Reference (2026-08-26): the chip is now a real dropdown button — click
+        // opens a panel with the account's name/type/email and a working Log out
+        // (the standalone logout icon-button that used to sit next to the chip is
+        // gone; logout() now lives only inside this panel). Business is completely
+        // untouched below — it keeps the original plain-text chip + separate
+        // logout icon-button exactly as before.
+        var wrap = document.createElement('div');
+        wrap.className = 'session-chip-wrap';
+
+        var who = document.createElement('button');
+        who.type = 'button';
+        who.className = 'session-chip';
+        who.setAttribute('aria-haspopup', 'true');
+        who.setAttribute('aria-expanded', 'false');
+
+        var avatar = document.createElement('span');
+        avatar.className = 'session-chip-avatar';
+        avatar.setAttribute('aria-hidden', 'true');
+        // No Google profile photo is available yet (routes/googleAuth.js never
+        // requests/stores one) — a colored initial is the honest fallback rather
+        // than a fake generic person icon pretending to be a real photo.
+        var initial = String(deps.session.display_name || whoText || 'U').trim().charAt(0).toUpperCase() || 'U';
+        deps.Escape.setText(avatar, initial || 'U');
+        who.appendChild(avatar);
+        var whoLabel = document.createElement('span');
+        deps.Escape.setText(whoLabel, whoText);
+        who.appendChild(whoLabel);
+        var chevron = document.createElement('span');
+        chevron.className = 'session-chip-chevron';
+        chevron.setAttribute('aria-hidden', 'true');
+        chevron.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+          + 'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          + '<polyline points="6 9 12 15 18 9"/></svg>';
+        who.appendChild(chevron);
+        wrap.appendChild(who);
+
+        var panel = document.createElement('div');
+        panel.className = 'session-dropdown';
+        panel.hidden = true;
+        panel.appendChild((function () {
+          var eyebrow = document.createElement('p');
+          eyebrow.className = 'session-dropdown-eyebrow';
+          deps.Escape.setText(eyebrow, 'Currently in');
+          return eyebrow;
+        })());
+        var card = document.createElement('div');
+        card.className = 'session-dropdown-card';
+        var cardAvatar = document.createElement('span');
+        cardAvatar.className = 'session-chip-avatar session-chip-avatar--lg';
+        cardAvatar.setAttribute('aria-hidden', 'true');
+        deps.Escape.setText(cardAvatar, initial || 'U');
+        card.appendChild(cardAvatar);
+        var cardInfo = document.createElement('div');
+        var cardName = document.createElement('p');
+        cardName.className = 'session-dropdown-name';
+        deps.Escape.setText(cardName, deps.session.display_name || 'Signed in');
+        cardInfo.appendChild(cardName);
+        var cardType = document.createElement('p');
+        cardType.className = 'session-dropdown-type';
+        deps.Escape.setText(cardType, 'Personal');
+        cardInfo.appendChild(cardType);
+        var acctEmail = deps.config && deps.config.account_info && deps.config.account_info.email;
+        if (acctEmail) {
+          var cardEmail = document.createElement('p');
+          cardEmail.className = 'session-dropdown-email';
+          deps.Escape.setText(cardEmail, acctEmail);
+          cardInfo.appendChild(cardEmail);
+        }
+        card.appendChild(cardInfo);
+        panel.appendChild(card);
+
+        var logoutBtn = document.createElement('button');
+        logoutBtn.type = 'button';
+        logoutBtn.className = 'session-dropdown-logout';
+        deps.Escape.setText(logoutBtn, 'Log out');
+        logoutBtn.addEventListener('click', function () { logout(); });
+        panel.appendChild(logoutBtn);
+        wrap.appendChild(panel);
+
+        function closeDropdown() {
+          panel.hidden = true;
+          who.setAttribute('aria-expanded', 'false');
+        }
+        function openDropdown() {
+          panel.hidden = false;
+          who.setAttribute('aria-expanded', 'true');
+        }
+        who.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          if (panel.hidden) openDropdown(); else closeDropdown();
+        });
+        document.addEventListener('click', function (ev) {
+          if (!panel.hidden && !wrap.contains(ev.target)) closeDropdown();
+        });
+        document.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Escape' && !panel.hidden) closeDropdown();
+        });
+
+        rateMeterHost.appendChild(wrap);
+      } else {
+        // Business: unchanged — plain-text chip + separate Sign-out icon-button.
+        var whoBiz = document.createElement('span');
+        whoBiz.className = 'session-chip';
+        whoBiz.textContent = whoText;
+        rateMeterHost.appendChild(whoBiz);
+
+        var out = document.createElement('button');
+        out.type = 'button';
+        out.className = 'icon-btn';
+        out.title = 'Sign out';
+        out.setAttribute('aria-label', 'Sign out');
+        // 2026-07-27 (Barat: real logout icon, bigger) — a proper door+arrow glyph
+        // instead of the '⎋' escape-key Unicode symbol, which read as an unrelated
+        // "no entry" circle at small sizes. stroke="currentColor" so it still
+        // inherits the button's themed text color automatically, exactly like the
+        // old text glyph did — works unchanged across every theme.
+        out.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+          + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+          + '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'
+          + '<polyline points="16 17 21 12 16 7"/>'
+          + '<line x1="21" y1="12" x2="9" y2="12"/>'
+          + '</svg>';
+        out.addEventListener('click', function () { logout(); });
+        rateMeterHost.appendChild(out);
+      }
     }
 
     // Expose the real theme setter / login / logout / clear-local to view
@@ -775,7 +896,7 @@
     deps.login = function () {
       var cfg = deps.config;
       if (cfg && cfg.personal_auth) {
-        mountLogin(deps, undefined, { onRegister: function () { mountOnboarding(deps, cfg); } });
+        mountAuthCard(deps, cfg, 'login');
       } else if (cfg && cfg.multi_user) {
         mountLogin(deps);
       } else {
@@ -790,8 +911,9 @@
     deps.startTour = function () {
       if (Tour && typeof Tour.start === 'function') Tour.start(deps);
     };
-    // deps.installApp/canInstallApp are set once in boot() (before this function
-    // runs) so Landing/Login can offer install pre-login too — reused as-is here.
+    // deps.canInstallApp is set once in boot() (before this function runs) so
+    // Landing/Login can offer the desktop-app download pre-login too — reused
+    // as-is here.
 
     var instances = mount ? buildViews(sections, mount, deps) : {};
 
@@ -904,7 +1026,11 @@
       onGoogleSignup: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined,
       // "Already have an account? Log in" (2026-07-28) — same real Login form/callbacks as
       // Landing's onLogin, so both entry points converge on identical behavior.
-      onLogin: function () { mountLogin(deps, undefined, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined }); },
+      // Unreachable in practice as of 2026-08-25 (nothing starts the wizard fresh at
+      // 'signup' anymore — AuthCard owns that step; see mountAuthCard), kept only so
+      // this function stays a correct, standalone Onboarding.mount call if something
+      // ever does start it there again.
+      onLogin: function () { mountAuthCard(deps, cfg, 'login'); },
       // Guest Mode (2026-07-28): lives on the Create Account screen itself (Barat: moved
       // here from an earlier Landing-page placement) — only passed when the server
       // actually turned it on (cfg.guest_mode); onboarding.js only renders the link when
@@ -913,17 +1039,103 @@
     });
   }
 
+  // personalAuthCardOpts(deps, cfg) -> the shared callback bundle for AuthCard.mount,
+  // used by every personal-mode entry point (Landing, the guest banner's "Sign up",
+  // the Google-auth error redirect, ResetPassword's "back to login"). Kept as one
+  // function so those call sites can't drift out of sync with each other — they all
+  // reduce to `mountAuthCard(deps, cfg, side)` below.
+  //
+  // onLogin/onSignup follow the same Promise contract Onboarding.mount's opts.onSignup
+  // already used (resolve with the result, reject with a user-safe Error(message)) —
+  // AuthCard.js is deliberately deps-free itself; all the real API/token-storage work
+  // stays here, in one place, exactly where mountLogin/mountOnboarding already did it.
+  function personalAuthCardOpts(deps, cfg) {
+    return {
+      onLogin: function (username, password) {
+        return deps.Api.apiFetch('/api/login', { method: 'POST', body: { username: username, password: password } })
+          .then(function (r) {
+            deps.Api.setToken(r.token); // never logged
+            return { token: r.token, role: r.role, branch_id: r.branch_id || null, display_name: r.display_name || '' };
+          })
+          .catch(function (err) {
+            var msg = err && err.status === 401 ? deps.t('login.wrong_credentials')
+              : err && err.status === 429 ? deps.t('login.rate_limited')
+              : deps.t('login.sign_in_failed');
+            throw new Error(msg);
+          });
+      },
+      onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined,
+      onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); },
+      // Mirrors mountOnboarding's own onSignup exactly (same endpoint, same storage calls,
+      // same error mapping) — duplicated rather than shared because mountOnboarding's
+      // version is only reachable when the wizard starts fresh at 'signup', which no
+      // caller does anymore now that AuthCard owns that step (see mountAuthCard below).
+      onSignup: function (email, password) {
+        return deps.Api.apiFetch('/api/signup', { method: 'POST', body: { email: email, password: password } })
+          .then(function (r) {
+            storeToken(r.token, true);
+            deps.Api.setToken(r.token);
+            storeSession({ role: r.role, branch_id: null, display_name: r.display_name || '' }, true);
+            return { bindToken: r.bind_token };
+          })
+          .catch(function (err) {
+            var msg = (err && err.body && err.body.error) || 'Could not create your account. Please try again.';
+            throw new Error(msg);
+          });
+      },
+      onGoogleSignup: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined,
+      onGuest: (cfg && cfg.guest_mode) ? function () { mountGuest(deps, cfg); } : undefined,
+    };
+  }
+
+  // mountAuthCard(deps, cfg, initialSide, message) — the sliding Sign In / Create
+  // Account split card (2026-08-25) that replaces separate full-screen Login/
+  // Onboarding-step-1 screens for personal accounts. `initialSide` is 'login' or
+  // 'signup'; `message` is an optional notice shown under the Sign In form (e.g. a
+  // Google-auth error, or "session expired"). On successful login: same
+  // storeSession+enterApp as the old mountLogin. On successful signup: hands off to
+  // Onboarding.mount at startStep:'welcome' — the EXACT same startStep/bindToken
+  // pattern mountGuest already uses for its own handoff — so steps 2-4 (Welcome/
+  // Connect/Done) stay their existing full-screen wizard, completely unchanged.
+  function mountAuthCard(deps, cfg, initialSide, message) {
+    if (document.body) {
+      document.body.classList.remove('landing-mode');
+      document.body.classList.add('onboard-mode');
+    }
+    var mount = document.getElementById('app');
+    if (mount) mount.textContent = '';
+    var personalLogin = !!(deps.config && deps.config.personal_auth);
+    var cardOpts = personalAuthCardOpts(deps, cfg);
+    cardOpts.initialSide = initialSide;
+    cardOpts.initialMessage = message;
+    cardOpts.onLoginSuccess = function (session) {
+      storeToken(session.token, personalLogin);
+      storeSession({ role: session.role, branch_id: session.branch_id, display_name: session.display_name }, personalLogin);
+      enterApp(deps);
+    };
+    cardOpts.onSignupSuccess = function (bindToken) {
+      if (mount) mount.textContent = '';
+      deps.Onboarding && deps.Onboarding.mount(mount, {
+        botUsername: cfg && cfg.bot_username,
+        Api: deps.Api,
+        startStep: 'welcome',
+        bindToken: bindToken,
+        onFinished: function () { enterApp(deps); },
+      });
+    };
+    deps.AuthCard && deps.AuthCard.mount(mount, cardOpts);
+  }
+
   function mountLanding(deps, cfg) {
     var mount = document.getElementById('app');
     deps.Landing && deps.Landing.mount(mount, {
       appName: (cfg && cfg.app_name) || 'SnapReceipt AI',
-      onLogin: function () { mountLogin(deps, undefined, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined }); },
-      onRegister: function () { mountOnboarding(deps, cfg); },
-      // Install as desktop app (2026-08-25) — the FIRST screen a brand-new visitor
+      onLogin: function () { mountAuthCard(deps, cfg, 'login'); },
+      onRegister: function () { mountAuthCard(deps, cfg, 'signup'); },
+      // Download desktop app (2026-08-25) — the FIRST screen a brand-new visitor
       // sees, so this is where "download it like Claude's desktop app" belongs,
       // not buried in Settings behind a signup. Optional dep, same guard style as
-      // startTour: an older cached bundle without deps.installApp just never shows it.
-      installApp: deps.installApp,
+      // startTour: an older cached bundle without deps.canInstallApp just never shows it.
       canInstallApp: deps.canInstallApp,
     });
   }
@@ -1006,7 +1218,7 @@
     btn.type = 'button';
     btn.className = 'guest-banner-btn';
     btn.textContent = t('app.guest_banner_signup');
-    btn.addEventListener('click', function () { mountOnboarding(deps, deps.config); });
+    btn.addEventListener('click', function () { mountAuthCard(deps, deps.config, 'signup'); });
     bar.appendChild(btn);
     return bar;
   }
@@ -1133,7 +1345,7 @@
       mode: mode,
       token: token,
       Api: deps.Api,
-      onBackToLogin: function () { mountLogin(deps, undefined, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined }); },
+      onBackToLogin: function () { mountAuthCard(deps, cfg, 'login'); },
       onRequestNewLink: function () { mountResetPassword(deps, cfg, 'request'); },
     });
   }
@@ -1164,9 +1376,13 @@
       Payments: dep('Payments'), Grid: dep('Grid'), Team: dep('Team'),
       // Manage shell — hosts the Templates + Grid sub-pages behind a dropdown.
       Manage: dep('Manage'),
-      // Personal-mode real-account onboarding (2026-07-25) — Welcome/Connect/Done + the new
-      // Create-account first step. Optional so older cached bundles without it don't break boot.
+      // Personal-mode real-account onboarding (2026-07-25) — Welcome/Connect/Done. Optional
+      // so older cached bundles without it don't break boot.
       Onboarding: dep('Onboarding'),
+      // Sliding Sign In / Create Account split card (2026-08-25) — replaces Login.render +
+      // Onboarding's own 'signup' step for personal accounts. Optional like the rest of
+      // this list; mountAuthCard no-ops gracefully if an older cached bundle lacks it.
+      AuthCard: dep('AuthCard'),
       // Marketing entry screen shown before Onboarding/Login (2026-07-27).
       Landing: dep('Landing'),
       // "Forgot password?" flow (2026-07-27), personal-mode only.
@@ -1185,22 +1401,15 @@
     deps.t = deps.I18n.t;
     if (document.documentElement) document.documentElement.lang = deps.I18n.lang();
 
-    // Install as desktop/home-screen app (2026-08-25). Set here — BEFORE the auth
-    // decision below picks Landing/Login/signup/dashboard — so a brand-new visitor
-    // can install straight from the marketing/login screen, not just from a signed-
-    // in dashboard's Settings page (Barat: "how new user can download from login
-    // page"). canInstallApp hides the control once already running installed.
-    // installApp() shows the browser's real prompt if it fired early enough to be
-    // captured (deferredInstallPrompt, set above); otherwise resolves 'unavailable'
-    // so the caller can point the user at the browser's own install icon/menu.
+    // Download desktop app (2026-08-25). Set here — BEFORE the auth decision below
+    // picks Landing/Login/signup/dashboard — so a brand-new visitor can reach it
+    // straight from the marketing/login screen, not just from a signed-in
+    // dashboard's Settings page (Barat: "how new user can download from login
+    // page"). canInstallApp just hides the link once already running installed
+    // (isStandalone) — landing.js/settings.js link straight to /download.html (a
+    // real Windows .exe via GitHub Releases) rather than going through the
+    // browser's beforeinstallprompt flow, which doesn't reliably fire.
     deps.canInstallApp = function () { return !isStandalone(); };
-    deps.installApp = function () {
-      if (!deferredInstallPrompt) return Promise.resolve('unavailable');
-      var promptEvent = deferredInstallPrompt;
-      deferredInstallPrompt = null;
-      promptEvent.prompt();
-      return promptEvent.userChoice ? promptEvent.userChoice.then(function () {}) : Promise.resolve();
-    };
 
     // Subscribe once, before any view can possibly fetch and hit a dead session.
     if (deps.Api.onAuthExpired) deps.Api.onAuthExpired(handleAuthExpired);
@@ -1350,7 +1559,7 @@
       // mounts Login for a personal account, so a failed Google sign-in must go straight
       // there instead of waiting for a second click through Landing first.
       if (gauthErrorMsg && cfg && cfg.personal_auth) {
-        mountLogin(deps, gauthErrorMsg, { onRegister: function () { mountOnboarding(deps, cfg); }, onForgotPassword: function () { mountResetPassword(deps, cfg, 'request'); }, onGoogleLogin: (cfg && cfg.google_auth) ? function () { root.location.href = '/api/auth/google'; } : undefined });
+        mountAuthCard(deps, cfg, 'login', gauthErrorMsg);
         return;
       }
 
@@ -1406,14 +1615,13 @@
     });
   }
 
-  // Installable web app (2026-08-25): the one missing piece for Chrome/Edge to
-  // actually offer an Install prompt (manifest.webmanifest + icons already
-  // existed) — see sw.js's own header for the exact, deliberately narrow scope
-  // (never touches /api/, so ADR-025 still holds). deferredInstallPrompt holds
-  // the browser's install event until Settings > About's "Install App" button
-  // (deps.installApp below) chooses to show it — Chrome requires calling
-  // .preventDefault() up front to control timing like this.
-  var deferredInstallPrompt = null;
+  // Installable web app (2026-08-25): manifest.webmanifest + icons + sw.js let
+  // Chrome/Edge offer their own native install icon in the address bar as a
+  // bonus path — see sw.js's own header for the exact, deliberately narrow scope
+  // (never touches /api/, so ADR-025 still holds). The PRIMARY download path is
+  // /download.html (a real Windows .exe via GitHub Releases, linked from
+  // landing.js/settings.js) — the browser's beforeinstallprompt event turned out
+  // not to reliably fire even after repeat visits, so nothing here depends on it.
   function isStandalone() {
     try {
       return !!((root.matchMedia && root.matchMedia('(display-mode: standalone)').matches) || root.navigator.standalone);
@@ -1434,11 +1642,6 @@
         root.navigator.serviceWorker.register('/sw.js').catch(function () {});
       });
     }
-    root.addEventListener('beforeinstallprompt', function (ev) {
-      ev.preventDefault();
-      deferredInstallPrompt = ev;
-    });
-    root.addEventListener('appinstalled', function () { deferredInstallPrompt = null; });
   }
 
   return {

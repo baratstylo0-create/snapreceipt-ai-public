@@ -6,7 +6,12 @@
 
 :root {
   /* Treehouse palette (light) mapped onto the app's existing token names so every
-     component re-skins automatically. */
+     component re-skins automatically.
+     2026-08-25: NOT touched by the "turn app background white" request — this
+     :root block (theme value 'light') is a BUSINESS-only option (see app.js's
+     BUSINESS_THEME_CYCLE), never shown to personal accounts, and shared with the
+     live Premala business dashboard. The personal-facing theme is body.theme-ocean
+     below, which was the one actually changed. */
   --bg: #e6e1ce;              /* paper */
   --bg-2: #eee9d6;            /* paper-2 */
   --panel: #f4efdf;           /* paper-3 (cards/panels) */
@@ -334,6 +339,8 @@ body.theme-dark {
    background like :root's, the pie-chart/status colors tuned for :root
    already have enough contrast here and don't need their own warm variants. */
 body.theme-warm {
+  /* 2026-08-25: NOT touched — 'warm' is a BUSINESS-only theme option (see
+     :root's comment above), never offered to personal accounts. */
   --bg: #f2e0bb;
   --bg-2: #f8ecd0;
   --panel: #fbf4e2;
@@ -362,8 +369,14 @@ body.theme-warm {
    byte-for-byte unchanged — this carries zero risk to the shared business
    dashboard's look, since it's an opt-in choice, never a default swap. */
 body.theme-ocean {
-  --bg: #eef4fb;
-  --bg-2: #e4edf9;
+  /* 2026-08-25 (Barat: "turn whole app background colour into white"): --bg/--bg-2
+     flattened to white — was a soft blue tint. 'ocean' is the theme personal
+     accounts actually use (shown to them as "Light" — see app.js's
+     PERSONAL_THEME_CYCLE), so this is the one that matters for this request. The
+     ambient glow/hill decoration below (--glow-top/--glow-warm/--hill) is
+     untouched, so it still layers softly on top of the new white base. */
+  --bg: #ffffff;
+  --bg-2: #ffffff;
   --panel: #ffffff;
   --panel-shadow: 0 9px 22px rgba(37, 99, 235, 0.10);
   --line: rgba(37, 99, 235, 0.14);

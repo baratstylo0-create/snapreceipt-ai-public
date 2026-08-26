@@ -514,28 +514,17 @@
       tourBtn.addEventListener('click', function () { opts.startTour(); });
       about.body.appendChild(setRow('Product tour', 'Replay the guided walkthrough of the dashboard.', tourBtn));
     }
-    // Install as desktop/home-screen app (2026-08-25). opts.installApp/canInstallApp
-    // are set by app.js's renderApp — guarded the same way as startTour above (an
-    // older cached bundle without them just never shows this row), and further
-    // guarded by canInstallApp() so it's hidden once already running installed.
-    if (typeof opts.installApp === 'function' && typeof opts.canInstallApp === 'function' && opts.canInstallApp()) {
-      var installWrap = el('div');
-      var installBtn = el('button', 'set-btn set-btn--ghost');
-      installBtn.type = 'button';
-      Escape.setText(installBtn, 'Install App');
-      var installHint = el('p', 'set-privacy-text');
-      installHint.hidden = true;
-      installBtn.addEventListener('click', function () {
-        opts.installApp().then(function (result) {
-          if (result === 'unavailable') {
-            installHint.hidden = false;
-            Escape.setText(installHint, 'Look for the install icon in your browser’s address bar, or open the browser menu and choose "Install SnapReceipt AI".');
-          }
-        });
-      });
-      installWrap.appendChild(installBtn);
-      installWrap.appendChild(installHint);
-      about.body.appendChild(setRow('Desktop app', 'Install SnapReceipt AI as its own app on this device — opens in its own window, no browser tabs.', installWrap));
+    // Download desktop app (2026-08-25). opts.canInstallApp is set by app.js's
+    // renderApp — guarded the same way as startTour above (an older cached bundle
+    // without it just never shows this row), and further guarded by canInstallApp()
+    // so it's hidden once already running installed. Links straight to /download.html
+    // (a real Windows .exe via GitHub Releases) instead of the browser's
+    // beforeinstallprompt PWA flow, which doesn't reliably fire.
+    if (typeof opts.canInstallApp === 'function' && opts.canInstallApp()) {
+      var installBtn = el('a', 'set-btn set-btn--ghost');
+      installBtn.href = '/download.html';
+      Escape.setText(installBtn, 'Download App');
+      about.body.appendChild(setRow('Desktop app', 'Get SnapReceipt AI as its own app on this device — opens in its own window, no browser tabs.', installBtn));
     }
     rootEl.appendChild(about.el);
 

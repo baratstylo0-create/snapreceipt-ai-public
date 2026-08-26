@@ -280,6 +280,10 @@
     opts = opts || {};
     var apiFetch = opts.apiFetch || (opts.Api && opts.Api.apiFetch) || (Api && Api.apiFetch);
     var switchView = typeof opts.switchView === 'function' ? opts.switchView : null;
+    // Reference (2026-08-26): personal-only drop-zone redesign (icon badge, "or"
+    // divider, size/format caption). Upload is shown to BOTH personal and business
+    // (same nav section, same component) — business keeps its exact original zone.
+    var isPersonal = !!(opts.config && opts.config.personal_auth);
 
     var rootEl = el('div', 'up-root');
     section.appendChild(rootEl);
@@ -312,10 +316,26 @@
     zone.setAttribute('role', 'button');
     zone.setAttribute('tabindex', '0');
     zone.setAttribute('aria-label', t('upload.zone_aria'));
+    if (isPersonal) {
+      var zoneIcon = el('span', 'up-zone-icon');
+      zoneIcon.setAttribute('aria-hidden', 'true');
+      // Owner reference (2026-08-26): exact icon match — Heroicons' "cloud-arrow-up"
+      // outline glyph (rounded cloud + upward arrow), same shape family the reference
+      // screenshot uses.
+      zoneIcon.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        + 'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<path d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 '
+        + '3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75z"/></svg>';
+      zone.appendChild(zoneIcon);
+    }
     var zoneText = msg('up-zone-text', t('upload.zone_text'));
     zone.appendChild(zoneText);
+    if (isPersonal) zone.appendChild(msg('up-zone-or muted', t('upload.zone_or')));
     var browse = el('button', 'up-browse'); browse.type = 'button'; Escape.setText(browse, t('upload.choose_files'));
     zone.appendChild(browse);
+    // Real accepted types/size (routes/upload.js's express.json({limit:'10mb'})) — not a
+    // made-up number, so this caption never promises a limit the server doesn't honor.
+    if (isPersonal) zone.appendChild(msg('up-zone-caption muted', t('upload.zone_caption')));
 
     var input = el('input', 'up-input');
     input.type = 'file';

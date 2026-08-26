@@ -82,6 +82,15 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
   border: none;
 }
 .landing-nav-btn--register:hover { color: var(--lp-ink); }
+/* 2026-08-25: nav-sized version of .landing-btn--primary (the hero "Try for Free"
+   solid-blue look) — used by the "Download App" nav link so it stands out as the
+   primary nav action instead of blending in with the plain outlined Login button. */
+.landing-nav-btn--primary {
+  background: var(--lp-blue);
+  color: #fff;
+  border: 1px solid var(--lp-blue);
+}
+.landing-nav-btn--primary:hover { background: var(--lp-blue-strong); border-color: var(--lp-blue-strong); }
 
 /* --- hero --- */
 .landing-hero {
@@ -124,11 +133,20 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
   padding: 13px 24px;
   font-weight: 700;
   font-size: 15px;
+  /* 2026-08-25: .landing-btn is also used on the <a href="/download.html"> Download
+     button (an anchor, not a <button>) — without this it inherits the browser's
+     default link underline, which the <button>-based Try for Free never had. */
+  text-decoration: none;
+  display: inline-block;
 }
 .landing-btn--primary { background: var(--lp-blue); color: #fff; border: none; }
 .landing-btn--primary:hover { background: var(--lp-blue-strong); }
 .landing-btn--secondary { background: transparent; color: var(--lp-ink); border: 1px solid var(--lp-line); }
 .landing-btn--secondary:hover { border-color: #c7cdd5; }
+/* 2026-08-25: solid black/white CTA — Barat: "make [Try for Free] black and white"
+   (swapped with Download App taking over the solid-blue .landing-btn--primary look). */
+.landing-btn--mono { background: var(--lp-ink); color: #fff; border: none; }
+.landing-btn--mono:hover { background: #000; }
 
 /* --- Telegram chat window (the signature element) — a recreation of the real
    bot conversation: dark header, avatar, bot name/subtitle, a sent receipt

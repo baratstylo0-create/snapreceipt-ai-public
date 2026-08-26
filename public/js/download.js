@@ -44,4 +44,33 @@ if (typeof document !== 'undefined' && typeof navigator !== 'undefined') {
     var targetPanel = document.getElementById(targetId);
     if (targetPanel) targetPanel.hidden = false;
   })();
+
+  // "Back" button history fix (2026-08-25, Barat: browser Back from the Login
+  // screen was landing on THIS page instead of going straight to Main). Root
+  // cause: .dl-back was a plain <a href="/"> — clicking it always PUSHES a
+  // fresh "/" history entry on top of the stack, even though the visitor
+  // already has a perfectly good "/" entry right behind this page (the one
+  // they arrived from). That leaves the stack looking like
+  // [ /, /download.html, / ] instead of [ /, /download.html ]. Everything
+  // done on the SPA's Main/Login screens afterward (Login has no URL/history
+  // of its own) never touches that stack, so the NEXT native Back press pops
+  // the duplicate "/" first, re-revealing /download.html before Main.
+  // Fix: when we can tell the visitor actually came from this same site
+  // (same-origin referrer + a real entry to return to), use history.back()
+  // instead — that just moves the stack pointer back to the existing "/"
+  // entry rather than pushing a new one, so the duplicate never gets
+  // created. Falls back to the plain href="/" navigation (unchanged
+  // behavior) for anyone who opened this page directly — a bookmark, a
+  // shared link, a new tab — where there's no same-site page to return to.
+  (function () {
+    var backLink = document.querySelector('.dl-back');
+    if (!backLink) return;
+    backLink.addEventListener('click', function (ev) {
+      var sameOriginReferrer = document.referrer && document.referrer.indexOf(location.origin + '/') === 0;
+      if (sameOriginReferrer && window.history.length > 1) {
+        ev.preventDefault();
+        window.history.back();
+      }
+    });
+  })();
 }

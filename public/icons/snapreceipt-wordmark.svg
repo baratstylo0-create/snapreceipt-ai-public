@@ -1,10 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 112" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 648 112" role="img" aria-labelledby="title desc">
   <title id="title">Snap Receipt AI</title>
   <desc id="desc">Snap Receipt AI wordmark with Snap in navy, Receipt in blue, and AI in a blue rounded badge.</desc>
   <g font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="800" letter-spacing="-2">
     <text x="0" y="78" fill="#101826">Snap</text>
     <text x="184" y="78" fill="#2563eb">Receipt</text>
   </g>
-  <rect x="568" y="12" width="100" height="88" rx="16" fill="#2563eb"/>
-  <text x="618" y="78" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800">AI</text>
+  <!-- Badge x was a fixed 568 regardless of "Receipt"'s actual rendered width (ends ~473),
+       leaving a ~95-unit dead gap (2026-08-25: caught live, "why there are gap"). Measured
+       the real bbox in a browser and set x=496 for a consistent ~23-unit gap instead. -->
+  <rect x="496" y="12" width="100" height="88" rx="16" fill="#2563eb"/>
+  <text x="546" y="78" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800">AI</text>
 </svg>

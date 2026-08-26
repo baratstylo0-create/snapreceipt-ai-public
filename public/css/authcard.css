@@ -1,0 +1,268 @@
+/* authcard.css — the sliding Sign In / Create Account split card (2026-08-25,
+   replacing separate full-screen Login/Onboarding-step-1 screens for personal
+   accounts). Lives under body.onboard-mode (same blue/white identity as the
+   rest of onboarding — see onboarding.css's body.onboard-mode token block),
+   and reuses onboarding.css's .onboard-input/.onboard-btn/.onboard-error/
+   .onboard-divider for the actual form fields so they stay visually identical
+   to the multi-step wizard that follows a successful signup. This file only
+   owns the split-card SHELL: the two-panel layout and the slide animation.
+
+   Card is two stacked pairs of absolutely-positioned half-width panels (form
+   pair + colored "toggle" pair) that swap `left`/`opacity` between the base
+   and .is-signup states — each panel visually slides across to the other
+   half while cross-fading, which is the same outcome as the classic
+   double-width-overlay technique without needing that extra wrapper.
+
+   2026-08-25b: decorative visual upgrade — organic blob shapes on the blue
+   panel, floating circle accents around the card, icon-prefixed inputs,
+   enhanced card shadow/glow, input focus effects. */
+
+/* ---- floating circle accents on the page background ---- */
+.ac-root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+.ac-root::before,
+.ac-root::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.ac-root::before {
+  width: 120px;
+  height: 120px;
+  background: rgba(37, 99, 235, 0.07);
+  top: 12%;
+  left: 8%;
+}
+.ac-root::after {
+  width: 80px;
+  height: 80px;
+  background: rgba(37, 99, 235, 0.05);
+  bottom: 15%;
+  right: 10%;
+}
+.ac-circle-1,
+.ac-circle-2 {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.ac-circle-1 {
+  width: 60px;
+  height: 60px;
+  background: rgba(29, 78, 216, 0.06);
+  top: 25%;
+  right: 6%;
+}
+.ac-circle-2 {
+  width: 44px;
+  height: 44px;
+  background: rgba(37, 99, 235, 0.05);
+  bottom: 28%;
+  left: 5%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-root::before  { animation: ac-pulse 8s ease-in-out infinite alternate; }
+  .ac-root::after   { animation: ac-pulse 10s ease-in-out infinite alternate-reverse; }
+  .ac-circle-1      { animation: ac-pulse 12s ease-in-out infinite alternate; }
+  .ac-circle-2      { animation: ac-pulse 9s ease-in-out infinite alternate-reverse; }
+}
+@keyframes ac-pulse {
+  0%   { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.15); opacity: .7; }
+}
+
+/* ---- card shell ---- */
+.ac-card {
+  position: relative;
+  width: 100%;
+  max-width: 860px;
+  min-height: 560px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow:
+    0 4px 24px rgba(16, 24, 38, 0.08),
+    0 0 60px rgba(37, 99, 235, 0.06);
+  overflow: hidden;
+  isolation: isolate;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-card { transition: transform .3s ease, box-shadow .3s ease; }
+}
+
+/* ---- panels (shared) ---- */
+.ac-panel {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  box-sizing: border-box;
+  transition: left .6s cubic-bezier(.65,0,.35,1), opacity .4s ease-in-out;
+}
+
+/* --- form panels --- */
+.ac-panel--form {
+  left: 0;
+  padding: 48px 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow-y: auto;
+  z-index: 2;
+  opacity: 1;
+}
+.ac-panel--signup { opacity: 0; z-index: 1; pointer-events: none; }
+.ac-card.is-signup .ac-panel--login { left: 50%; opacity: 0; z-index: 1; pointer-events: none; }
+.ac-card.is-signup .ac-panel--signup { left: 50%; opacity: 1; z-index: 2; pointer-events: auto; }
+
+.ac-title { margin: 0 0 20px; font-size: 24px; font-weight: 800; color: var(--txt); }
+.ac-form { display: flex; flex-direction: column; gap: 14px; }
+
+/* ---- icon-prefixed input wrappers ---- */
+.ac-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ac-input-wrap .ac-input-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--muted, #8a94a1);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ac-input-wrap .ac-input-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ac-input-wrap .onboard-input {
+  padding-left: 40px;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* focus glow on inputs */
+.ac-input-wrap .onboard-input:focus {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+/* --- colored toggle panels --- */
+.ac-panel--toggle {
+  left: 50%;
+  z-index: 2;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 40px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  position: absolute;
+  overflow: hidden;
+}
+.ac-panel--to-login { opacity: 0; z-index: 1; pointer-events: none; }
+.ac-card.is-signup .ac-panel--to-signup { left: 0; opacity: 0; z-index: 1; pointer-events: none; }
+.ac-card.is-signup .ac-panel--to-login { left: 0; opacity: 1; z-index: 2; pointer-events: auto; }
+
+/* ---- decorative blob shapes inside the blue toggle panels ---- */
+.ac-blob {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ac-blob-1 {
+  width: 180px;
+  height: 180px;
+  border-radius: 60% 40% 70% 30% / 50% 60% 40% 50%;
+  top: -40px;
+  right: -30px;
+}
+.ac-blob-2 {
+  width: 120px;
+  height: 120px;
+  border-radius: 40% 60% 30% 70% / 60% 40% 50% 50%;
+  bottom: -20px;
+  left: -20px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ac-blob-3 {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  top: 50%;
+  left: 20%;
+  background: rgba(255, 255, 255, 0.05);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-blob-1 { animation: ac-float 6s ease-in-out infinite alternate; }
+  .ac-blob-2 { animation: ac-float 8s ease-in-out infinite alternate-reverse; }
+  .ac-blob-3 { animation: ac-float 7s ease-in-out infinite alternate; }
+}
+@keyframes ac-float {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-8px); }
+}
+
+/* toggle panel text + button */
+.ac-toggle-title { margin: 0 0 12px; font-size: 26px; font-weight: 800; position: relative; z-index: 1; }
+.ac-toggle-sub { margin: 0 0 28px; font-size: 14px; line-height: 1.6; opacity: .9; max-width: 280px; position: relative; z-index: 1; }
+.ac-toggle-btn {
+  font: inherit;
+  cursor: pointer;
+  padding: 12px 36px;
+  border-radius: 999px;
+  border: 1.5px solid #fff;
+  background: transparent;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  position: relative;
+  z-index: 1;
+  transition: background .2s ease;
+}
+.ac-toggle-btn:hover { background: rgba(255,255,255,.12); }
+
+/* --- mobile: side-by-side sliding doesn't fit a narrow screen — stack the
+   active form full-width and drop the colored panel to a simple text link
+   under the form (same toggle, no slide animation to fight a small viewport). --- */
+@media (max-width: 720px) {
+  .ac-card { min-height: 0; border-radius: 16px; }
+  .ac-panel--form { position: static; width: 100%; padding: 32px 24px; transition: none; }
+  .ac-panel--signup { display: none; }
+  .ac-card.is-signup .ac-panel--login { display: none; }
+  .ac-card.is-signup .ac-panel--signup { display: flex; position: static; width: 100%; opacity: 1; }
+  .ac-panel--toggle { display: none; }
+  .ac-mobile-toggle { display: block; text-align: center; padding: 0 24px 28px; font-size: 14px; color: var(--txt-soft); }
+  .ac-mobile-toggle button { font: inherit; font-weight: 700; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; }
+  /* hide background circles on mobile — they crowd the smaller viewport */
+  .ac-circle-1, .ac-circle-2 { display: none; }
+  .ac-root::before, .ac-root::after { display: none; }
+}
+@media (min-width: 721px) {
+  .ac-mobile-toggle { display: none; }
+}

@@ -992,8 +992,15 @@
       shell.appendChild(branchToolbar);
     }
 
+    // Owner request (2026-08-26): personal-only — Automation Impact moves to the
+    // bottom of the Overview page. Business keeps its original top position
+    // (appended right here, same spot as before this change) so its layout stays
+    // byte-for-byte unchanged; personal's append call is deferred to the end of
+    // mount() below. .ov-shell is a plain flex column (app.css), so DOM append
+    // order alone drives visual position — no CSS order/position rule needed.
+    var isBusinessSession = !!(opts.session && opts.session.role !== 'owner');
     var metricsHost = el('div', 'ov-metrics-host');
-    shell.appendChild(metricsHost);
+    if (isBusinessSession) shell.appendChild(metricsHost);
 
     var segmentBar = el('div', 'ov-segments');
     var segmentButtons = {};
@@ -1013,6 +1020,7 @@
     trendsPanel.setAttribute('data-overview-panel', 'trends');
     shell.appendChild(summaryPanel);
     shell.appendChild(trendsPanel);
+    if (!isBusinessSession) shell.appendChild(metricsHost);
 
     var container = el('div', 'ov-root');
     summaryPanel.appendChild(container);

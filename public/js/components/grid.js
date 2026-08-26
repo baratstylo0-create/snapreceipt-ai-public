@@ -252,6 +252,82 @@
   function el(tag, className) { var n = document.createElement(tag); if (className) n.className = className; return n; }
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
 
+  // Toolbar icons (2026-08-26, Owner reference screenshot: lock/pencil/file glyphs
+  // beside the read-only badge and Edit/Export buttons). Personal-only — see
+  // withIcons below — so the business (Premala) toolbar keeps its original
+  // text-only badge/buttons byte-for-byte. Pure createElementNS, same discipline
+  // as nav.js's icon helpers: no innerHTML, so the strict no-inline CSP holds.
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(SVG_NS, tag);
+    for (var k in attrs) { if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]); }
+    return e;
+  }
+  // stroke="currentColor" by default (icon inherits the button/badge's own text
+  // color — white on the filled "Edit cells" button, muted gray on the badge —
+  // for free, no extra color CSS needed). Pass a fixed `stroke`/`fill` override
+  // for the two brand-tinted export icons below.
+  function buildIcon(children, opts) {
+    opts = opts || {};
+    var svg = svgEl('svg', {
+      viewBox: '0 0 24 24', width: '15', height: '15', fill: opts.fill || 'none',
+      stroke: opts.stroke || 'currentColor', 'stroke-width': opts.strokeWidth || '2',
+      'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true',
+    });
+    svg.setAttribute('class', 'ledger-btn-icon');
+    children.forEach(function (c) { svg.appendChild(c); });
+    return svg;
+  }
+  function buildLockIcon() {
+    return buildIcon([
+      svgEl('rect', { x: '5', y: '10.5', width: '14', height: '9.5', rx: '1.8' }),
+      svgEl('path', { d: 'M7.8 10.5V7.5a4.2 4.2 0 0 1 8.4 0v3' }),
+    ]);
+  }
+  function buildEditIcon() {
+    return buildIcon([
+      svgEl('path', { d: 'M12 20h8' }),
+      svgEl('path', { d: 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z' }),
+    ]);
+  }
+  // Generic colored document glyphs (not a reproduction of the Excel/Adobe
+  // logomark — a plain page + folded corner, tinted green/red, which is the
+  // common convention for "spreadsheet"/"PDF" export affordances without
+  // claiming an official brand mark).
+  function buildDocIcon(color, innerChildren) {
+    return buildIcon([
+      svgEl('path', { d: 'M6 3h7l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z' }),
+      svgEl('path', { d: 'M13 3v5h5' }),
+    ].concat(innerChildren || []), { stroke: color });
+  }
+  function buildExcelIcon() {
+    return buildDocIcon('#1e8e4f', [
+      svgEl('line', { x1: '8', y1: '14', x2: '16', y2: '14' }),
+      svgEl('line', { x1: '8', y1: '17.5', x2: '16', y2: '17.5' }),
+      svgEl('line', { x1: '11.3', y1: '11.5', x2: '11.3', y2: '20.5' }),
+    ]);
+  }
+  function buildPdfIcon() {
+    return buildDocIcon('#d92d20', [
+      svgEl('line', { x1: '8', y1: '14', x2: '15', y2: '14' }),
+      svgEl('line', { x1: '8', y1: '17.5', x2: '13', y2: '17.5' }),
+    ]);
+  }
+  // Prepend an icon inside an existing button/badge without disturbing its
+  // current text — wraps the existing text in a span so CSS can gap the two,
+  // then inserts the icon before it. No-op (returns false) if the element
+  // already has an icon (idempotent re-render safety, e.g. editBtn's label
+  // changes on every toggle — see render() below).
+  function addIcon(elNode, iconEl) {
+    if (!elNode || elNode.querySelector('.ledger-btn-icon')) return false;
+    var label = el('span', 'ledger-btn-label');
+    label.textContent = elNode.textContent;
+    clear(elNode);
+    elNode.appendChild(iconEl);
+    elNode.appendChild(label);
+    return true;
+  }
+
   // Trigger a browser download of `text` as `filename` via a throwaway Blob URL.
   // No-ops outside a browser; never throws (a download failing is not worth breaking the view for).
   function downloadText(text, filename, mime) {
@@ -298,6 +374,9 @@
     // below that used to test bare `session` truthiness for that purpose now uses this instead.
     var isBusinessSession = !!(session && session.role !== 'owner');
     var submissionOn = !!(deps.config && deps.config.branch_submission);
+    // Toolbar icons (2026-08-26, Owner reference screenshot) are personal-only —
+    // business (Premala) keeps its exact current text-only toolbar, no icon markup.
+    var withIcons = !isBusinessSession;
 
     var state = { rows: [], loaded: false, editMode: false, search: '', page: 1, submission: null, submissions: [], branchNames: {} };
 
@@ -314,11 +393,13 @@
     // -- toolbar: mode badge + Edit toggle + exports --
     var toolbar = el('div', 'ledger-toolbar');
     var badge = textEl('span', 'ledger-badge', t('grid.read_only'));
+    if (withIcons) addIcon(badge, buildLockIcon());
     toolbar.appendChild(badge);
 
     var editBtn = el('button', 'ledger-btn ledger-btn--primary');
     editBtn.type = 'button';
     Escape.setText(editBtn, t('grid.edit_cells'));
+    if (withIcons) addIcon(editBtn, buildEditIcon());
     editBtn.addEventListener('click', function () {
       state.editMode = !state.editMode;
       render();
@@ -343,6 +424,7 @@
       b.type = 'button';
       Escape.setText(b, cfg.label);
       b.title = cfg.label;
+      if (withIcons) addIcon(b, cfg.format === 'pdf' ? buildPdfIcon() : buildExcelIcon());
       b.addEventListener('click', function () { doManagedExport(cfg.format); });
       toolbar.appendChild(b);
       exportButtonEls.push(b);
@@ -737,6 +819,10 @@
       Escape.setText(badge, state.editMode ? t('grid.editing_enabled') : t('grid.read_only'));
       badge.classList.toggle('ledger-badge--edit', state.editMode);
       Escape.setText(editBtn, state.editMode ? t('grid.done_editing') : t('grid.edit_cells'));
+      // Escape.setText replaces textContent wholesale, wiping any icon addIcon()
+      // inserted above — reapply on every render (addIcon no-ops once it's there,
+      // but setText just erased it, so this always re-adds fresh).
+      if (withIcons) { addIcon(badge, buildLockIcon()); addIcon(editBtn, buildEditIcon()); }
 
       host.textContent = '';
       var byPeriod = filterByPeriod(state.rows, statementMonth.value);

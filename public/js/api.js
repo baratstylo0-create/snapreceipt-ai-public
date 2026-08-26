@@ -76,6 +76,21 @@
   // Fetch a same-origin /api path. opts is a standard fetch init; we layer on
   // Accept + optional Authorization and JSON body handling. Returns parsed JSON
   // (or text) on 2xx; throws { status, body } otherwise.
+  //
+  // opts.skipAuthExpiredNotify (2026-08-25 fix, "Google Login -> Dashboard ->
+  // unexpected redirect back to Landing Page"): a caller that treats its OWN
+  // 401 as non-fatal (a best-effort check with an explicit "stay silent on
+  // failure" .catch — e.g. app.js's email-verification banner probe) still
+  // fed into this SHARED, GLOBAL notifyAuthExpired() before this flag existed.
+  // notifyAuthExpired() has an app-wide side effect (api.js has no idea the
+  // caller only wanted this one optional check to fail quietly) — it wipes
+  // the whole session and reloads to the login/landing screen. Live server
+  // logs confirmed /api/verify-email/status legitimately 401ing shortly after
+  // a fresh Google sign-in (still under investigation server-side — see the
+  // handoff to the backend session) — regardless of WHY that one non-critical
+  // check fails, it must never be able to nuke an otherwise-healthy session
+  // out from under the user. The once-per-401 retry-for-flakiness behavior is
+  // unchanged either way; only the final notifyAuthExpired() call is gated.
   function apiFetch(path, opts, _retriedAuth) {
     opts = opts || {};
     var headers = Object.assign({ Accept: 'application/json' }, opts.headers || {});
@@ -101,7 +116,7 @@
         if (!res.ok) {
           if (res.status === 401 && headers.Authorization) {
             if (!_retriedAuth) return delay(AUTH_RETRY_DELAY_MS).then(function () { return apiFetch(path, opts, true); });
-            notifyAuthExpired();
+            if (!opts.skipAuthExpiredNotify) notifyAuthExpired();
           }
           throw { status: res.status, body: body };
         }

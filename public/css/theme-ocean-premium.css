@@ -1,0 +1,677 @@
+/* theme-ocean-premium.css — visual-only design-system pass for PERSONAL accounts
+   (body.theme-ocean / body.theme-ocean-dark) ONLY. Every rule below is scoped to
+   those two body classes, so app.css's :root/theme-warm/theme-dark blocks — what
+   the live business Premala dashboard actually renders — are byte-for-byte
+   unaffected. Loaded after app.css so these rules win the cascade.
+
+   Scope: spacing/radius/shadow/type refinement, one consistent button language,
+   table financial hierarchy, card/shadow quieting, input focus glow. No class
+   renamed, no DOM added, no JS touched — every existing selector, click handler,
+   and route is untouched. */
+
+body.theme-ocean, body.theme-ocean-dark {
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+
+  --r-md: 8px;
+  --r-pill: 999px;
+
+  --t-xs: 11px; --t-sm: 12.5px; --t-base: 13.5px; --t-md: 14.5px; --t-lg: 17px;
+
+  /* Semantic aliases onto the existing palette — explicit success/warning/error
+     without inventing new colors: moss/honey already mean "good"/"caution" on
+     this theme, --clay is already this theme's modern red. */
+  --success: var(--moss);
+  --success-bg: var(--moss-bg);
+  --warning: var(--honey);
+  --warning-bg: var(--honey-bg);
+  --error: var(--clay);
+  --error-bg: var(--clay-bg);
+
+  --focus-ring: 0 0 0 3px var(--accent-bg);
+  --backdrop: rgba(16, 40, 62, 0.45);
+}
+body.theme-ocean { --shadow-sm: 0 1px 2px rgba(16,40,62,.04), 0 1px 2px rgba(16,40,62,.05); }
+body.theme-ocean-dark { --shadow-sm: 0 1px 3px rgba(0,0,0,.35); }
+/* Owner request (2026-08-26): every secondary/"muted" text on personal accounts —
+   toggle-tab labels, KPI labels, table headers, hints, timestamps, badges, etc. —
+   was reading as a washed-out gray-blue. Redefining the --muted TOKEN here (rather
+   than hunting down every individual selector) makes it cascade to every consumer
+   across app.css and this file at once. True black works on Ocean's light
+   background; on Ocean Dark, literal black would be invisible against the dark
+   navy page, so it's promoted to this theme's own full-strength text color instead
+   (same "make it read as strong text, not de-emphasized" outcome). */
+body.theme-ocean { --muted: #000000; }
+body.theme-ocean-dark { --muted: #e6edf7; }
+body.theme-ocean { --line-soft: rgba(16,40,62,.08); }
+body.theme-ocean-dark { --line-soft: var(--line); }
+
+/* --bg-2 resolves to the same #fff as --panel/--bg on Ocean light (the theme's flat-white
+   look) whereas the business theme carries 3 distinct warm tones — so every "bg-2 as a
+   secondary surface" trick (hover states, toggle-group fills) that works on business
+   goes invisible here. --surface-2 gives Ocean light a real, subtle secondary tone
+   without touching app.css's --bg-2 (business still uses its own, already-distinct value). */
+body.theme-ocean { --surface-2: rgba(16,40,62,.04); }
+body.theme-ocean-dark { --surface-2: var(--bg-2); }
+
+/* ---------------- Header / nav ---------------- */
+/* Reference (2026-08-26): the brand-title row becomes a soft elevated card, its
+   icon buttons go fully circular, and the tagline reads in a softer blue-gray
+   (an intentional exception to the --muted -> black change above — a tagline
+   is meant to sit quieter than body text, unlike labels/hints/timestamps). */
+body.theme-ocean .app-header-top, body.theme-ocean-dark .app-header-top {
+  background: linear-gradient(135deg, var(--surface-2), var(--panel) 60%);
+  border: 1px solid var(--line-soft);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5) var(--sp-5);
+}
+body.theme-ocean .brand-sub, body.theme-ocean-dark .brand-sub {
+  color: var(--txt-soft);
+}
+/* Reference (2026-08-26): flat, borderless icon buttons packed tighter together
+   — no visible ring, just a very soft shadow to lift them off the page. */
+body.theme-ocean .header-actions, body.theme-ocean-dark .header-actions {
+  gap: 6px;
+}
+body.theme-ocean .icon-btn, body.theme-ocean-dark .icon-btn {
+  width: 46px;
+  height: 46px;
+  font-size: 19px;
+  border-radius: var(--r-pill);
+  border-color: transparent;
+  color: var(--txt);
+  box-shadow: var(--shadow-sm);
+  transition: color .15s, border-color .15s, background .15s, transform .15s;
+}
+body.theme-ocean .icon-btn:hover, body.theme-ocean-dark .icon-btn:hover {
+  transform: translateY(-1px);
+  background: var(--surface-2);
+}
+body.theme-ocean .icon-btn--lg, body.theme-ocean-dark .icon-btn--lg {
+  font-size: 25px;
+}
+body.theme-ocean .icon-btn svg, body.theme-ocean-dark .icon-btn svg {
+  width: 22px;
+  height: 22px;
+}
+/* Sign-out is the last .icon-btn appended to .header-actions (app.js) — kept as
+   a bordered square rather than circular so it reads as a distinct "exit"
+   action, matching the reference. */
+body.theme-ocean .header-actions .icon-btn:last-child,
+body.theme-ocean-dark .header-actions .icon-btn:last-child {
+  border-radius: var(--r-md);
+}
+/* Rate-limit chip (2026-08-26, Owner: "remove his fully") — personal accounts
+   never see this again. `display:none` rather than deleting ratemeter.js's
+   mount() call in app.js: the chip still mounts (harmless, no extra network
+   call — it only paints on an existing Api.onRateLimit subscription) but is
+   never shown. Business keeps it untouched — this file never reaches app.css's
+   own .rm-chip rules that business renders from. */
+body.theme-ocean .rm-chip, body.theme-ocean-dark .rm-chip {
+  display: none !important;
+}
+/* Session ("who am I") chip: bordered pill, ready for the avatar/chevron icons
+   app.js adds around its text on personal accounts (see app.js's isPersonal gate). */
+body.theme-ocean .session-chip, body.theme-ocean-dark .session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 6px;
+  border-radius: var(--r-pill);
+  border-color: var(--line-2);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  color: var(--txt);
+  font-weight: 700;
+}
+body.theme-ocean .session-chip-avatar, body.theme-ocean-dark .session-chip-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+body.theme-ocean .session-chip-chevron, body.theme-ocean-dark .session-chip-chevron {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform .15s;
+}
+body.theme-ocean .session-chip[aria-expanded="true"] .session-chip-chevron,
+body.theme-ocean-dark .session-chip[aria-expanded="true"] .session-chip-chevron {
+  transform: rotate(180deg);
+}
+/* Account dropdown (2026-08-26, Owner reference screenshot) — real click-to-open
+   panel (app.js), replacing the old separate Sign-out icon-button for personal
+   accounts. Business is untouched: it never builds a .session-chip-wrap at all. */
+body.theme-ocean .session-chip-wrap, body.theme-ocean-dark .session-chip-wrap {
+  position: relative;
+}
+body.theme-ocean .session-chip, body.theme-ocean-dark .session-chip {
+  cursor: pointer;
+}
+body.theme-ocean .session-dropdown, body.theme-ocean-dark .session-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 260px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  box-shadow: var(--panel-shadow);
+  padding: var(--sp-3);
+}
+body.theme-ocean .session-dropdown-eyebrow, body.theme-ocean-dark .session-dropdown-eyebrow {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--t-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+body.theme-ocean .session-dropdown-card, body.theme-ocean-dark .session-dropdown-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-3);
+}
+body.theme-ocean .session-chip-avatar--lg, body.theme-ocean-dark .session-chip-avatar--lg {
+  width: 40px;
+  height: 40px;
+  font-size: 16px;
+}
+body.theme-ocean .session-dropdown-name, body.theme-ocean-dark .session-dropdown-name {
+  margin: 0;
+  font-weight: 800;
+  color: var(--txt);
+  font-size: var(--t-base);
+}
+body.theme-ocean .session-dropdown-type, body.theme-ocean-dark .session-dropdown-type {
+  margin: 2px 0 0;
+  font-size: var(--t-xs);
+  color: var(--muted);
+}
+body.theme-ocean .session-dropdown-email, body.theme-ocean-dark .session-dropdown-email {
+  margin: 2px 0 0;
+  font-size: var(--t-xs);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+body.theme-ocean .session-dropdown-logout, body.theme-ocean-dark .session-dropdown-logout {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--error);
+  font-weight: 700;
+  font-size: var(--t-base);
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s, border-color .15s;
+}
+body.theme-ocean .session-dropdown-logout:hover, body.theme-ocean-dark .session-dropdown-logout:hover {
+  background: var(--error-bg);
+  border-color: var(--error);
+}
+/* Flat tab-bar nav (2026-08-26, Owner reference screenshot) — replaces the filled
+   "pill" active-state with an icon + label per tab and a blue underline under the
+   active one. The container keeps a soft card feel (shadow, rounded corners);
+   individual tabs go flat/borderless so the underline reads as the only indicator. */
+body.theme-ocean .nav, body.theme-ocean-dark .nav {
+  padding: 4px 10px 0;
+  gap: 2px;
+  border-color: var(--line-soft);
+  box-shadow: var(--shadow-sm);
+}
+body.theme-ocean .nav-links, body.theme-ocean-dark .nav-links {
+  gap: 4px;
+}
+body.theme-ocean .nav-link, body.theme-ocean-dark .nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 9px;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-weight: 600;
+  color: var(--txt-soft);
+  transition: color .15s, background .15s, border-color .15s;
+}
+body.theme-ocean .nav-link:hover, body.theme-ocean-dark .nav-link:hover {
+  border-color: transparent;
+  background: var(--surface-2);
+  color: var(--txt);
+}
+/* Overrides app.css's filled-pill .is-active (background: accent, white text) —
+   flat + underline instead. The icon has no color rule of its own (stroke is
+   currentColor in nav.js), so it turns accent-blue for free right here. */
+body.theme-ocean .nav-link.is-active, body.theme-ocean-dark .nav-link.is-active {
+  background: transparent;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+body.theme-ocean .nav-link.is-active:hover, body.theme-ocean-dark .nav-link.is-active:hover {
+  background: var(--surface-2);
+}
+body.theme-ocean .nav-link-icon-svg, body.theme-ocean-dark .nav-link-icon-svg {
+  flex-shrink: 0;
+}
+body.theme-ocean .session-chip, body.theme-ocean-dark .session-chip { font-weight: 600; }
+
+/* ---------------- View shell / page titles ---------------- */
+body.theme-ocean .view, body.theme-ocean-dark .view {
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5);
+}
+body.theme-ocean .view { border-color: var(--line-soft); }
+body.theme-ocean .view-title, body.theme-ocean-dark .view-title {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+/* ---------------- Buttons: one shared language ---------------- */
+/* Primary (accent-filled) — every button personal accounts see that commits an
+   action. Existing selectors, existing handlers; only the shape/motion changes. */
+body.theme-ocean .token-gate-submit, body.theme-ocean-dark .token-gate-submit,
+body.theme-ocean .act-save, body.theme-ocean-dark .act-save,
+body.theme-ocean .up-browse, body.theme-ocean-dark .up-browse,
+body.theme-ocean .up-upload, body.theme-ocean-dark .up-upload,
+body.theme-ocean .up-manual-save, body.theme-ocean-dark .up-manual-save,
+body.theme-ocean .up-view-activity, body.theme-ocean-dark .up-view-activity,
+body.theme-ocean .tp-submit, body.theme-ocean-dark .tp-submit,
+body.theme-ocean .tp-fb-save, body.theme-ocean-dark .tp-fb-save,
+body.theme-ocean .rp-export-btn, body.theme-ocean-dark .rp-export-btn,
+body.theme-ocean .set-btn--primary, body.theme-ocean-dark .set-btn--primary,
+body.theme-ocean .app-boot-retry, body.theme-ocean-dark .app-boot-retry,
+body.theme-ocean .guest-banner-btn, body.theme-ocean-dark .guest-banner-btn,
+body.theme-ocean .ledger-btn--primary, body.theme-ocean-dark .ledger-btn--primary {
+  border-radius: var(--r-md);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+  transition: background .15s, box-shadow .15s, transform .1s;
+}
+body.theme-ocean .token-gate-submit:active, body.theme-ocean-dark .token-gate-submit:active,
+body.theme-ocean .act-save:active, body.theme-ocean-dark .act-save:active,
+body.theme-ocean .up-upload:not(:disabled):active, body.theme-ocean-dark .up-upload:not(:disabled):active,
+body.theme-ocean .tp-submit:not(:disabled):active, body.theme-ocean-dark .tp-submit:not(:disabled):active,
+body.theme-ocean .set-btn--primary:active, body.theme-ocean-dark .set-btn--primary:active {
+  transform: translateY(1px);
+}
+body.theme-ocean .up-view-activity, body.theme-ocean-dark .up-view-activity,
+body.theme-ocean .tp-submit, body.theme-ocean-dark .tp-submit,
+body.theme-ocean .tp-fb-save, body.theme-ocean-dark .tp-fb-save,
+body.theme-ocean .rp-export-btn, body.theme-ocean-dark .rp-export-btn,
+body.theme-ocean .up-browse, body.theme-ocean-dark .up-browse {
+  border-radius: var(--r-pill);
+}
+
+/* Secondary (outlined/ghost) */
+body.theme-ocean .token-gate-cancel, body.theme-ocean-dark .token-gate-cancel,
+body.theme-ocean .act-delete, body.theme-ocean-dark .act-delete,
+body.theme-ocean .up-clear, body.theme-ocean-dark .up-clear,
+body.theme-ocean .tp-confirm-cancel, body.theme-ocean-dark .tp-confirm-cancel,
+body.theme-ocean .rp-confirm-cancel, body.theme-ocean-dark .rp-confirm-cancel,
+body.theme-ocean .set-btn--ghost, body.theme-ocean-dark .set-btn--ghost,
+body.theme-ocean .act-select-cancel, body.theme-ocean-dark .act-select-cancel,
+body.theme-ocean .act-bin-btn, body.theme-ocean-dark .act-bin-btn,
+body.theme-ocean .act-select-toggle, body.theme-ocean-dark .act-select-toggle,
+body.theme-ocean .ledger-btn--ghost, body.theme-ocean-dark .ledger-btn--ghost {
+  border-radius: var(--r-md);
+  border-color: var(--line-2);
+  font-weight: 600;
+  transition: border-color .15s, color .15s, background .15s;
+}
+body.theme-ocean .token-gate-cancel:hover, body.theme-ocean-dark .token-gate-cancel:hover,
+body.theme-ocean .act-delete:not(.is-confirming):hover, body.theme-ocean-dark .act-delete:not(.is-confirming):hover,
+body.theme-ocean .up-clear:hover, body.theme-ocean-dark .up-clear:hover,
+body.theme-ocean .tp-confirm-cancel:hover, body.theme-ocean-dark .tp-confirm-cancel:hover,
+body.theme-ocean .rp-confirm-cancel:hover, body.theme-ocean-dark .rp-confirm-cancel:hover,
+body.theme-ocean .act-select-toggle:hover, body.theme-ocean-dark .act-select-toggle:hover,
+body.theme-ocean .act-bin-btn:hover, body.theme-ocean-dark .act-bin-btn:hover,
+body.theme-ocean .ledger-btn--ghost:hover, body.theme-ocean-dark .ledger-btn--ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Danger */
+body.theme-ocean .tp-confirm-ok, body.theme-ocean-dark .tp-confirm-ok,
+body.theme-ocean .set-btn--danger, body.theme-ocean-dark .set-btn--danger,
+body.theme-ocean .act-select-delete, body.theme-ocean-dark .act-select-delete {
+  border-radius: var(--r-md);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Pill toggle groups (view switches / segmented controls) */
+body.theme-ocean .act-view-toggle, body.theme-ocean-dark .act-view-toggle,
+body.theme-ocean .up-mode-toggle, body.theme-ocean-dark .up-mode-toggle,
+body.theme-ocean .ov-segments, body.theme-ocean-dark .ov-segments {
+  padding: 4px;
+  background: var(--surface-2);
+}
+body.theme-ocean .act-view-btn, body.theme-ocean-dark .act-view-btn,
+body.theme-ocean .up-mode-btn, body.theme-ocean-dark .up-mode-btn,
+body.theme-ocean .ov-segment-btn, body.theme-ocean-dark .ov-segment-btn,
+body.theme-ocean .rp-period-btn, body.theme-ocean-dark .rp-period-btn {
+  font-weight: 600;
+}
+body.theme-ocean .act-view-btn.is-active, body.theme-ocean-dark .act-view-btn.is-active,
+body.theme-ocean .up-mode-btn.is-active, body.theme-ocean-dark .up-mode-btn.is-active,
+body.theme-ocean .ov-segment-btn.is-active, body.theme-ocean-dark .ov-segment-btn.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Small tertiary controls */
+body.theme-ocean .tp-fb-add, body.theme-ocean-dark .tp-fb-add,
+body.theme-ocean .tp-fb-remove, body.theme-ocean-dark .tp-fb-remove,
+body.theme-ocean .ov-metrics-details-toggle, body.theme-ocean-dark .ov-metrics-details-toggle,
+body.theme-ocean .ag-chip, body.theme-ocean-dark .ag-chip {
+  font-weight: 600;
+  transition: border-color .15s, color .15s, background .15s;
+}
+body.theme-ocean .ag-clear, body.theme-ocean-dark .ag-clear { transition: color .15s; }
+
+/* Focus rings — replace ad-hoc rgba() with the theme's own accent-bg token */
+body.theme-ocean .token-gate-submit:focus-visible, body.theme-ocean-dark .token-gate-submit:focus-visible,
+body.theme-ocean .act-save:focus-visible, body.theme-ocean-dark .act-save:focus-visible,
+body.theme-ocean .up-upload:focus-visible, body.theme-ocean-dark .up-upload:focus-visible,
+body.theme-ocean .tp-submit:focus-visible, body.theme-ocean-dark .tp-submit:focus-visible,
+body.theme-ocean .set-btn--primary:focus-visible, body.theme-ocean-dark .set-btn--primary:focus-visible,
+body.theme-ocean .nav-link:focus-visible, body.theme-ocean-dark .nav-link:focus-visible,
+body.theme-ocean .act-view-btn:focus-visible, body.theme-ocean-dark .act-view-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+body.theme-ocean .ov-branch-filter:focus-visible, body.theme-ocean-dark .ov-branch-filter:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* ---------------- Inputs & search ---------------- */
+body.theme-ocean .act-search, body.theme-ocean-dark .act-search,
+body.theme-ocean .act-filter, body.theme-ocean-dark .act-filter,
+body.theme-ocean .act-field-input, body.theme-ocean-dark .act-field-input,
+body.theme-ocean .up-manual-input, body.theme-ocean-dark .up-manual-input,
+body.theme-ocean .set-field-input, body.theme-ocean-dark .set-field-input,
+body.theme-ocean .set-select, body.theme-ocean-dark .set-select,
+body.theme-ocean .tp-name-input, body.theme-ocean-dark .tp-name-input,
+body.theme-ocean .tp-csv-textarea, body.theme-ocean-dark .tp-csv-textarea,
+body.theme-ocean .tp-fb-name, body.theme-ocean-dark .tp-fb-name,
+body.theme-ocean .tp-fb-type, body.theme-ocean-dark .tp-fb-type,
+body.theme-ocean .ov-branch-filter, body.theme-ocean-dark .ov-branch-filter,
+body.theme-ocean .ov-metrics-period, body.theme-ocean-dark .ov-metrics-period,
+body.theme-ocean .manage-subnav-select, body.theme-ocean-dark .manage-subnav-select,
+body.theme-ocean .act-status-picker-select, body.theme-ocean-dark .act-status-picker-select {
+  border-radius: var(--r-md);
+  border-color: var(--line-2);
+  transition: border-color .15s, box-shadow .15s;
+}
+body.theme-ocean .act-search:focus, body.theme-ocean-dark .act-search:focus,
+body.theme-ocean .act-field-input:focus, body.theme-ocean-dark .act-field-input:focus,
+body.theme-ocean .up-manual-input:focus, body.theme-ocean-dark .up-manual-input:focus,
+body.theme-ocean .tp-name-input:focus, body.theme-ocean-dark .tp-name-input:focus,
+body.theme-ocean .tp-csv-textarea:focus, body.theme-ocean-dark .tp-csv-textarea:focus,
+body.theme-ocean .tp-fb-name:focus, body.theme-ocean-dark .tp-fb-name:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+body.theme-ocean .ag-input-row, body.theme-ocean-dark .ag-input-row {
+  border-color: var(--line-2);
+}
+body.theme-ocean .ag-input-row:focus-within, body.theme-ocean-dark .ag-input-row:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+/* ---------------- Tables: financial hierarchy ---------------- */
+body.theme-ocean .act-table, body.theme-ocean-dark .act-table {
+  box-shadow: var(--shadow-sm);
+  border-radius: var(--r-md);
+}
+body.theme-ocean .act-th, body.theme-ocean-dark .act-th {
+  padding: 14px var(--sp-4);
+  font-size: var(--t-xs);
+  letter-spacing: 0.06em;
+  border-bottom-color: var(--line-soft);
+}
+body.theme-ocean .act-td, body.theme-ocean-dark .act-td {
+  padding: 15px var(--sp-4);
+  font-size: var(--t-base);
+  border-bottom-color: var(--line-soft);
+}
+body.theme-ocean .act-row:hover, body.theme-ocean-dark .act-row:hover {
+  background: var(--surface-2);
+}
+body.theme-ocean .act-row:last-child .act-td, body.theme-ocean-dark .act-row:last-child .act-td {
+  border-bottom: none;
+}
+body.theme-ocean .act-merchant, body.theme-ocean-dark .act-merchant {
+  font-weight: 700;
+  color: var(--txt);
+}
+body.theme-ocean .act-td--amount, body.theme-ocean-dark .act-td--amount {
+  font-weight: 800;
+  font-size: var(--t-md);
+  color: var(--txt);
+}
+body.theme-ocean .act-td--ref, body.theme-ocean-dark .act-td--ref {
+  color: var(--muted);
+}
+body.theme-ocean .act-pill, body.theme-ocean-dark .act-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+body.theme-ocean .act-pill::before, body.theme-ocean-dark .act-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Status text -> soft pill with an accent dot (single accent color: the raw status
+   string isn't exposed as a data-attribute, so CSS can't branch on it without a JS/DOM
+   change — see Phase 2 plan). */
+body.theme-ocean .act-status-text, body.theme-ocean-dark .act-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+body.theme-ocean .act-status-text::before, body.theme-ocean-dark .act-status-text::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+body.theme-ocean .tp-table, body.theme-ocean-dark .tp-table { border-radius: var(--r-md); }
+body.theme-ocean .tp-badge, body.theme-ocean-dark .tp-badge,
+body.theme-ocean .up-file-kind, body.theme-ocean-dark .up-file-kind {
+  font-weight: 700;
+}
+
+/* ---------------- Manage / Data-editor toolbar ---------------- */
+/* Icon + label layout for the badge/buttons — nav.js/grid.js's icon SVGs use
+   stroke="currentColor" (Excel/PDF icons excepted, which carry their own fixed
+   green/red), so no color rule is needed here beyond the flex layout. */
+body.theme-ocean .ledger-btn, body.theme-ocean-dark .ledger-btn,
+body.theme-ocean .ledger-badge, body.theme-ocean-dark .ledger-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+body.theme-ocean .ledger-btn-icon, body.theme-ocean-dark .ledger-btn-icon {
+  flex-shrink: 0;
+}
+/* Badge (2026-08-26): reference shows a bordered rect matching the button shape
+   language, not the original solid-gray full pill. */
+body.theme-ocean .ledger-badge, body.theme-ocean-dark .ledger-badge {
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  padding: 7px 14px;
+  /* Reference (2026-08-26): READ-ONLY reads as an accent-blue outline badge, not
+     muted gray — the lock icon follows for free (nav.js/grid.js's icon stroke is
+     currentColor). Declared before the --edit override below so edit mode's own
+     green still wins via source order, same pattern app.css itself already uses. */
+  color: var(--accent);
+}
+body.theme-ocean .ledger-badge--edit, body.theme-ocean-dark .ledger-badge--edit {
+  border-color: var(--success);
+  color: var(--success);
+}
+/* Section dropdown label ("SECTION") — same accent-blue treatment as the badge. */
+body.theme-ocean .manage-subnav-label, body.theme-ocean-dark .manage-subnav-label {
+  color: var(--accent);
+}
+
+/* ---------------- Cards ---------------- */
+body.theme-ocean .ov-kpi, body.theme-ocean-dark .ov-kpi {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5) var(--sp-4);
+  gap: var(--sp-1);
+}
+body.theme-ocean .ov-kpi { border-color: var(--line-soft); }
+body.theme-ocean .ov-kpi-value, body.theme-ocean-dark .ov-kpi-value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+body.theme-ocean .ov-metric-tile, body.theme-ocean-dark .ov-metric-tile {
+  border-radius: var(--r-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+body.theme-ocean .ov-metrics-band, body.theme-ocean-dark .ov-metrics-band,
+body.theme-ocean .ov-linechart, body.theme-ocean-dark .ov-linechart,
+body.theme-ocean .ov-donut-wrap, body.theme-ocean-dark .ov-donut-wrap,
+body.theme-ocean .tp-form, body.theme-ocean-dark .tp-form,
+body.theme-ocean .tp-fb, body.theme-ocean-dark .tp-fb,
+body.theme-ocean .rp-toolbar, body.theme-ocean-dark .rp-toolbar {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+}
+body.theme-ocean .act-card, body.theme-ocean-dark .act-card {
+  border-radius: var(--r-md);
+  transition: transform .15s, box-shadow .15s;
+}
+body.theme-ocean .act-card:hover, body.theme-ocean-dark .act-card:hover {
+  box-shadow: var(--panel-shadow);
+}
+body.theme-ocean .act-card-merchant, body.theme-ocean-dark .act-card-merchant { font-weight: 700; }
+body.theme-ocean .act-card-amount, body.theme-ocean-dark .act-card-amount { font-weight: 800; }
+body.theme-ocean .up-count, body.theme-ocean-dark .up-count,
+body.theme-ocean .act-await-item, body.theme-ocean-dark .act-await-item,
+body.theme-ocean .act-review-item, body.theme-ocean-dark .act-review-item,
+body.theme-ocean .act-deleted-item, body.theme-ocean-dark .act-deleted-item,
+body.theme-ocean .rp-category-row, body.theme-ocean-dark .rp-category-row {
+  border-radius: var(--r-md);
+}
+
+/* ---------------- Settings ---------------- */
+body.theme-ocean .collapsible, body.theme-ocean-dark .collapsible {
+  box-shadow: var(--shadow-sm);
+}
+body.theme-ocean .collapsible { border-color: var(--line-soft); }
+body.theme-ocean .set-row, body.theme-ocean-dark .set-row {
+  border-bottom-style: solid;
+  border-bottom-color: var(--line-soft);
+}
+body.theme-ocean .set-select, body.theme-ocean-dark .set-select {
+  border-radius: var(--r-md);
+}
+
+/* ---------------- Upload zone ---------------- */
+/* Reference (2026-08-26): icon badge + bold headline + "or" + pill button +
+   format/size caption. Icon/divider/caption are personal-only DOM (upload.js's
+   isPersonal gate) — business keeps its original plain zone untouched. */
+body.theme-ocean .up-zone, body.theme-ocean-dark .up-zone {
+  border-radius: var(--r-md);
+  padding: var(--sp-6) var(--sp-4);
+  gap: var(--sp-3);
+  transition: border-color .15s, background .15s;
+}
+body.theme-ocean .up-zone { border-color: var(--line-soft); }
+body.theme-ocean .up-zone:hover, body.theme-ocean-dark .up-zone:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+body.theme-ocean .up-zone-icon, body.theme-ocean-dark .up-zone-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+body.theme-ocean .up-zone-text, body.theme-ocean-dark .up-zone-text {
+  font-size: var(--t-lg);
+  font-weight: 800;
+  color: var(--txt);
+}
+body.theme-ocean .up-zone-or, body.theme-ocean-dark .up-zone-or {
+  font-size: var(--t-sm);
+  margin: 0;
+}
+body.theme-ocean .up-zone-caption, body.theme-ocean-dark .up-zone-caption {
+  font-size: var(--t-xs);
+  margin: 0;
+}
+body.theme-ocean .tp-file-zone, body.theme-ocean-dark .tp-file-zone {
+  border-radius: var(--r-md);
+}
+
+/* ---------------- Modals / drawers ---------------- */
+body.theme-ocean .act-drawer-host, body.theme-ocean-dark .act-drawer-host,
+body.theme-ocean .tp-confirm-host, body.theme-ocean-dark .tp-confirm-host,
+body.theme-ocean .rp-confirm-host, body.theme-ocean-dark .rp-confirm-host {
+  background: var(--backdrop);
+}
+body.theme-ocean .act-drawer, body.theme-ocean-dark .act-drawer,
+body.theme-ocean .tp-confirm-card, body.theme-ocean-dark .tp-confirm-card,
+body.theme-ocean .rp-confirm-card, body.theme-ocean-dark .rp-confirm-card,
+body.theme-ocean .ov-colorpick, body.theme-ocean-dark .ov-colorpick {
+  border-radius: var(--r-md);
+}
+
+/* ---------------- States: quieter, consistent muted text ---------------- */
+body.theme-ocean .act-empty, body.theme-ocean-dark .act-empty,
+body.theme-ocean .ov-empty, body.theme-ocean-dark .ov-empty,
+body.theme-ocean .tp-empty, body.theme-ocean-dark .tp-empty,
+body.theme-ocean .act-loading, body.theme-ocean-dark .act-loading,
+body.theme-ocean .ov-loading, body.theme-ocean-dark .ov-loading,
+body.theme-ocean .tp-loading, body.theme-ocean-dark .tp-loading {
+  color: var(--muted);
+  font-size: var(--t-base);
+}

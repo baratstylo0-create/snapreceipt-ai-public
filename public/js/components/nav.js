@@ -72,6 +72,71 @@
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
+  // Nav tab icons (2026-08-26, Owner reference screenshot: flat tab bar with an
+  // icon beside each label instead of the plain-text pill). Pure createElementNS
+  // construction — no innerHTML — same discipline as buildTelegramIcon above.
+  // stroke="currentColor" means these need zero active/inactive color CSS of
+  // their own: they just inherit whatever color the parent .nav-link button has,
+  // so the existing color rules for .nav-link / .nav-link.is-active are enough
+  // to turn the icon blue on the active tab for free.
+  function svgEl(tag, attrs) {
+    var el = document.createElementNS(SVG_NS, tag);
+    for (var k in attrs) { if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, attrs[k]); }
+    return el;
+  }
+  function buildOutlineIcon(children) {
+    var svg = svgEl('svg', {
+      viewBox: '0 0 24 24', width: '18', height: '18', fill: 'none',
+      stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round',
+      'stroke-linejoin': 'round', 'aria-hidden': 'true',
+    });
+    svg.setAttribute('class', 'nav-link-icon-svg');
+    children.forEach(function (c) { svg.appendChild(c); });
+    return svg;
+  }
+  // Section id -> icon-builder function. Only sections with an entry here get an
+  // icon when opts.withIcons is set (buildNav below) — team/payments (business-only)
+  // have none, but that's moot since withIcons is only ever passed true in personal
+  // mode (see app.js), which never renders those sections anyway.
+  var NAV_ICONS = {
+    overview: function () {
+      return buildOutlineIcon([
+        svgEl('rect', { x: '3', y: '3', width: '7.5', height: '7.5', rx: '1.5' }),
+        svgEl('rect', { x: '13.5', y: '3', width: '7.5', height: '7.5', rx: '1.5' }),
+        svgEl('rect', { x: '3', y: '13.5', width: '7.5', height: '7.5', rx: '1.5' }),
+        svgEl('rect', { x: '13.5', y: '13.5', width: '7.5', height: '7.5', rx: '1.5' }),
+      ]);
+    },
+    activity: function () {
+      return buildOutlineIcon([
+        svgEl('polyline', { points: '22 12 18 12 15 21 9 3 6 12 2 12' }),
+      ]);
+    },
+    upload: function () {
+      return buildOutlineIcon([
+        svgEl('path', { d: 'M7 18h9a4 4 0 0 0 .3-7.98A5.5 5.5 0 0 0 6.2 8.3 4 4 0 0 0 7 18z' }),
+        svgEl('polyline', { points: '9.5 13.2 12 10.7 14.5 13.2' }),
+        svgEl('line', { x1: '12', y1: '10.7', x2: '12', y2: '17.5' }),
+      ]);
+    },
+    manage: function () {
+      return buildOutlineIcon([
+        svgEl('rect', { x: '5', y: '4', width: '14', height: '17', rx: '2' }),
+        svgEl('rect', { x: '9', y: '2', width: '6', height: '3', rx: '1' }),
+        svgEl('line', { x1: '9', y1: '11.5', x2: '15', y2: '11.5' }),
+        svgEl('line', { x1: '9', y1: '15.5', x2: '15', y2: '15.5' }),
+      ]);
+    },
+    settings: function () {
+      return buildOutlineIcon([
+        svgEl('circle', { cx: '12', cy: '12', r: '3' }),
+        svgEl('path', {
+          d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
+        }),
+      ]);
+    },
+  };
+
   // Build Mugi's "Treehouse" brand emblem (a leaf mark) as inline SVG via
   // createElementNS — never innerHTML — so the strict no-inline CSP holds.
   // Returns the emblem <span> wrapper (or null outside a browser).
@@ -284,6 +349,12 @@
     nav.className = 'nav';
     nav.setAttribute('data-tour', 'nav-root');
 
+    // opts.withIcons (2026-08-26): only ever passed true for personal accounts
+    // (see app.js) — business mode never sets it, so this branch never runs there
+    // and the business nav button DOM stays exactly what it was before this
+    // feature existed (plain textContent, no icon, no extra span).
+    var withIcons = !!opts.withIcons;
+
     var links = document.createElement('div');
     links.className = 'nav-links';
     var buttons = {};
@@ -295,7 +366,15 @@
       // Purpose-built tour target (2026-08-23) alongside data-view — a fixed prefix
       // means any new section auto-qualifies as a tour target without extra wiring.
       btn.setAttribute('data-tour', 'nav-' + s.id);
-      btn.textContent = s.label;
+      if (withIcons && NAV_ICONS[s.id]) {
+        btn.appendChild(NAV_ICONS[s.id]());
+        var labelSpan = document.createElement('span');
+        labelSpan.className = 'nav-link-label';
+        labelSpan.textContent = s.label;
+        btn.appendChild(labelSpan);
+      } else {
+        btn.textContent = s.label;
+      }
       // addEventListener (not on*=) keeps us CSP-clean.
       btn.addEventListener('click', function () { onSelect(s.id); });
       links.appendChild(btn);
