@@ -11,3 +11,11 @@ test('maps keywords to the canonical category set', () => {
   assert.strictEqual(normaliseExpenseCategory('mystery'), 'Others');
   assert.strictEqual(normaliseExpenseCategory(''), 'Others');
 });
+
+test('recognises AI/LLM/API vendors as Software even without the word "software"', () => {
+  assert.strictEqual(normaliseExpenseCategory('OpenRouter Credits'), 'Software');
+  assert.strictEqual(normaliseExpenseCategory('OpenRouter, Inc'), 'Software');
+  assert.strictEqual(normaliseExpenseCategory('OpenAI API'), 'Software');
+  assert.strictEqual(normaliseExpenseCategory('Anthropic'), 'Software');
+  assert.strictEqual(normaliseExpenseCategory('API credits'), 'Software');
+});
