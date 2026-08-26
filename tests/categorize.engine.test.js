@@ -26,6 +26,25 @@ test('fallback: unknown item -> Others and flagged', async () => {
   assert.strictEqual(r.items[0].flagged, true);
 });
 
+test('rules: recognises AI/LLM vendors (OpenRouter invoice) as Software & Subscriptions', async () => {
+  // Real receipt: merchant "OpenRouter, Inc", one line item "OpenRouter Credits" — no literal
+  // "software"/"saas" anywhere, yet it is clearly an AI/software service. Must resolve from the
+  // vendor name alone, deterministically (no LLM), and NOT flag as uncertain.
+  const r = await categorizeLineItems({ merchant: 'OpenRouter, Inc', line_items: [
+    { description: 'OpenRouter Credits', amount: 5.83 },
+  ] }, null, noLLM);
+  assert.strictEqual(r.items[0].category, 'Software & Subscriptions');
+  assert.strictEqual(r.items[0].source, 'rules');
+  assert.strictEqual(r.items[0].flagged, false);
+  assert.strictEqual(r.category, 'Software & Subscriptions');
+});
+
+test('rules: AI vendor in the merchant name alone (no line items) -> Software & Subscriptions', async () => {
+  const r = await categorizeLineItems({ merchant: 'OpenAI, LLC', amount: 20 }, null, noLLM);
+  assert.strictEqual(r.items[0].category, 'Software & Subscriptions');
+  assert.strictEqual(r.category, 'Software & Subscriptions');
+});
+
 test('memory (learned) beats rules and is high-confidence', async () => {
   const mem = { merchant: new Map(), description: new Map([['premium fuel', 'Travel']]) };
   const r = await categorizeLineItems({ merchant: 'X', line_items: [{ description: 'Premium fuel', amount: 30 }] }, null, { useLLM: false, memory: mem });
