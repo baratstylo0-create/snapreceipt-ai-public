@@ -469,5 +469,7 @@
     initialAutoMode: initialAutoMode,
     // render (browser)
     mount: mount,
+    // Exposed for AccountPanel to reuse the delete-account modal (single-sourced).
+    openDeleteAccountModal: openDeleteAccountModal,
   };
 });

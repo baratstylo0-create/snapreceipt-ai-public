@@ -52,6 +52,7 @@
         if (name === 'Manage') return require('./components/manage');
         if (name === 'Landing') return require('./components/landing');
         if (name === 'ResetPassword') return require('./components/resetpassword');
+        if (name === 'AccountPanel') return require('./components/accountPanel');
       } catch (e) { return null; }
     }
     return root && root[name] ? root[name] : null;
@@ -528,6 +529,17 @@
         + '</svg>';
       out.addEventListener('click', function () { logout(); });
       rateMeterHost.appendChild(out);
+    }
+
+    // Personal mode: account chip with a click-to-open settings panel.
+    // deps.* functions (setTheme, logout, etc.) are assigned BELOW, but the chip
+    // only reads them on click (user interaction), so they're always present by
+    // the time the panel opens. Business mode is untouched (the block above).
+    var AccountPanel = dep('AccountPanel');
+    if (!deps.session && rateMeterHost && deps.config && deps.config.personal_auth
+        && deps.config.account_info && AccountPanel) {
+      var acctChip = AccountPanel.buildChip(deps);
+      if (acctChip) rateMeterHost.appendChild(acctChip);
     }
 
     // Expose the real theme setter / login / logout / clear-local to view
