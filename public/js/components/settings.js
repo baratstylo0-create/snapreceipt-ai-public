@@ -26,11 +26,11 @@
 // UMD shim: window.Settings in the browser; require()-able in Node.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'));
+    module.exports = factory(require('../escape'), require('./legal'));
   } else {
-    root.Settings = factory(root.Escape);
+    root.Settings = factory(root.Escape, root.Legal);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Legal) {
   'use strict';
 
   function str(v) { return v === null || v === undefined ? '' : String(v); }
@@ -79,7 +79,11 @@
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
 
   // A collapsible section (low-stimulation: open what you want). Static title
-  // via textContent. Returns { el, body }.
+  // via textContent. Returns { el, body }. Deliberately NO persistence across
+  // navigation (2026-08-19, Barat: "no need remember final position if user go
+  // another page and comeback to setting" — a same-session sessionStorage-remember
+  // version was tried and explicitly rejected) — every visit to Settings starts
+  // every section at its own `defaultOpen` again, full stop.
   function collapsible(title, defaultOpen) {
     var wrap = el('div', 'collapsible' + (defaultOpen ? ' is-open' : ''));
     var head = el('button', 'collapsible-head');
@@ -139,71 +143,133 @@
     return sel;
   }
 
-  // Delete-account confirmation modal (2026-08-06) — mirrors team.js's openDeleteModal
-  // convention exactly (fixed-backdrop centered card, same .team-modal-* classes already
-  // in app.css, shared with grid.js's PDF paywall and activity.js's receipt drawer) so
-  // this doesn't invent a new modal pattern. Requires BOTH the password re-entered AND the
-  // literal word "DELETE" typed — two independent confirmations for something irreversible,
-  // no existing destructive endpoint in this codebase asks for either today.
+  // A labelled text input with an eye-icon toggle to show/hide the value — built for the
+  // Delete-account password field (2026-08-09, Barat: "give eye icon that password view
+  // option"). Starts masked (type=password); the toggle flips type password<->text and
+  // swaps the glyph, mirroring the same open/closed-eye convention used everywhere else
+  // (browsers' own native show-password icon, etc.). Returns { wrap, input }.
+  function passwordFieldWithEye(labelText) {
+    var wrap = el('div', 'set-field');
+    var lab = el('label', 'set-field-label');
+    Escape.setText(lab, labelText);
+    wrap.appendChild(lab);
+    var row = el('div', 'set-field-input-row');
+    var input = el('input', 'set-field-input');
+    input.type = 'password';
+    input.autocomplete = 'current-password';
+    row.appendChild(input);
+    var eyeBtn = el('button', 'set-field-eye');
+    eyeBtn.type = 'button';
+    eyeBtn.setAttribute('aria-label', 'Show password');
+    eyeBtn.textContent = '👁';
+    eyeBtn.addEventListener('click', function () {
+      var showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      eyeBtn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      eyeBtn.classList.toggle('is-active', !showing);
+    });
+    row.appendChild(eyeBtn);
+    wrap.appendChild(row);
+    return { wrap: wrap, input: input };
+  }
+
+  // Delete-account confirmation modal (2026-08-09) — reuses team.js's openDeleteModal
+  // structure/CSS classes (.team-modal-overlay/.team-modal/...) exactly, the established
+  // fixed-backdrop-centered-card pattern already shared across this app, rather than
+  // inventing a new one. Requires BOTH the real account password (verified server-side —
+  // routes/auth.js's DELETE /api/account, already live) AND typing the literal word DELETE
+  // (client-side friction only, mirrors the reference design) before the button un-disables.
   function openDeleteAccountModal(opts) {
+    if (!hasDom()) return;
+    // has_password (2026-08-19): a Google-only signup never sets a password, so asking for
+    // one here is a dead end — nothing typed can ever be "correct" (routes/auth.js's DELETE
+    // /api/account has the matching server-side fix, same day). Skip the field entirely for
+    // that case; the "Type DELETE" box alone is this account's real confirmation.
+    var hasPassword = !!(opts.config && opts.config.account_info && opts.config.account_info.has_password);
     var overlay = el('div', 'team-modal-overlay');
     var modal = el('div', 'team-modal');
     modal.setAttribute('role', 'alertdialog');
-    modal.setAttribute('aria-label', 'Delete account');
-    var title = el('div', 'team-modal-title'); Escape.setText(title, 'Delete your account?');
-    modal.appendChild(title);
-    var message = el('p', 'team-modal-message');
-    Escape.setText(message, 'This permanently deletes your account, every receipt, and your Telegram connection. This cannot be undone.');
-    modal.appendChild(message);
+    modal.setAttribute('aria-label', 'Delete your account?');
+    modal.appendChild((function () { var t = el('div', 'team-modal-title'); Escape.setText(t, 'Delete your account?'); return t; })());
+    modal.appendChild((function () {
+      var p = el('p', 'team-modal-message');
+      Escape.setText(p, 'This permanently deletes your account, every receipt, and your Telegram connection. This cannot be undone.');
+      return p;
+    })());
 
-    var pwLabel = el('label', 'set-label'); Escape.setText(pwLabel, 'Confirm your password');
-    var pwInput = el('input', 'token-gate-input'); pwInput.type = 'password'; pwInput.style.width = '100%'; pwInput.autocomplete = 'current-password';
-    var typeLabel = el('label', 'set-label'); Escape.setText(typeLabel, 'Type DELETE to confirm');
-    var typeInput = el('input', 'token-gate-input'); typeInput.type = 'text'; typeInput.style.width = '100%';
-    modal.appendChild(pwLabel); modal.appendChild(pwInput);
-    modal.appendChild(typeLabel); modal.appendChild(typeInput);
+    var pw = hasPassword ? passwordFieldWithEye('Confirm your password') : null;
+    if (pw) modal.appendChild(pw.wrap);
 
-    var errorMsg = el('p', 'team-modal-message'); errorMsg.style.color = 'var(--clay, #dc2626)'; errorMsg.hidden = true;
-    modal.appendChild(errorMsg);
+    var confirmField = el('div', 'set-field');
+    var confirmLab = el('label', 'set-field-label');
+    Escape.setText(confirmLab, 'Type DELETE to confirm');
+    confirmField.appendChild(confirmLab);
+    var confirmInput = el('input', 'set-field-input');
+    confirmInput.type = 'text';
+    confirmInput.autocomplete = 'off';
+    confirmField.appendChild(confirmInput);
+    modal.appendChild(confirmField);
+
+    var errMsg = el('p', 'team-modal-message set-field-error');
+    errMsg.style.display = 'none';
+    modal.appendChild(errMsg);
 
     var actions = el('div', 'team-modal-actions');
-    var cancel = el('button', 'team-btn team-btn--ghost'); cancel.type = 'button';
+    var cancel = el('button', 'set-btn set-btn--ghost'); cancel.type = 'button';
     Escape.setText(cancel, 'Cancel');
-    var confirm = el('button', 'team-btn team-btn--danger'); confirm.type = 'button';
+    var confirm = el('button', 'set-btn set-btn--danger'); confirm.type = 'button';
+    confirm.disabled = true;
     Escape.setText(confirm, 'Delete my account');
     actions.appendChild(cancel); actions.appendChild(confirm);
     modal.appendChild(actions);
     overlay.appendChild(modal);
 
+    // Both fields must be filled (password non-empty, confirm text exactly "DELETE") before
+    // the destructive button is even clickable — matches the reference design, and gives an
+    // extra guard against a fast/accidental click beyond the password check alone. When there
+    // is no password field at all (hasPassword false), the DELETE text alone gates the button.
+    function refreshEnabled() {
+      confirm.disabled = hasPassword
+        ? !(pw.input.value && confirmInput.value === 'DELETE')
+        : confirmInput.value !== 'DELETE';
+    }
+    if (pw) pw.input.addEventListener('input', refreshEnabled);
+    confirmInput.addEventListener('input', refreshEnabled);
+
     function closeModal() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
     overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closeModal(); });
     cancel.addEventListener('click', closeModal);
+    confirmInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && !confirm.disabled) confirm.click(); });
+
     confirm.addEventListener('click', function () {
-      errorMsg.hidden = true;
-      if (typeInput.value.trim() !== 'DELETE') {
-        Escape.setText(errorMsg, 'Type DELETE exactly to confirm.');
-        errorMsg.hidden = false;
-        return;
-      }
-      if (!pwInput.value) {
-        Escape.setText(errorMsg, 'Enter your password.');
-        errorMsg.hidden = false;
-        return;
-      }
-      confirm.disabled = true; cancel.disabled = true;
-      opts.Api.apiFetch('/api/account', { method: 'DELETE', body: { password: pwInput.value } }).then(function () {
-        closeModal();
-        if (typeof opts.onAccountDeleted === 'function') opts.onAccountDeleted();
-      }).catch(function (err) {
-        confirm.disabled = false; cancel.disabled = false;
-        pwInput.value = '';
-        Escape.setText(errorMsg, (err && err.status === 400) ? 'Wrong password.' : 'Delete failed — please try again.');
-        errorMsg.hidden = false;
-      });
+      if (confirm.disabled || !opts.Api || typeof opts.Api.apiFetch !== 'function') return;
+      confirm.disabled = true;
+      cancel.disabled = true;
+      errMsg.style.display = 'none';
+      var body = { confirmText: confirmInput.value };
+      if (hasPassword) body.password = pw.input.value;
+      opts.Api.apiFetch('/api/account', { method: 'DELETE', body: body })
+        .then(function () {
+          // Account (and its session) no longer exists server-side — reuse the app's real
+          // logout path (deps.logout, wired in app.js) so the browser's stored token is
+          // cleared and the page reloads back to the signed-out entry screen, exactly like
+          // any other logout. Its own best-effort POST /api/logout will just no-op/404
+          // since the user is already gone — logout()'s .then(finish, finish) tolerates that.
+          if (typeof opts.logout === 'function') { closeModal(); opts.logout(); }
+          else { closeModal(); }
+        })
+        .catch(function (err) {
+          var msg = (err && err.body && err.body.error) || '';
+          Escape.setText(errMsg, msg === 'wrong password' ? 'Wrong password — try again.'
+            : msg ? msg : 'Could not delete your account. Please try again.');
+          errMsg.style.display = '';
+          cancel.disabled = false;
+          refreshEnabled();
+        });
     });
 
     document.body.appendChild(overlay);
-    pwInput.focus();
+    (hasPassword ? pw.input : confirmInput).focus();
   }
 
   // ---- render layer --------------------------------------------------------
@@ -222,30 +288,13 @@
     Escape.setText(sub, 'Account, appearance, capture, notifications and privacy.');
     rootEl.appendChild(sub);
 
-    // --- Account & session (real) ---
-    var acc = collapsible('Account & session', true);
-    var authBtn = el('button', model.signedIn ? 'set-btn set-btn--danger' : 'set-btn set-btn--primary');
-    Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
-    // Bug fix: this used to call opts.logout() unconditionally — even when the
-    // button read "Log in" — so clicking "Log in" silently cleared the (already
-    // empty) token and reloaded, landing back on Overview with nothing entered.
-    // Branch on sign-in state: signed in -> log out; signed out -> show the
-    // real token-entry gate (opts.login).
-    authBtn.addEventListener('click', function () {
-      if (model.signedIn) {
-        if (typeof opts.logout === 'function') opts.logout();
-      } else {
-        if (typeof opts.login === 'function') opts.login();
-      }
-    });
-    acc.body.appendChild(setRow(
-      'Session',
-      model.signedIn ? 'You are signed in on this device.'
-        : (model.authRequired ? 'Not signed in.' : 'This dashboard is open (no token required in dev).'),
-      authBtn
-    ));
+    // --- Account settings (real) ---
+    // Bug fix (2026-08-19, Barat: "I want the account settings always closed, when
+    // user use open it than only its popup"): every other section here defaults
+    // closed — this one alone opened automatically on every visit to Settings.
+    var acc = collapsible('Account settings', false);
 
-    // Account identity + plan summary (2026-08-06) — opts.config.account_info comes from
+    // Account identity + plan summary (2026-08-08) — opts.config.account_info comes from
     // /api/config's real session lookup (routes/expenses.js), null for a signed-out/guest/
     // business session. A compact glance only — the full usage bar + upgrade button stays
     // in the separate "Plan & billing" section below, not duplicated here.
@@ -257,21 +306,51 @@
         var joinedText = isNaN(joined.getTime()) ? '' : joined.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
         if (joinedText) acc.body.appendChild(setRow('Member since', null, valueChip(joinedText)));
       }
-      var usage = opts.config.plan_usage;
-      var planLabel = (opts.config.plan === 'pro') ? 'Pro plan'
-        : 'Free plan' + (usage ? ' · ' + usage.used + '/' + usage.limit + ' receipts this month' : '');
-      acc.body.appendChild(setRow('Plan', null, valueChip(planLabel)));
-    }
+      acc.body.appendChild(setRow('Plan', null, valueChip('Free — unlimited receipts')));
 
-    // Delete account (2026-08-06) — real, irreversible (routes/auth.js's DELETE /api/account).
-    // Only rendered for a signed-in personal owner (accountInfo is only ever populated for
-    // that exact role, see routes/expenses.js) — a business/guest/signed-out session never
-    // sees this button at all, not just a disabled one.
-    if (accountInfo && Api) {
-      var deleteBtn = el('button', 'set-btn set-btn--danger');
-      Escape.setText(deleteBtn, 'Delete account');
-      deleteBtn.addEventListener('click', function () { openDeleteAccountModal(opts); });
-      acc.body.appendChild(setRow('Delete account', 'Permanently deletes your account and all receipts. This cannot be undone.', deleteBtn));
+      // Telegram connect status (2026-08-08) — reachable ANY time now, not just once during
+      // onboarding. The connect link (bind_token) is permanent (schema.sql migration), so
+      // there's no "expired link" case to handle here — just connected vs. not-yet.
+      if (accountInfo.telegram_connected) {
+        acc.body.appendChild(setRow('Telegram', null, valueChip('Connected')));
+      } else {
+        var connectBtn = el('a', 'set-btn set-btn--primary');
+        Escape.setText(connectBtn, 'Connect Telegram');
+        var botUser = opts.config.bot_username;
+        var token = accountInfo.telegram_bind_token;
+        if (botUser && token) {
+          connectBtn.href = 'https://t.me/' + botUser + '?start=' + encodeURIComponent(token);
+          connectBtn.target = '_blank';
+          connectBtn.rel = 'noopener';
+        }
+        acc.body.appendChild(setRow('Telegram', 'Not connected yet — tap to open the bot.', connectBtn));
+      }
+
+      // Delete account (2026-08-09): the backend (DELETE /api/account, routes/auth.js) has
+      // existed and worked for a while — this button/modal is the missing frontend half.
+      // Owner-only (accountInfo is null for anyone else — business/guest/signed-out), same
+      // gate as the rest of this block.
+      var delBtn = el('button', 'set-btn set-btn--danger');
+      Escape.setText(delBtn, 'Delete account');
+      delBtn.addEventListener('click', function () { openDeleteAccountModal(opts); });
+      acc.body.appendChild(setRow('Delete account', 'Permanently deletes your account, every receipt, and your Telegram connection. This cannot be undone.', delBtn));
+    } else if (hasToken) {
+      // Bug fix (2026-08-19, Barat: "I sign up using new Google account, I try to open
+      // account settings I cannot open why"): the section WAS opening — accountInfo was
+      // just null (a fresh signup's /api/config response can arrive without it, e.g. a
+      // brief backend timing gap right after account creation), so the body rendered
+      // completely empty and looked like the click did nothing. A signed-in user now
+      // always sees SOMETHING here — either their real details, or this explicit retry,
+      // never a silent blank box.
+      var retryMsg = el('p', 'set-privacy-text');
+      Escape.setText(retryMsg, 'Could not load your account details. This can happen right after signing up — try refreshing the page.');
+      acc.body.appendChild(retryMsg);
+      var retryBtn = el('button', 'set-btn set-btn--ghost');
+      Escape.setText(retryBtn, 'Refresh');
+      retryBtn.addEventListener('click', function () {
+        try { if (typeof location !== 'undefined' && location.reload) location.reload(); } catch (e) { /* ignore */ }
+      });
+      acc.body.appendChild(setRow('Account details', null, retryBtn));
     }
 
     rootEl.appendChild(acc.el);
@@ -282,9 +361,23 @@
     // theme-ocean, but presented here simply as "Light" — that IS the personal
     // brand now, matching Landing/Login/Onboarding) and Dark. Business (multiUser)
     // is completely unchanged: the original three (Light/Warm/Dark) — this file
-    // is shared with the live business dashboard, which never asked for this.
+    // is shared with the live Premala dashboard, which never asked for this.
     var isPersonal = !!(opts.config && opts.config.personal_auth);
+    var t = opts.t || function (k) { return k; };
     var app = collapsible('Appearance', false);
+    // Language (2026-08-19): sessionStorage-persisted, same pattern as the theme
+    // picker just below — a full page reload picks up the new language everywhere
+    // (this view is built once at boot and never re-rendered, same reasoning as
+    // the theme <select> sync comment below).
+    var langSel = pick(
+      (opts.I18n && opts.I18n.LANGS) || [['en', 'English']],
+      opts.lang || 'en',
+      function (v) {
+        if (typeof opts.setLang === 'function') opts.setLang(v);
+        if (typeof location !== 'undefined' && location.reload) location.reload();
+      }
+    );
+    app.body.appendChild(setRow(t('settings.lang'), t('settings.lang_desc'), langSel));
     var themeSel = pick(
       isPersonal
         ? [['ocean', 'Light'], ['ocean-dark', 'Dark']]
@@ -359,78 +452,6 @@
     cur.body.appendChild(setRow('Date format', 'How dates display across the dashboard.', pick([['iso', 'YYYY-MM-DD'], ['dmy', 'DD/MM/YYYY'], ['mdy', 'MMM D, YYYY']], 'iso'), true));
     rootEl.appendChild(cur.el);
 
-    // --- Plan & billing (2026-07-28: `planName` is real — opts.config.plan comes from
-    // users.plan via /api/config, see routes/expenses.js; feeds the real Export PDF gate in
-    // grid.js. 2026-07-30: the Upgrade buttons below are now real too — POST
-    // /api/billing/checkout (routes/billing.js) creates a HitPay recurring-billing
-    // subscription and returns a hosted checkout URL to redirect to. Usage/receipt-count
-    // numbers below are STILL a mock placeholder — no per-month counter UI exists yet;
-    // separate from the real enforcement, which already runs server-side (lib/billing.js).) ---
-    var billing = collapsible('Plan & billing', false);
-    var planName = (opts.config && opts.config.plan === 'pro') ? 'Pro' : 'Free';
-    // Real per-user usage (2026-08-06, was a hardcoded 14/20 placeholder that never reflected
-    // any actual account's data) — opts.config.plan_usage comes from /api/config's real
-    // checkFreeTierCap(sess.user_id) count (lib/billing.js). null for a Pro/guest/business
-    // session or before login resolves; the bar shows 0/20 in that case rather than a fake number.
-    var usage = opts.config && opts.config.plan_usage;
-    var used = (usage && usage.used != null) ? usage.used : 0;
-    var limit = (usage && usage.limit != null) ? usage.limit : 20;
-    billing.body.appendChild(setRow('Current plan', 'Free plan limits: 20 receipts/month, 1 photo at a time.', valueChip(planName)));
-    var usageWrap = el('div', 'set-usage');
-    var usageBar = el('div', 'set-usage-track');
-    var usageFill = el('div', 'set-usage-fill');
-    usageFill.style.width = Math.min(100, Math.round((used / limit) * 100)) + '%';
-    usageBar.appendChild(usageFill);
-    usageWrap.appendChild(usageBar);
-    usageWrap.appendChild(text('span', 'set-usage-label', used + ' / ' + limit + ' receipts used this month'));
-    billing.body.appendChild(usageWrap);
-    var upgradePanel = el('div', 'set-upgrade-panel');
-    upgradePanel.hidden = true;
-    var upgradeBtn = el('button', 'set-btn set-btn--primary');
-    Escape.setText(upgradeBtn, planName === 'Pro' ? 'Manage plan' : 'Upgrade to Pro');
-    upgradeBtn.addEventListener('click', function () { upgradePanel.hidden = !upgradePanel.hidden; });
-    billing.body.appendChild(setRow('Upgrade', 'RM 12.90/month or RM 99/year — unlimited receipts, priority processing.', upgradeBtn));
-    // Billing cycle choice — payment METHOD (FPX/card/etc.) is chosen on HitPay's own hosted
-    // checkout page, not here, so this only needs to ask monthly vs yearly.
-    [['Monthly — RM 12.90', 'monthly'], ['Yearly — RM 99 (save ~36%)', 'yearly']].forEach(function (pair) {
-      var b = el('button', 'set-btn set-btn--ghost');
-      Escape.setText(b, pair[0]);
-      var status = text('span', 'set-upgrade-status muted', '');
-      b.addEventListener('click', function () {
-        if (planName === 'Pro') {
-          Escape.setText(status, 'You\'re already on Pro.');
-          return;
-        }
-        if (!Api || typeof Api.apiFetch !== 'function') {
-          Escape.setText(status, 'Checkout isn\'t available right now.');
-          return;
-        }
-        b.disabled = true;
-        Escape.setText(status, 'Opening checkout…');
-        Api.apiFetch('/api/billing/checkout', { method: 'POST', body: { billingCycle: pair[1] } })
-          .then(function (res) {
-            if (res && res.checkoutUrl) {
-              window.location.href = res.checkoutUrl;
-            } else {
-              b.disabled = false;
-              Escape.setText(status, (res && res.message) || 'Could not start checkout.');
-            }
-          })
-          .catch(function (err) {
-            b.disabled = false;
-            Escape.setText(status, (err && err.body && err.body.message) || 'Could not start checkout. Please try again.');
-          });
-      });
-      var row = el('div', 'set-upgrade-row');
-      row.appendChild(b);
-      row.appendChild(status);
-      upgradePanel.appendChild(row);
-    });
-    billing.body.appendChild(upgradePanel);
-    rootEl.appendChild(billing.el);
-
-    function text(tag, className, value) { var n = el(tag, className); Escape.setText(n, value); return n; }
-
     // --- Notifications (concept) ---
     var noti = collapsible('Notifications', false);
     noti.body.appendChild(setRow('Telegram confirmations', 'Reply in chat when a receipt is captured.', toggle(true), true));
@@ -445,6 +466,10 @@
     Escape.setText(clearBtn, 'Clear now');
     clearBtn.addEventListener('click', function () {
       try { if (typeof sessionStorage !== 'undefined') sessionStorage.clear(); } catch (e) { /* ignore */ }
+      // 2026-08-14: a personal "remember me" login now also lives in localStorage
+      // (app.js storeToken's `persistent` param) — clear that too, or "Clear local data"
+      // would silently leave the saved login behind.
+      try { if (typeof localStorage !== 'undefined') localStorage.clear(); } catch (e) { /* ignore */ }
       if (typeof opts.onClearLocal === 'function') opts.onClearLocal();
     });
     priv.body.appendChild(setRow('Clear local data', 'Remove the saved token + theme from this browser.', clearBtn));
@@ -456,7 +481,94 @@
     // --- About ---
     var about = collapsible('About', false);
     about.body.appendChild(setRow('AutoReceipt Dashboard', 'Treehouse design · Mugi.', valueChip('v0.2')));
+    // Privacy Policy / Account Deletion (2026-08-19, Barat: first "move this privacy
+    // policy to settings page" — was a footer link on every page; footer removed,
+    // Settings > About became the one place to find both — THEN "make it part of web
+    // app that's not another page": these were still target=_blank links to standalone
+    // pages, i.e. still a navigation away from the dashboard. Now they open an in-app
+    // modal (components/legal.js) with the exact same wording — no new tab, no leaving
+    // the SPA. The standalone /privacypolicy /accountdeletion pages themselves stay —
+    // Google Play requires a publicly reachable URL that works without signing in.
+    var legalLinks = el('div', 'set-legal-links');
+    if (Legal) {
+      var privacyBtn = el('button', 'set-btn set-btn--ghost');
+      privacyBtn.type = 'button';
+      Escape.setText(privacyBtn, 'Privacy Policy');
+      privacyBtn.addEventListener('click', function () { Legal.openPrivacyModal(); });
+      var deletionBtn = el('button', 'set-btn set-btn--ghost');
+      deletionBtn.type = 'button';
+      Escape.setText(deletionBtn, 'Account Deletion');
+      deletionBtn.addEventListener('click', function () { Legal.openAccountDeletionModal(); });
+      legalLinks.appendChild(privacyBtn);
+      legalLinks.appendChild(deletionBtn);
+    }
+    about.body.appendChild(setRow('Legal', 'Privacy policy and account deletion instructions.', legalLinks));
+    // Guided tour restart (2026-08-22) — the tour auto-shows once for new users, so
+    // this is the one place to replay it later. opts.startTour is set by app.js's
+    // renderApp (guarded there against an older cached bundle missing tour.js), so
+    // this row is skipped entirely rather than showing a dead button if it's absent.
+    if (typeof opts.startTour === 'function') {
+      var tourBtn = el('button', 'set-btn set-btn--ghost');
+      tourBtn.type = 'button';
+      Escape.setText(tourBtn, 'Take a Tour');
+      tourBtn.addEventListener('click', function () { opts.startTour(); });
+      about.body.appendChild(setRow('Product tour', 'Replay the guided walkthrough of the dashboard.', tourBtn));
+    }
+    // Install as desktop/home-screen app (2026-08-25). opts.installApp/canInstallApp
+    // are set by app.js's renderApp — guarded the same way as startTour above (an
+    // older cached bundle without them just never shows this row), and further
+    // guarded by canInstallApp() so it's hidden once already running installed.
+    if (typeof opts.installApp === 'function' && typeof opts.canInstallApp === 'function' && opts.canInstallApp()) {
+      var installWrap = el('div');
+      var installBtn = el('button', 'set-btn set-btn--ghost');
+      installBtn.type = 'button';
+      Escape.setText(installBtn, 'Install App');
+      var installHint = el('p', 'set-privacy-text');
+      installHint.hidden = true;
+      installBtn.addEventListener('click', function () {
+        opts.installApp().then(function (result) {
+          if (result === 'unavailable') {
+            installHint.hidden = false;
+            Escape.setText(installHint, 'Look for the install icon in your browser’s address bar, or open the browser menu and choose "Install SnapReceipt AI".');
+          }
+        });
+      });
+      installWrap.appendChild(installBtn);
+      installWrap.appendChild(installHint);
+      about.body.appendChild(setRow('Desktop app', 'Install SnapReceipt AI as its own app on this device — opens in its own window, no browser tabs.', installWrap));
+    }
     rootEl.appendChild(about.el);
+
+    // --- Session (real) --- moved to the last section of the page (2026-08-09, Barat:
+    // "remove logout option from here [Account settings] and give logout option in
+    // settings page last column") — was previously the first row under Account settings,
+    // grouped too close to the account identity info. Same exact button/behavior, just
+    // relocated to the bottom of the page.
+    var sess = collapsible('Logout', false);
+    var isPersonal = !!(opts.config && opts.config.personal_auth);
+    var authBtn = el('button', model.signedIn
+      ? 'set-btn ' + (isPersonal ? 'set-btn--primary' : 'set-btn--danger')
+      : 'set-btn set-btn--primary');
+    Escape.setText(authBtn, model.signedIn ? 'Log out' : 'Log in');
+    // Bug fix: this used to call opts.logout() unconditionally — even when the
+    // button read "Log in" — so clicking "Log in" silently cleared the (already
+    // empty) token and reloaded, landing back on Overview with nothing entered.
+    // Branch on sign-in state: signed in -> log out; signed out -> show the
+    // real token-entry gate (opts.login).
+    authBtn.addEventListener('click', function () {
+      if (model.signedIn) {
+        if (typeof opts.logout === 'function') opts.logout();
+      } else {
+        if (typeof opts.login === 'function') opts.login();
+      }
+    });
+    sess.body.appendChild(setRow(
+      'Session',
+      model.signedIn ? 'You are signed in on this device.'
+        : (model.authRequired ? 'Not signed in.' : 'This dashboard is open (no token required in dev).'),
+      authBtn
+    ));
+    rootEl.appendChild(sess.el);
 
     // Settings is static — no async data to fetch on view.
     return { el: rootEl };
@@ -469,5 +581,6 @@
     initialAutoMode: initialAutoMode,
     // render (browser)
     mount: mount,
+    openDeleteAccountModal: openDeleteAccountModal,
   };
 });

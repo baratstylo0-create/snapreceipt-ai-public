@@ -4,28 +4,42 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SnapReceipt AI</title>
-  <!-- Treehouse typefaces (Mugi's design): Spectral (serif display) + Nunito Sans (body).
-       CSP allows fonts.googleapis.com (style-src) + fonts.gstatic.com (font-src). -->
+  <!-- Inter (2026-08-21, replaces the old Spectral+Nunito Sans "Treehouse" pairing —
+       Barat: "app looks old fashion... make it more modern"): now the ONE typeface
+       for the whole app, dashboard and Landing alike — see app.css's --font-display/
+       --font-body and landing.css. JetBrains Mono stays for Landing's code-style
+       accents. CSP allows fonts.googleapis.com (style-src) + fonts.gstatic.com (font-src). -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,500&family=Nunito+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <!-- Inter + JetBrains Mono (2026-07-28): Landing's own typefaces — "The Receipt,
-       Transformed" — distinct from the Treehouse pair above, used only within
-       .landing-root (see landing.css). -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <!-- All styling lives in external CSS; a strict CSP (no inline styles) is enforced. -->
-  <link rel="stylesheet" href="css/app.css" />
+  <!-- Cache-busting (2026-08-19): every local <script>/<link> below carries ?v=CACHE_BUST.
+       express.static serves these with Cache-Control: public, max-age=14400 (4h) — without
+       a version marker, a browser that loaded the app within that window keeps running
+       whatever JS/CSS it already cached even after a live deploy ships a real fix, with no
+       visible sign anything is stale (confirmed live: a user re-ran a just-deployed bugfix
+       and still saw the OLD behavior until a hard-refresh). Bump CACHE_BUST (any string
+       change — date, counter, anything) on every deploy that touches a local JS/CSS file so
+       the new URL is a guaranteed cache miss; leave it alone otherwise. -->
+  <link rel="stylesheet" href="css/app.css?v=20260824a" />
+  <!-- Interactive guided onboarding tour (2026-08-22) — spotlight overlay + tooltip
+       chrome only; built entirely from app.css's own tokens so it re-skins per theme. -->
+  <link rel="stylesheet" href="css/tour.css?v=20260824a" />
   <!-- Personal-mode real-account onboarding (2026-07-25) — kept as its own file during
        design review; still separate from app.css so it's an easy diff to fold in later. -->
-  <link rel="stylesheet" href="css/onboarding.css" />
+  <link rel="stylesheet" href="css/onboarding.css?v=20260819j" />
   <!-- Marketing entry screen (2026-07-27), shown before Create account. -->
-  <link rel="stylesheet" href="css/landing.css" />
+  <link rel="stylesheet" href="css/landing.css?v=20260819j" />
   <!-- Installable web app (PWA). Lets the client "Install"/"Add to Home screen" so the
        dashboard opens in its own window with an app icon — no APK, no .exe, no store
-       (ADR-020 per-client delivery). Deliberately NO service worker: financial data is
-       never cached offline (ADR-025). Per-client rebrand = edit name/short_name in
-       manifest.webmanifest + swap icons/app-icon.svg. CSP: manifest-src falls back to
-       default-src 'self'; the icon is covered by img-src 'self' — no header change. -->
+       (ADR-020 per-client delivery), the same way Claude.ai offers a downloadable
+       desktop app. Per-client rebrand = edit name/short_name in manifest.webmanifest +
+       swap icons/app-icon.svg. CSP: manifest-src falls back to default-src 'self'; the
+       icon is covered by img-src 'self' — no header change.
+       2026-08-25: added sw.js (registered in app.js) so Chrome/Edge actually offer the
+       Install prompt — a manifest alone isn't enough. ADR-025 ("financial data is never
+       cached offline") still holds: sw.js never touches /api/, so no receipt/expense/
+       account data is ever cached — see sw.js's own header comment for the exact scope. -->
   <link rel="manifest" href="manifest.webmanifest" />
   <meta name="theme-color" content="#2563eb" />
   <meta name="application-name" content="SnapReceipt AI" />
@@ -42,40 +56,65 @@
   <header id="app-header" class="app-header"></header>
   <main id="app" class="app-main"></main>
   <div id="app-modal" class="app-modal" hidden></div>
-  <footer id="app-footer" class="app-footer"></footer>
+  <!-- Also linked from Settings > About (2026-08-19) for signed-in users; kept here too
+       (2026-08-13, Android/Play Store work) since Google Play policy expects an
+       in-app-reachable privacy policy link, not just the store-listing URL. -->
+  <footer id="app-footer" class="app-footer">
+    <a class="app-footer-link" href="/privacypolicy">Privacy Policy</a>
+    <span class="app-footer-sep" aria-hidden="true">·</span>
+    <a class="app-footer-link" href="/accountdeletion">Account Deletion</a>
+  </footer>
 
   <!-- Foundation modules. Order matters: escape.js first (globals other modules
        depend on), then api/render, then authgate + nav, then the app entrypoint
        which reads all of them and boots the shell. All external (no inline JS). -->
-  <script src="js/escape.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/exportGuards.js"></script>
-  <script src="js/render.js"></script>
-  <script src="js/format.js"></script>
-  <script src="js/authgate.js"></script>
-  <script src="js/components/nav.js"></script>
+  <script src="js/escape.js?v=20260819j"></script>
+  <script src="js/i18n.js?v=20260825a"></script>
+  <!-- Interactive guided onboarding tour (2026-08-22, redesigned 2026-08-23 — real
+       data-tour target attributes, per-target spotlight padding/radius, completion
+       card). Loaded early (like nav.js) — only depends on escape.js + i18n.js above,
+       so app.js's boot() can find window.Tour by the time it wires up deps. -->
+  <script src="js/components/tour.js?v=20260824a"></script>
+  <script src="js/api.js?v=20260824a"></script>
+  <script src="js/native-security.js?v=20260825a"></script>
+  <script src="js/exportGuards.js?v=20260819j"></script>
+  <script src="js/render.js?v=20260819j"></script>
+  <script src="js/format.js?v=20260819j"></script>
+  <script src="js/authgate.js?v=20260819j"></script>
+  <script src="js/components/nav.js?v=20260823b"></script>
   <!-- Personal-mode real-account onboarding (2026-07-25). Loaded early (like nav.js) since
        app.js's boot() may mount it before any other view component is needed. -->
-  <script src="js/components/onboarding.js"></script>
+  <script src="js/components/onboarding.js?v=20260819j"></script>
   <!-- Marketing entry screen (2026-07-27) — loaded early alongside onboarding.js. -->
-  <script src="js/components/landing.js"></script>
-  <script src="js/components/overview.js"></script>
-  <script src="js/components/activity.js"></script>
-  <script src="js/components/upload.js"></script>
-  <script src="js/components/templates.js"></script>
-  <script src="js/components/reports.js"></script>
-  <script src="js/components/agent.js"></script>
-  <script src="js/components/settings.js"></script>
+  <script src="js/components/landing.js?v=20260825a"></script>
+  <script src="js/components/overview.js?v=20260823b"></script>
+  <script src="js/components/activity.js?v=20260823b"></script>
+  <script src="js/components/upload.js?v=20260823b"></script>
+  <script src="js/components/templates.js?v=20260819j"></script>
+  <script src="js/components/reports.js?v=20260821a"></script>
+  <script src="js/components/agent.js?v=20260822a"></script>
+  <!-- settings.js reuses legal.js (the in-app Privacy Policy / Account Deletion modal), so it must load after it. -->
+  <script src="js/components/legal.js?v=20260819j"></script>
+  <script src="js/components/settings.js?v=20260825a"></script>
   <!-- falc.js reuses agent.js (the Agent chat module), so it must load after it. -->
-  <script src="js/components/falc.js"></script>
-  <script src="js/components/ratemeter.js"></script>
-  <script src="js/components/login.js"></script>
+  <script src="js/components/falc.js?v=20260822a"></script>
+  <script src="js/components/ratemeter.js?v=20260819j"></script>
+  <script src="js/components/login.js?v=20260819j"></script>
   <!-- "Forgot password?" flow (2026-07-27), personal-mode only. -->
-  <script src="js/components/resetpassword.js"></script>
-  <script src="js/components/grid.js"></script>
+  <script src="js/components/resetpassword.js?v=20260819j"></script>
+  <!-- Email-verification screen + header banner (2026-08-24, W-01), built against
+       Jeevan/Claude-P's P-01 contract. Optional dep like ResetPassword/Tour — an older
+       cached bundle without it just never shows the verify screen/banner. -->
+  <script src="js/components/emailverify.js?v=20260824a"></script>
+  <!-- Business-only views (ADR-021 Phase 6/8) — only ever mounted when Nav.sectionsFor
+       includes them (multiUser business mode); harmless to load in personal mode. -->
+  <script src="js/components/team.js?v=20260819j"></script>
+  <script src="js/components/payments.js?v=20260819j"></script>
+  <script src="js/components/grid.js?v=20260819j"></script>
   <!-- manage.js is the Manage shell; it mounts templates.js + grid.js as sub-pages, so it
        must load after both. -->
-  <script src="js/components/manage.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/components/manage.js?v=20260819j"></script>
+  <script src="js/components/accountPanel.js?v=20260826a"></script>
+  <script src="js/app.js?v=20260825a"></script>
 </body>
 </html>
