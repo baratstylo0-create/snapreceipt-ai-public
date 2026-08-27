@@ -161,6 +161,7 @@
     var onRefresh = typeof opts.onRefresh === 'function' ? opts.onRefresh : function () {};
     var onFeedback = typeof opts.onFeedback === 'function' ? opts.onFeedback : function () {};
     var business = !!opts.business;
+    var nativeApp = !!opts.nativeApp;
 
     var top = document.createElement('div');
     top.className = 'app-header-top';
