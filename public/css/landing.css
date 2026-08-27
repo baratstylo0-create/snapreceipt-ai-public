@@ -38,14 +38,13 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
 .landing-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
 /* --- nav --- */
-/* White navbar (2026-08-06, Option C — Barat's choice from the 3-option preview): was
-   navy, matching the reference mockup's white-navbar wordmark ("Snap" in black) requires
-   the bar itself to go light, not just the logo — a black "Snap" chip floating on navy
-   would still clash. A thin bottom border replaces the navy's own visual separation from
-   the paper-white hero below it. */
+/* 2026-08-14 (Barat: exact reference screenshot — plain white bar, ink "Snap", blue
+   "Receipt"/AI badge, no navy): was var(--lp-navy) (dark). A light nav needs its own
+   bottom border since the page body is ALSO --lp-paper — without one the nav would have
+   no visible edge at all. */
 .landing-nav {
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--lp-paper);
+  border-bottom: 1px solid var(--lp-line);
   padding: 18px 32px;
   display: flex;
   align-items: center;
@@ -53,44 +52,13 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
 }
 .landing-nav-brand { display: flex; align-items: center; gap: 10px; }
 
-/* Wordmark (2026-07-29): "Snap" + "Receipt" + an "AI" pill badge — the nav sits on the dark
-   navy bar, so "Snap" is white here (the reference wordmark's dark-ink version is for
-   light backgrounds — see .landing-wordmark--dark below for the light-bg contexts). */
+/* Shared brand asset: the supplied Snap Receipt AI wordmark is an SVG so it stays crisp
+   across desktop, mobile, and downloadable marketing surfaces. */
 .landing-wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 800;
-  font-size: 19px;
-  letter-spacing: -.01em;
-  line-height: 1;
+  display: block;
+  width: 184px;
+  height: auto;
 }
-/* Hardcoded hex, not var(--lp-blue)/var(--lp-ink): those custom properties are scoped to
-   .landing-root (2026-07-28), but this wordmark is ALSO reused outside it — nav.js's
-   dashboard header and onboarding.js's welcome screen (2026-08-04) render these classes
-   with no .landing-root ancestor, so the var() would resolve to nothing and silently fall
-   back to inherited/transparent (a real bug caught in QA: blue "Receipt" rendered as plain
-   ink, the "AI" badge had no background). Fixed brand colors, not theme-dependent, so a
-   hardcoded value is correct here regardless of where the wordmark is mounted. */
-.landing-wordmark-snap { color: #fff; }
-.landing-wordmark-receipt { color: #2563eb; }
-.landing-wordmark-badge {
-  background: #2563eb;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  border-radius: 6px;
-  padding: 3px 7px;
-  letter-spacing: 0;
-}
-/* Non-navy-background variant (onboarding welcome screen + dashboard header, both via
-   nav.js/onboarding.js, 2026-08-04) — "Snap" switches off fixed white. Uses var(--txt),
-   NOT a hardcoded ink hex: onboarding's card is always white/paper, but the dashboard
-   header sits on whatever theme is active (Light/Dark) and --txt IS defined at :root and
-   in every theme block (app.css), so it auto-flips dark-ink-on-light vs light-ink-on-dark
-   correctly — a hardcoded #101826 (QA-caught bug) went invisible against the Dark theme's
-   navy header. Falls back to the onboarding ink shade if --txt is ever unset. */
-.landing-wordmark--dark .landing-wordmark-snap { color: var(--txt, #101826); }
 .landing-nav-actions { display: flex; align-items: center; gap: 10px; }
 .landing-nav-btn {
   font: inherit;
@@ -100,21 +68,20 @@ body.landing-mode .app-main { padding: 0; max-width: none; margin: 0; }
   font-weight: 600;
   font-size: 14px;
 }
-/* Recolored for the white navbar (2026-08-06, was white-on-navy) — same treatment, just
-   inverted for a light background: Login is now a dark outline pill, Register a quiet
-   dark-on-hover text link, both readable on white instead of navy. */
+/* 2026-08-14: flipped for the light nav (were white-on-transparent, for the old navy
+   bar — invisible against light paper). */
 .landing-nav-btn--login {
   background: transparent;
-  color: #101826;
-  border: 1px solid #cbd5e1;
+  color: var(--lp-ink);
+  border: 1px solid var(--lp-line);
 }
-.landing-nav-btn--login:hover { border-color: #101826; }
+.landing-nav-btn--login:hover { border-color: var(--lp-ink); }
 .landing-nav-btn--register {
   background: transparent;
-  color: #6b7280;
+  color: var(--lp-thermal);
   border: none;
 }
-.landing-nav-btn--register:hover { color: #101826; }
+.landing-nav-btn--register:hover { color: var(--lp-ink); }
 
 /* --- hero --- */
 .landing-hero {

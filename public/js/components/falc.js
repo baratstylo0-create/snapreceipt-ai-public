@@ -15,12 +15,14 @@
 // without a DOM, so the module is import-safe for the test runner).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./agent'));
+    module.exports = factory(require('./agent'), require('../i18n'));
   } else {
-    root.Falc = factory(root.Agent);
+    root.Falc = factory(root.Agent, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Agent) {
+})(typeof self !== 'undefined' ? self : this, function (Agent, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -87,15 +89,15 @@
     var perch = el('div', 'sora-perch');
     var launcher = el('button', 'sora-btn');
     launcher.type = 'button';
-    launcher.setAttribute('aria-label', 'Open Falc, your expense assistant');
-    launcher.setAttribute('title', 'Falc — your expense assistant');
+    launcher.setAttribute('aria-label', t('falc.open_aria'));
+    launcher.setAttribute('title', t('falc.title'));
     launcher.appendChild(buildBird());
     perch.appendChild(launcher);
 
     // --- chat panel ---
     var panel = el('div', 'sora-chat');
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', 'Falc — expense assistant');
+    panel.setAttribute('aria-label', t('falc.panel_aria'));
 
     var head = el('div', 'sc-head');
     var orb = el('div', 'sc-orb');
@@ -103,18 +105,22 @@
     head.appendChild(orb);
     var titleWrap = el('div', 'sc-title');
     var name = el('div', 'sc-name'); name.textContent = 'Falc';
-    var status = el('div', 'sc-status'); status.textContent = 'your expense assistant';
+    var status = el('div', 'sc-status'); status.textContent = t('falc.status');
     titleWrap.appendChild(name); titleWrap.appendChild(status);
     head.appendChild(titleWrap);
     var closeBtn = el('button', 'sc-close');
     closeBtn.type = 'button';
-    closeBtn.setAttribute('aria-label', 'Close assistant');
+    closeBtn.setAttribute('aria-label', t('falc.close_aria'));
     closeBtn.textContent = '✕';
     head.appendChild(closeBtn);
     panel.appendChild(head);
 
     var body = el('div', 'sc-body');
     panel.appendChild(body);
+
+    var foot = el('div', 'sc-foot');
+    foot.textContent = t('falc.footer_caption');
+    panel.appendChild(foot);
 
     mountRoot.appendChild(perch);
     mountRoot.appendChild(panel);

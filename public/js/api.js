@@ -58,10 +58,25 @@
     for (var i = 0; i < _authExpiredSubs.length; i++) { try { _authExpiredSubs[i](); } catch (e) { /* a bad subscriber never breaks fetch */ } }
   }
 
+  // 2026-08-24 (Barat: "minimize Chrome, reopen it, logged out" — recurring): a single
+  // 401 on a token-bearing request used to be treated as proof the session is dead —
+  // instantly wiping storage and reloading to the login screen. Live server logs showed
+  // real, unexpired sessions (still sitting valid in the sessions table) get rejected by
+  // brief Supabase hiccups (request timeouts / bad-gateway responses were logged in the
+  // same window) — the app was punishing users for an infra blip, not a real logout.
+  // A short wait + ONE retry of the exact same request tells the two apart: a transient
+  // blip clears up and the retry succeeds (nothing happens, the original caller gets its
+  // real data); a genuinely dead/expired/revoked token still 401s on the retry too, and
+  // THAT is what triggers the logout — same end behavior as before for a real session
+  // death, just not on the very first flaky response. Exposed as a mutable export so
+  // tests can drop it to 0 instead of actually waiting.
+  var AUTH_RETRY_DELAY_MS = 600;
+  function delay(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
   // Fetch a same-origin /api path. opts is a standard fetch init; we layer on
   // Accept + optional Authorization and JSON body handling. Returns parsed JSON
   // (or text) on 2xx; throws { status, body } otherwise.
-  function apiFetch(path, opts) {
+  function apiFetch(path, opts, _retriedAuth) {
     opts = opts || {};
     var headers = Object.assign({ Accept: 'application/json' }, opts.headers || {});
     if (_token) headers.Authorization = 'Bearer ' + _token;
@@ -84,7 +99,10 @@
       var parse = ct.indexOf('application/json') !== -1 ? res.json() : res.text();
       return parse.then(function (body) {
         if (!res.ok) {
-          if (res.status === 401 && headers.Authorization) notifyAuthExpired();
+          if (res.status === 401 && headers.Authorization) {
+            if (!_retriedAuth) return delay(AUTH_RETRY_DELAY_MS).then(function () { return apiFetch(path, opts, true); });
+            notifyAuthExpired();
+          }
           throw { status: res.status, body: body };
         }
         return body;
@@ -99,7 +117,7 @@
   // rendered into a real <img>, never assigned via innerHTML/href with unescaped data.
   // Kept separate from apiFetch (which always parses JSON/text) rather than overloading
   // it, to avoid changing behavior for every existing JSON caller.
-  function fetchBlob(path, opts) {
+  function fetchBlob(path, opts, _retriedAuth) {
     opts = opts || {};
     var headers = Object.assign({}, opts.headers || {});
     if (_token) headers.Authorization = 'Bearer ' + _token;
@@ -107,6 +125,9 @@
     return fetch(path, init).then(function (res) {
       readRateHeaders(res);
       if (!res.ok) {
+        if (res.status === 401 && headers.Authorization && !_retriedAuth) {
+          return delay(AUTH_RETRY_DELAY_MS).then(function () { return fetchBlob(path, opts, true); });
+        }
         if (res.status === 401 && headers.Authorization) notifyAuthExpired();
         return res.text().then(function (body) { throw { status: res.status, body: body }; }, function () {
           throw { status: res.status, body: null };
@@ -117,5 +138,10 @@
   }
 
   return { apiFetch: apiFetch, fetchBlob: fetchBlob, setToken: setToken, getToken: getToken,
-    getRateLimit: getRateLimit, onRateLimit: onRateLimit, onAuthExpired: onAuthExpired };
+    getRateLimit: getRateLimit, onRateLimit: onRateLimit, onAuthExpired: onAuthExpired,
+    // Test-only escape hatch: drop the retry-before-logout delay to 0 so 401 tests don't
+    // actually wait. Getter/setter (not a bare property) so every module require() of
+    // this UMD-shimmed file shares the SAME live value instead of each getting its own
+    // frozen copy at export time.
+    setAuthRetryDelayForTests: function (ms) { AUTH_RETRY_DELAY_MS = ms; } };
 });

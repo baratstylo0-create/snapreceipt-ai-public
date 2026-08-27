@@ -18,12 +18,15 @@
 // render layer simply isn't exercised — no document).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../format'), require('../api'));
+    module.exports = factory(require('../escape'), require('../format'), require('../api'), require('../i18n'));
   } else {
-    root.Overview = factory(root.Escape, root.Format, root.Api);
+    root.Overview = factory(root.Escape, root.Format, root.Api, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -32,16 +35,16 @@
 
   function overviewSegments() {
     return [
-      { id: 'summary', label: 'Summary' },
-      { id: 'trends', label: 'Trends' },
+      { id: 'summary', label: t('overview.tab_summary') },
+      { id: 'trends', label: t('overview.tab_trends') },
     ];
   }
 
   function branchFilterOptions(branches, isAdmin) {
     if (!isAdmin) return [];
     var out = [
-      { value: 'all', label: 'All branches' },
-      { value: 'mine', label: 'My uploads' },
+      { value: 'all', label: t('overview.branch_all') },
+      { value: 'mine', label: t('overview.branch_mine') },
     ];
     (Array.isArray(branches) ? branches : []).forEach(function (branch) {
       if (!branch || branch.id === undefined || branch.id === null || String(branch.id) === '') return;
@@ -236,17 +239,17 @@
       // "start date and until [today]" — the year's start through the day the
       // Overview was actually viewed (not the query's Dec-31 upper bound,
       // which hasn't happened yet if the year isn't over).
-      { label: 'Total spend', value: Format.formatMoney(r.total), sub: formatDateRange(year + '-01-01', isoDateLocal(now)) },
+      { label: t('overview.kpi_total_spend'), value: Format.formatMoney(r.total), sub: formatDateRange(year + '-01-01', isoDateLocal(now)) },
       // "Expenses" was ambiguous (expenses as in cost, or as in a count?) —
       // Owner request 2026-07-05: make plain that this counts saved receipts.
-      { label: 'Total bills', value: Format.formatCount(r.count), breakdown: categoryCountBreakdown(r) },
+      { label: t('overview.kpi_total_bills'), value: Format.formatCount(r.count), breakdown: categoryCountBreakdown(r) },
       // Computed from the year-scoped `r`, but showed as a bare category name
       // with no context — Owner request 2026-07-06: a small "in <year>"
       // sub-label, same idea as Total spend's date range. "Months with
       // expenses" (the 4th card this used to sit beside) was dropped the same
       // day — Owner said it wasn't needed, freeing that slot for the
       // all-time/overall-spending card instead (see renderInto).
-      { label: 'Top category', value: top ? top.name : '—', sub: 'in ' + year },
+      { label: t('overview.kpi_top_category'), value: top ? top.name : '—', sub: tp('overview.kpi_top_category_sub', year) },
     ];
   }
 
@@ -415,6 +418,13 @@
   function donutSlicePath(cx, cy, rO, rI, startAngle, endAngle) {
     var s = toNum(startAngle), e = toNum(endAngle);
     if (e <= s) return '';
+    // Bug fix (2026-08-09, found via a real account with ONE category at 100% of spend):
+    // a span of exactly 360deg puts the start and end points at the identical (x,y) —
+    // sin/cos are periodic — so the SVG arc command degenerates to a zero-length path
+    // and the whole donut renders invisible even though the data is correct. Clamping
+    // just short of a full circle keeps start/end distinct; the 0.01deg gap is not
+    // visible at any real render size.
+    if (e - s >= 360) e = s + 359.99;
     var large = (e - s) > 180 ? 1 : 0;
     var oStart = polarToXY(cx, cy, rO, s), oEnd = polarToXY(cx, cy, rO, e);
     var iStart = polarToXY(cx, cy, rI, e), iEnd = polarToXY(cx, cy, rI, s);
@@ -513,7 +523,7 @@
   function renderLineChart(rows, year) {
     var figure = el('figure', 'ov-linechart');
     var caption = el('figcaption', 'ov-chart-caption');
-    Escape.setText(caption, 'Expenses by Month — ' + year);
+    Escape.setText(caption, tp('overview.chart_caption_month', year));
     figure.appendChild(caption);
 
     var width = 720, height = 300;
@@ -679,7 +689,7 @@
     var overrides = opts.overrides || {};
     var wrap = el('div', 'ov-donut-wrap');
     var caption = el('figcaption', 'ov-chart-caption');
-    Escape.setText(caption, 'Spend by category — ' + year);
+    Escape.setText(caption, tp('overview.chart_caption_category', year));
     wrap.appendChild(caption);
 
     var body = el('div', 'ov-donut-body');
@@ -692,7 +702,7 @@
     if (!rows.length) {
       body.appendChild(svg);
       wrap.appendChild(body);
-      wrap.appendChild(renderMessage('rp-categories-empty muted', 'No category spend for this period.'));
+      wrap.appendChild(renderMessage('rp-categories-empty muted', t('overview.donut_empty')));
       return wrap;
     }
 
@@ -722,7 +732,7 @@
     centerCaption.setAttribute('x', cx); centerCaption.setAttribute('y', cy + 15);
     centerCaption.setAttribute('class', 'ov-donut-center-caption');
     centerCaption.setAttribute('text-anchor', 'middle');
-    Escape.setText(centerCaption, 'TOTAL');
+    Escape.setText(centerCaption, t('overview.donut_total'));
     svg.appendChild(centerCaption);
 
     body.appendChild(svg);
@@ -737,8 +747,8 @@
       // for this category, instead of only ever getting the auto palette.
       var swatch = el('button', 'ov-donut-swatch ov-donut-swatch--' + categoryColor(r.name));
       swatch.type = 'button';
-      swatch.setAttribute('aria-label', 'Change colour for ' + str(r.name));
-      swatch.title = 'Click to choose a colour for ' + str(r.name);
+      swatch.setAttribute('aria-label', tp('overview.colorpicker_change', str(r.name)));
+      swatch.title = tp('overview.colorpicker_click', str(r.name));
       if (custom) swatch.style.background = custom;
       if (typeof opts.onSwatchClick === 'function') {
         swatch.addEventListener('click', function () { opts.onSwatchClick(r.name, swatch); });
@@ -769,7 +779,7 @@
     var backdrop = el('div', 'ov-colorpick-backdrop');
     var pop = el('div', 'ov-colorpick');
     pop.setAttribute('role', 'dialog');
-    pop.setAttribute('aria-label', 'Choose a colour');
+    pop.setAttribute('aria-label', t('overview.colorpicker_choose'));
 
     var grid = el('div', 'ov-colorpick-grid');
     COLOR_PRESETS.forEach(function (hex) {
@@ -785,7 +795,7 @@
 
     var customRow = el('div', 'ov-colorpick-custom');
     var customLabel = el('label', 'ov-colorpick-custom-label');
-    Escape.setText(customLabel, 'Custom:');
+    Escape.setText(customLabel, t('overview.colorpicker_custom'));
     var customInput = el('input', 'ov-colorpick-input');
     customInput.type = 'color';
     customInput.value = currentColor || '#5f7a47';
@@ -796,7 +806,7 @@
 
     var resetBtn = el('button', 'ov-colorpick-reset');
     resetBtn.type = 'button';
-    Escape.setText(resetBtn, 'Use default colour');
+    Escape.setText(resetBtn, t('overview.colorpicker_use_default'));
     resetBtn.addEventListener('click', function () { onReset(); close(); });
     pop.appendChild(resetBtn);
 
@@ -839,13 +849,13 @@
     clear(host);
     var band = el('section', 'ov-metrics-band');
     var heading = el('div', 'ov-metrics-heading');
-    heading.appendChild(textCell('h3', 'ov-metrics-title', 'Automation Impact'));
+    heading.appendChild(textCell('h3', 'ov-metrics-title', t('overview.metrics_title')));
     var periodLabel = el('label', 'ov-metrics-period-label');
-    periodLabel.appendChild(textCell('span', 'ov-metrics-period-caption', 'Period'));
+    periodLabel.appendChild(textCell('span', 'ov-metrics-period-caption', t('overview.metrics_period')));
     var periodInput = el('input', 'ov-metrics-period');
     periodInput.type = 'month';
     periodInput.value = period && period.value ? period.value : '';
-    periodInput.setAttribute('aria-label', 'Automation impact period');
+    periodInput.setAttribute('aria-label', t('overview.metrics_period_aria'));
     periodInput.addEventListener('change', function () {
       if (typeof onPeriodChange === 'function') onPeriodChange(periodInput.value);
     });
@@ -860,14 +870,15 @@
     }
 
     var tiles = el('div', 'ov-metrics-tiles');
-    tiles.appendChild(metricTile('Receipts processed', metricText(model.receiptsProcessed), 'in selected period'));
-    tiles.appendChild(metricTile('% needed no edit', metricText(model.noEditPct, 1) + '%', 'straight-through processing'));
+    tiles.setAttribute('data-tour', 'automation-impact');
+    tiles.appendChild(metricTile(t('overview.metrics_receipts_processed'), metricText(model.receiptsProcessed), t('overview.metrics_receipts_processed_sub')));
+    tiles.appendChild(metricTile(t('overview.metrics_no_edit_pct'), metricText(model.noEditPct, 1) + '%', t('overview.metrics_no_edit_sub')));
     var assumption = model.manualMinutesPerReceipt == null
-      ? 'Time-saved assumption unavailable.'
-      : 'Estimated using ' + metricText(model.manualMinutesPerReceipt, 1) + ' minutes per receipt.';
-    tiles.appendChild(metricTile('~Hours saved', metricText(model.hoursSaved, 1), assumption));
+      ? t('overview.metrics_time_unavailable')
+      : tp('overview.metrics_time_assumption', metricText(model.manualMinutesPerReceipt, 1));
+    tiles.appendChild(metricTile(t('overview.metrics_hours_saved'), metricText(model.hoursSaved, 1), assumption));
     if (model.statementsGeneratedAvailable) {
-      tiles.appendChild(metricTile('Statements generated', model.statementsGenerated == null ? '—' : metricText(model.statementsGenerated), 'selected period'));
+      tiles.appendChild(metricTile(t('overview.metrics_statements'), model.statementsGenerated == null ? '—' : metricText(model.statementsGenerated), t('overview.metrics_statements_sub')));
     }
     band.appendChild(tiles);
 
@@ -875,16 +886,16 @@
       var detailsBtn = el('button', 'ov-metrics-details-toggle');
       detailsBtn.type = 'button';
       detailsBtn.setAttribute('aria-expanded', detailsOpen ? 'true' : 'false');
-      Escape.setText(detailsBtn, detailsOpen ? 'Hide details' : 'Show details');
+      Escape.setText(detailsBtn, detailsOpen ? t('overview.metrics_hide_details') : t('overview.metrics_show_details'));
       detailsBtn.addEventListener('click', function () { if (typeof onDetailsToggle === 'function') onDetailsToggle(); });
       band.appendChild(detailsBtn);
       if (detailsOpen) {
         var details = el('div', 'ov-metrics-details');
-        details.appendChild(metricTile('Attention rate', metricText(model.attentionRate, 1) + '%'));
-        details.appendChild(metricTile('Average review dwell', model.avgDwellMinutes == null ? '—' : metricText(model.avgDwellMinutes, 1) + ' min'));
+        details.appendChild(metricTile(t('overview.metrics_attention_rate'), metricText(model.attentionRate, 1) + '%'));
+        details.appendChild(metricTile(t('overview.metrics_avg_dwell'), model.avgDwellMinutes == null ? '—' : metricText(model.avgDwellMinutes, 1) + ' min'));
         var low = el('div', 'ov-metrics-detail-list');
-        low.appendChild(textCell('h4', 'ov-metrics-detail-title', 'Low-confidence fields'));
-        if (!model.lowConfidenceByField.length) low.appendChild(textCell('p', 'muted', 'None recorded.'));
+        low.appendChild(textCell('h4', 'ov-metrics-detail-title', t('overview.metrics_low_confidence')));
+        if (!model.lowConfidenceByField.length) low.appendChild(textCell('p', 'muted', t('overview.metrics_none_recorded')));
         else {
           var lowList = el('ul');
           model.lowConfidenceByField.forEach(function (r) { lowList.appendChild(textCell('li', '', r.field + ': ' + metricText(r.count))); });
@@ -892,8 +903,8 @@
         }
         details.appendChild(low);
         var corrected = el('div', 'ov-metrics-detail-list');
-        corrected.appendChild(textCell('h4', 'ov-metrics-detail-title', 'Most-corrected categories'));
-        if (!model.mostCorrectedCategories.length) corrected.appendChild(textCell('p', 'muted', 'None recorded.'));
+        corrected.appendChild(textCell('h4', 'ov-metrics-detail-title', t('overview.metrics_most_corrected')));
+        if (!model.mostCorrectedCategories.length) corrected.appendChild(textCell('p', 'muted', t('overview.metrics_none_recorded')));
         else {
           var correctedList = el('ul');
           model.mostCorrectedCategories.forEach(function (r) { correctedList.appendChild(textCell('li', '', r.category + ': ' + metricText(r.count))); });
@@ -924,7 +935,7 @@
     var hasData = (reports && toNum(reports.count) > 0) || rows.length > 0;
 
     if (!hasData) {
-      container.appendChild(renderMessage('ov-empty', 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
+      container.appendChild(renderMessage('ov-empty', t('overview.empty')));
       return;
     }
 
@@ -945,7 +956,7 @@
     container.appendChild(renderDonut(categoryPercentBreakdown(reports), reports.total, year, donutOpts));
     if (allTimeReport && typeof allTimeReport === 'object' && Number.isFinite(toNum(allTimeReport.total))) {
       container.appendChild(renderKpiCard(
-        { label: 'Overall spending until now', value: Format.formatMoney(allTimeReport.total), breakdown: yearlyBreakdown(allTimeReport) },
+        { label: t('overview.kpi_alltime_label'), value: Format.formatMoney(allTimeReport.total), breakdown: yearlyBreakdown(allTimeReport) },
         'ov-cell-alltime'
       ));
     }
@@ -976,7 +987,7 @@
     if (isAdmin) {
       var branchToolbar = el('div', 'ov-filter-toolbar');
       branchSelect = el('select', 'ov-branch-filter');
-      branchSelect.setAttribute('aria-label', 'Filter by branch');
+      branchSelect.setAttribute('aria-label', t('overview.branch_filter_aria'));
       branchToolbar.appendChild(branchSelect);
       shell.appendChild(branchToolbar);
     }
@@ -1010,7 +1021,7 @@
     if (Reports && typeof Reports.mount === 'function') {
       reportInst = Reports.mount(trendsPanel, opts);
     } else {
-      trendsPanel.appendChild(renderMessage('view-placeholder muted', 'Trends are unavailable in this build.'));
+      trendsPanel.appendChild(renderMessage('view-placeholder muted', t('overview.trends_unavailable')));
     }
 
     // Custom category colours are stored server-side (account-scoped, so they
@@ -1145,8 +1156,19 @@
     function load(force) {
       if (state.loading || (!force && state.loaded) || !apiFetch) return;
       state.loading = true;
-      clear(container);
-      container.appendChild(renderMessage('ov-loading muted', 'Loading overview…'));
+      // Bug fix (2026-08-21, Barat: "dashboard keeps refreshing, going blank and
+      // coming back" during normal use): startLiveUpdates()'s 25s background poll
+      // calls load(true) while state.loaded is already true (real data on screen).
+      // This used to unconditionally clear() the container and show "Loading…"
+      // on EVERY poll tick, blanking already-correct data for no reason. Only do
+      // that teardown on a genuine first load (state.loaded still false) — a
+      // background refresh now fetches silently and swaps content in once via
+      // the existing renderInto() call below, no visible flash in between.
+      var isBackgroundRefresh = state.loaded;
+      if (!isBackgroundRefresh) {
+        clear(container);
+        container.appendChild(renderMessage('ov-loading muted', t('overview.loading')));
+      }
       // Year-scoped report drives the chart/KPIs; the all-time (period=year)
       // report supplies the "Overall spending until now" box —
       // its `.total` for the big number, its per-year `.buckets` for the
@@ -1168,7 +1190,7 @@
         // Leave loaded=false so a later revisit can retry.
         if (!state.lastReports) {
           clear(container);
-          container.appendChild(renderMessage('ov-error', 'Could not load your overview. Please try again shortly.'));
+          container.appendChild(renderMessage('ov-error', t('overview.error')));
         } else {
           renderInto(container, state.lastReports, state.lastAllTime, donutOpts);
         }

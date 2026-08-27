@@ -20,10 +20,11 @@
   // the form fails fast without a round-trip. Username is trimmed (a copy-paste
   // artifact, never meaningful); the PASSWORD IS NOT (leading/trailing spaces
   // may be intentional — the server hashes exactly what was set).
-  function validateCredentials(username, password) {
+  function validateCredentials(username, password, t) {
+    t = t || function (k) { return k; };
     var u = username === null || username === undefined ? '' : String(username).trim();
     var p = password === null || password === undefined ? '' : String(password);
-    if (!u || !p) return { ok: false, error: 'Please enter your username and password.' };
+    if (!u || !p) return { ok: false, error: t('login.missing_fields') };
     return { ok: true, username: u, password: p };
   }
 
@@ -48,15 +49,33 @@
     if (typeof document === 'undefined' || !mount) return;
     opts = opts || {};
     var Escape = deps.Escape, Api = deps.Api;
+    var t = deps.t || function (k) { return k; };
     mount.textContent = '';
+    var nativeApp = !!(deps.NativeSecurity && deps.NativeSecurity.isNative
+      && deps.NativeSecurity.isNative());
 
     var form = document.createElement('form');
     form.className = 'token-gate login-gate'; // reuse the token-gate card styling
 
+    if (nativeApp) {
+      var mark = document.createElement('img');
+      mark.className = 'native-login-mark';
+      mark.src = 'icons/app-icon.svg';
+      mark.alt = 'SnapReceipt AI';
+      form.appendChild(mark);
+    }
+
     var title = document.createElement('h2');
     title.className = 'login-title';
-    Escape.setText(title, 'Sign in');
+    Escape.setText(title, t('login.title'));
     form.appendChild(title);
+
+    if (nativeApp) {
+      var subtitle = document.createElement('p');
+      subtitle.className = 'native-login-subtitle';
+      Escape.setText(subtitle, 'Your receipt workspace, ready when you are.');
+      form.appendChild(subtitle);
+    }
 
     // Google sign-in (2026-07-27, Barat: "like how most app have"; wired to the real
     // backend 2026-07-30) — personal-mode only (opts.onRegister gates this exactly
@@ -88,12 +107,12 @@
         + '</svg>';
       googleBtn.appendChild(gIcon);
       var gLabel = document.createElement('span');
-      gLabel.textContent = 'Continue with Google';
+      gLabel.textContent = t('login.google');
       googleBtn.appendChild(gLabel);
       googleBtn.addEventListener('click', function () {
         if (typeof opts.onGoogleLogin !== 'function') {
           googleError.hidden = false;
-          Escape.setText(googleError, 'Google sign-in isn’t available yet — please use email and password below.');
+          Escape.setText(googleError, t('login.google_unavailable'));
           return;
         }
         googleBtn.disabled = true;
@@ -106,7 +125,7 @@
       var divider = document.createElement('div');
       divider.className = 'onboard-divider';
       var dividerText = document.createElement('span');
-      dividerText.textContent = 'or';
+      dividerText.textContent = t('login.or');
       divider.appendChild(dividerText);
       form.appendChild(divider);
     }
@@ -114,7 +133,7 @@
     var userLabel = document.createElement('label');
     userLabel.className = 'token-gate-label';
     userLabel.setAttribute('for', 'login-username');
-    Escape.setText(userLabel, 'Username');
+    Escape.setText(userLabel, t('login.username'));
     var userInput = document.createElement('input');
     userInput.type = 'text';
     userInput.id = 'login-username';
@@ -124,7 +143,7 @@
     var pwLabel = document.createElement('label');
     pwLabel.className = 'token-gate-label';
     pwLabel.setAttribute('for', 'login-password');
-    Escape.setText(pwLabel, 'Password');
+    Escape.setText(pwLabel, t('login.password'));
     var pwInput = document.createElement('input');
     pwInput.type = 'password';
     pwInput.id = 'login-password';
@@ -134,7 +153,7 @@
     var submit = document.createElement('button');
     submit.type = 'submit';
     submit.className = 'token-gate-submit';
-    submit.textContent = 'Sign in';
+    submit.textContent = t('login.submit');
 
     var msg = document.createElement('p');
     msg.className = 'token-gate-msg muted';
@@ -154,7 +173,7 @@
       var forgotLink = document.createElement('button');
       forgotLink.type = 'button';
       forgotLink.className = 'login-forgot-link';
-      forgotLink.textContent = 'Forgot password?';
+      forgotLink.textContent = t('login.forgot');
       forgotLink.addEventListener('click', function () {
         if (typeof opts.onForgotPassword === 'function') opts.onForgotPassword();
       });
@@ -165,12 +184,19 @@
     form.appendChild(submit);
     form.appendChild(msg);
 
+    if (nativeApp) {
+      var secureHint = document.createElement('p');
+      secureHint.className = 'native-login-hint';
+      Escape.setText(secureHint, 'After signing in, use fingerprint, face unlock, or your device PIN next time.');
+      form.appendChild(secureHint);
+    }
+
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
-      var creds = validateCredentials(userInput.value, pwInput.value);
+      var creds = validateCredentials(userInput.value, pwInput.value, t);
       if (!creds.ok) { Escape.setText(msg, creds.error); return; }
       submit.disabled = true;
-      Escape.setText(msg, 'Signing in…');
+      Escape.setText(msg, t('login.signing_in'));
       Api.apiFetch('/api/login', { method: 'POST', body: { username: creds.username, password: creds.password } })
         .then(function (r) {
           // r = { token, role, branch_id, display_name } (routes/auth.js). The token is
@@ -184,9 +210,9 @@
         .catch(function (err) {
           submit.disabled = false;
           pwInput.value = '';
-          var friendly = err && err.status === 401 ? 'Wrong username or password.'
-            : err && err.status === 429 ? 'Too many attempts — please wait a minute and try again.'
-            : 'Sign-in failed. Please try again shortly.';
+          var friendly = err && err.status === 401 ? t('login.wrong_credentials')
+            : err && err.status === 429 ? t('login.rate_limited')
+            : t('login.sign_in_failed');
           Escape.setText(msg, friendly);
         });
     });
@@ -194,11 +220,11 @@
     if (opts.onRegister) {
       var registerRow = document.createElement('p');
       registerRow.className = 'login-register-row';
-      registerRow.appendChild(document.createTextNode("Don't have an account yet? "));
+      registerRow.appendChild(document.createTextNode(t('login.no_account')));
       var registerLink = document.createElement('button');
       registerLink.type = 'button';
       registerLink.className = 'login-register-link';
-      registerLink.textContent = 'Sign up now';
+      registerLink.textContent = t('login.sign_up_now');
       registerLink.addEventListener('click', function () { opts.onRegister(); });
       registerRow.appendChild(registerLink);
       form.appendChild(registerRow);

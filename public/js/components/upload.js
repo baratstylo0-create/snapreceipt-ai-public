@@ -28,12 +28,15 @@
 // simply isn't exercised there — no document / FileReader).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../format'), require('../api'));
+    module.exports = factory(require('../escape'), require('../format'), require('../api'), require('../i18n'));
   } else {
-    root.Upload = factory(root.Escape, root.Format, root.Api);
+    root.Upload = factory(root.Escape, root.Format, root.Api, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   // The server enforces this cap (MASS_MAX_IMAGES, default 10 in routes/upload.js)
   // and it is NOT exposed by /api/config, so we mirror the server default here for a
@@ -98,12 +101,12 @@
   // unknown status falls back to a safe generic.
   function errorMessage(status, /* body */ _body) {
     switch (Number(status)) {
-      case 400: return 'We couldn’t read that upload. Please pick image or PDF files and try again.';
-      case 413: return 'Too many files, or a file was too large (max ' + MASS_MAX_IMAGES + ' at once).';
-      case 422: return 'That PDF couldn’t be processed (it may be encrypted, corrupt, or not a real PDF).';
-      case 502: return 'The analyzer is busy right now. Please try again in a moment.';
-      case 503: return 'Upload is temporarily unavailable. Please try again later.';
-      default:  return 'Something went wrong with the upload. Please try again.';
+      case 400: return t('upload.err_400');
+      case 413: return tp('upload.err_413', MASS_MAX_IMAGES);
+      case 422: return t('upload.err_422');
+      case 502: return t('upload.err_502');
+      case 503: return t('upload.err_503');
+      default:  return t('upload.err_default');
     }
   }
 
@@ -129,6 +132,13 @@
     return ids.length === 1 ? ids[0] : null;
   }
 
+  // Staff assignment only means anything in business/multi-user mode (branches + a staff
+  // directory exist). A personal account has neither, so showing the grid there is just a
+  // confusing, always-disabled "Unassigned" dropdown on every saved receipt.
+  function showStaffAssignment(config) {
+    return !!(config && config.multi_user);
+  }
+
   function normalizeStaff(resp) {
     var rows = resp && Array.isArray(resp.staff) ? resp.staff : [];
     return rows.filter(function (r) { return r && r.id; }).map(function (r) {
@@ -150,11 +160,11 @@
   }
 
   function flaggedDisplay(f) {
-    var m = (f && f.merchant) ? str(f.merchant) : 'Receipt';
+    var m = (f && f.merchant) ? str(f.merchant) : t('upload.receipt_fallback');
     if (f && f.existing_expense_id) {
-      return { text: m + ' — Possible duplicate of existing expense ' + str(f.existing_expense_id), duplicate: true };
+      return { text: m + ' — ' + tp('upload.possible_duplicate', str(f.existing_expense_id)), duplicate: true };
     }
-    var reason = (f && f.reason) ? str(f.reason) : 'flagged';
+    var reason = (f && f.reason) ? str(f.reason) : t('upload.flagged_fallback');
     return { text: m + ' — ' + reason, duplicate: false };
   }
 
@@ -191,13 +201,13 @@
   function validateManualEntry(fields) {
     fields = (fields && typeof fields === 'object') ? fields : {};
     var merchant = str(fields.merchant).trim();
-    if (!merchant) return { ok: false, error: 'Merchant is required.' };
+    if (!merchant) return { ok: false, error: t('upload.merchant_required') };
     var expense_date = str(fields.expense_date).trim();
-    if (!MANUAL_DATE_RE.test(expense_date)) return { ok: false, error: 'Date is required (YYYY-MM-DD).' };
+    if (!MANUAL_DATE_RE.test(expense_date)) return { ok: false, error: t('upload.date_required') };
     var amount = Number(fields.amount);
-    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: 'Amount must be a positive number.' };
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: t('upload.amount_required') };
     var category = str(fields.category).trim();
-    if (!category) return { ok: false, error: 'Category is required.' };
+    if (!category) return { ok: false, error: t('upload.category_required') };
     var body = { merchant: merchant, expense_date: expense_date, amount: amount, category: category };
     var currency = str(fields.currency).trim();
     if (currency) body.currency = currency;
@@ -213,9 +223,9 @@
   function manualErrorMessage(status, body) {
     var s = Number(status);
     if (s === 400 && body && typeof body.error === 'string' && body.error) return body.error;
-    if (s === 401 || s === 403) return 'You are not signed in. Please refresh the page and try again.';
-    if (s === 429) return 'Too many requests right now. Please wait a moment and try again.';
-    return 'Could not save that expense. Please try again.';
+    if (s === 401 || s === 403) return t('upload.not_signed_in');
+    if (s === 429) return t('upload.too_many_requests');
+    return t('upload.manual_save_failed');
   }
 
   // ---- DOM / browser helpers (browser only) -------------------------------
@@ -225,6 +235,20 @@
   function el(tag, className) { var n = document.createElement(tag); if (className) n.className = className; return n; }
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
   function msg(className, text) { var p = el('p', className); Escape.setText(p, text); return p; }
+
+  // Optional native bridge. Browser/PWA builds continue to use the normal
+  // file input; Android adds incoming share-intent files when the plugin is
+  // present. Never make receipt data part of diagnostics or logs here.
+  function receiptCapturePlugin() {
+    if (!hasDom()) return null;
+    try {
+      if (!window.Capacitor) return null;
+      if (!window.__snapReceiptCapture && typeof window.Capacitor.registerPlugin === 'function') {
+        window.__snapReceiptCapture = window.Capacitor.registerPlugin('ReceiptCapture');
+      }
+      return window.__snapReceiptCapture || window.Capacitor.Plugins && window.Capacitor.Plugins.ReceiptCapture || null;
+    } catch (e) { return null; }
+  }
 
   function isPdfFile(file) {
     return !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(str(file.name)));
@@ -246,6 +270,10 @@
   // { name, size, data } or rejects.
   function readFileAsBase64(file) {
     return new Promise(function (resolve, reject) {
+      if (file && typeof file.data === 'string') {
+        resolve({ name: str(file.name) || 'shared-receipt', size: toInt(file.size), data: file.data });
+        return;
+      }
       if (!hasFileReader()) { reject(new Error('no FileReader')); return; }
       var fr = new FileReader();
       fr.onload = function () {
@@ -263,11 +291,10 @@
   function selectionHints(files) {
     var hints = [];
     if (files.length > MASS_MAX_IMAGES) {
-      hints.push('You picked ' + files.length + ' files — only the first ' + MASS_MAX_IMAGES +
-        ' are processed per upload. The rest may be skipped.');
+      hints.push(tp('upload.too_many_picked', files.length, MASS_MAX_IMAGES));
     }
     var bigPdf = files.some(function (f) { return isPdfFile(f) && toInt(f.size) > PDF_LARGE_HINT_BYTES; });
-    if (bigPdf) hints.push('One of your PDFs is quite large and may be rejected or truncated.');
+    if (bigPdf) hints.push(t('upload.large_pdf_hint'));
     return hints;
   }
 
@@ -289,9 +316,9 @@
     var uploadMode = 'file';
     var modeToggle = el('div', 'up-mode-toggle');
     modeToggle.setAttribute('role', 'group');
-    modeToggle.setAttribute('aria-label', 'Choose how to add an expense');
-    var fileModeBtn = el('button', 'up-mode-btn'); fileModeBtn.type = 'button'; Escape.setText(fileModeBtn, 'Upload a file');
-    var manualModeBtn = el('button', 'up-mode-btn'); manualModeBtn.type = 'button'; Escape.setText(manualModeBtn, 'Enter manually');
+    modeToggle.setAttribute('aria-label', t('upload.mode_toggle_aria'));
+    var fileModeBtn = el('button', 'up-mode-btn'); fileModeBtn.type = 'button'; Escape.setText(fileModeBtn, t('upload.upload_a_file'));
+    var manualModeBtn = el('button', 'up-mode-btn'); manualModeBtn.type = 'button'; Escape.setText(manualModeBtn, t('upload.enter_manually'));
     modeToggle.appendChild(fileModeBtn);
     modeToggle.appendChild(manualModeBtn);
     rootEl.appendChild(modeToggle);
@@ -302,16 +329,17 @@
     rootEl.appendChild(fileSection);
 
     // Intro line.
-    fileSection.appendChild(msg('up-intro muted', 'Drag receipts here, or pick files. Images and PDFs are supported.'));
+    fileSection.appendChild(msg('up-intro muted', t('upload.intro')));
 
     // Drop zone + hidden file input + browse button.
     var zone = el('div', 'up-zone');
+    zone.setAttribute('data-tour', 'upload-dropzone');
     zone.setAttribute('role', 'button');
     zone.setAttribute('tabindex', '0');
-    zone.setAttribute('aria-label', 'Upload receipts: drag files here or press Enter to browse');
-    var zoneText = msg('up-zone-text', 'Drop images or PDFs here');
+    zone.setAttribute('aria-label', t('upload.zone_aria'));
+    var zoneText = msg('up-zone-text', t('upload.zone_text'));
     zone.appendChild(zoneText);
-    var browse = el('button', 'up-browse'); browse.type = 'button'; Escape.setText(browse, 'Choose files');
+    var browse = el('button', 'up-browse'); browse.type = 'button'; Escape.setText(browse, t('upload.choose_files'));
     zone.appendChild(browse);
 
     var input = el('input', 'up-input');
@@ -320,6 +348,10 @@
     input.setAttribute('accept', 'image/*,application/pdf');
     input.hidden = true;
     zone.appendChild(input);
+    var camera = el('button', 'up-browse up-camera');
+    camera.type = 'button';
+    Escape.setText(camera, 'Take a photo');
+    zone.appendChild(camera);
     fileSection.appendChild(zone);
 
     // Selected-files list + hints.
@@ -330,8 +362,9 @@
 
     // Actions + status + summary areas.
     var actions = el('div', 'up-actions');
-    var uploadBtn = el('button', 'up-upload'); uploadBtn.type = 'button'; Escape.setText(uploadBtn, 'Upload');
-    var clearBtn = el('button', 'up-clear'); clearBtn.type = 'button'; Escape.setText(clearBtn, 'Clear');
+    actions.setAttribute('data-tour', 'ai-extraction-info');
+    var uploadBtn = el('button', 'up-upload'); uploadBtn.type = 'button'; Escape.setText(uploadBtn, t('upload.upload_btn'));
+    var clearBtn = el('button', 'up-clear'); clearBtn.type = 'button'; Escape.setText(clearBtn, t('upload.clear_btn'));
     actions.appendChild(uploadBtn); actions.appendChild(clearBtn);
     fileSection.appendChild(actions);
     var statusEl = msg('up-status muted', '');
@@ -365,12 +398,12 @@
       files.forEach(function (f, idx) {
         var li = el('li', 'up-file');
         var kind = el('span', 'up-file-kind up-file-kind--' + (isPdfFile(f) ? 'pdf' : 'img'));
-        Escape.setText(kind, isPdfFile(f) ? 'PDF' : 'IMG');
+        Escape.setText(kind, isPdfFile(f) ? t('upload.kind_pdf') : t('upload.kind_img'));
         li.appendChild(kind);
         li.appendChild(textSpan('up-file-name', f.name));            // filename is untrusted text
         li.appendChild(textSpan('up-file-size muted', humanSize(f.size)));
         var rm = el('button', 'up-file-remove'); rm.type = 'button';
-        rm.setAttribute('aria-label', 'Remove file');
+        rm.setAttribute('aria-label', t('upload.remove_file_aria'));
         Escape.setText(rm, '×');
         rm.disabled = busy;
         rm.addEventListener('click', function () {
@@ -397,7 +430,7 @@
       files = files.concat(accepted);
       renderList();
       if (rejected > 0) {
-        Escape.setText(statusEl, rejected + ' file(s) were skipped (only images and PDFs are supported).');
+        Escape.setText(statusEl, tp('upload.files_skipped', rejected));
       } else {
         Escape.setText(statusEl, '');
       }
@@ -417,19 +450,43 @@
       if (dt && dt.files) addFiles(dt.files);
     });
 
-    // Browse: click / keyboard opens the native picker.
-    browse.addEventListener('click', function () { if (!busy) input.click(); });
+    function openPicker(mode) {
+      if (busy) return;
+      if (mode === 'camera') {
+        input.setAttribute('accept', 'image/*');
+        // This is a capture hint, not a runtime CAMERA permission. Android and
+        // mobile browsers can hand the action to the system camera app.
+        input.setAttribute('capture', 'environment');
+        Escape.setText(statusEl, 'Opening camera…');
+      } else {
+        input.setAttribute('accept', 'image/*,application/pdf');
+        input.removeAttribute('capture');
+      }
+      input.click();
+    }
+
+    // Browse/camera controls acknowledge immediately and leave cancellation
+    // harmless: no selection means the current list and status remain usable.
+    browse.addEventListener('click', function (ev) { ev.stopPropagation(); openPicker('files'); });
+    camera.addEventListener('click', function (ev) { ev.stopPropagation(); openPicker('camera'); });
     zone.addEventListener('click', function (ev) {
       if (busy) return;
-      if (ev.target === browse) return; // browse handles its own click
-      input.click();
+      if (ev.target === browse || ev.target === camera) return;
+      openPicker('files');
     });
     zone.addEventListener('keydown', function (ev) {
-      if ((ev.key === 'Enter' || ev.key === ' ') && !busy) { ev.preventDefault(); input.click(); }
+      if ((ev.key === 'Enter' || ev.key === ' ') && !busy) { ev.preventDefault(); openPicker('files'); }
     });
     input.addEventListener('change', function () {
       addFiles(input.files);
+      input.setAttribute('accept', 'image/*,application/pdf');
+      input.removeAttribute('capture');
       input.value = ''; // allow re-selecting the same file
+    });
+    input.addEventListener('cancel', function () {
+      input.setAttribute('accept', 'image/*,application/pdf');
+      input.removeAttribute('capture');
+      Escape.setText(statusEl, '');
     });
 
     clearBtn.addEventListener('click', function () {
@@ -452,17 +509,49 @@
       renderList();
     }
 
+    function importSharedFiles() {
+      var plugin = receiptCapturePlugin();
+      if (!plugin || typeof plugin.getPendingFiles !== 'function' || typeof plugin.readFile !== 'function') return;
+      plugin.getPendingFiles().then(function (payload) {
+        var items = payload && Array.isArray(payload.items) ? payload.items : [];
+        if (!items.length) return;
+        Escape.setText(statusEl, 'Preparing ' + items.length + ' shared file(s)…');
+        return Promise.all(items.map(function (item) {
+          return plugin.readFile({ id: item.id }).then(function (file) {
+            return {
+              name: file && file.name || item.name || 'shared-receipt',
+              type: file && file.mimeType || item.mimeType || '',
+              size: file && file.size || item.size || 0,
+              data: file && file.data || ''
+            };
+          });
+        })).then(function (incoming) {
+          addFiles(incoming);
+          if (typeof plugin.clearPendingFiles === 'function') {
+            return plugin.clearPendingFiles({ ids: items.map(function (item) { return item.id; }) });
+          }
+        });
+      }).catch(function () {
+        Escape.setText(statusEl, 'A shared file could not be prepared. Please choose it again.');
+      });
+    }
+
+    var nativeCapture = receiptCapturePlugin();
+    if (nativeCapture && typeof nativeCapture.addListener === 'function') {
+      nativeCapture.addListener('sharedFiles', importSharedFiles);
+    }
+
     function doUpload() {
       setBusy(true);
       clear(summaryArea);
-      Escape.setText(statusEl, 'Reading files…');
+      Escape.setText(statusEl, t('upload.reading_files'));
       Promise.all(files.map(readFileAsBase64)).then(function (entries) {
-        Escape.setText(statusEl, 'Uploading ' + entries.length + ' file(s)…');
+        Escape.setText(statusEl, tp('upload.uploading_count', entries.length));
         var body = buildUploadBody(entries);
         return apiFetch('/api/upload', { method: 'POST', body: body });
       }).then(function (resp) {
         setBusy(false);
-        Escape.setText(statusEl, 'Done.');
+        Escape.setText(statusEl, t('upload.done'));
         savedSelected = {};
         staffMsg = null;
         renderSummary(summarize(resp));
@@ -479,41 +568,42 @@
       savedItemsState = vm.savedItems || [];
 
       var counts = el('div', 'up-counts');
-      counts.appendChild(countChip('saved', 'Saved', vm.saved));
-      counts.appendChild(countChip('failed', 'Failed', vm.failedCount));
-      counts.appendChild(countChip('flagged', 'Flagged', vm.flaggedCount));
-      counts.appendChild(countChip('images', 'Files', vm.images));
+      counts.appendChild(countChip('saved', t('upload.count_saved'), vm.saved));
+      counts.appendChild(countChip('failed', t('upload.count_failed'), vm.failedCount));
+      counts.appendChild(countChip('flagged', t('upload.count_flagged'), vm.flaggedCount));
+      counts.appendChild(countChip('images', t('upload.count_files'), vm.images));
       summaryArea.appendChild(counts);
 
       if (vm.hasTruncatedImages) {
-        summaryArea.appendChild(msg('up-notice', vm.truncatedImages +
-          ' image(s) were partially processed (truncated by the server).'));
+        summaryArea.appendChild(msg('up-notice', tp('upload.images_truncated', vm.truncatedImages)));
       }
       if (vm.pagesTruncated) {
-        summaryArea.appendChild(msg('up-notice', 'Some PDF pages were skipped (page limit reached).'));
+        summaryArea.appendChild(msg('up-notice', t('upload.pages_truncated')));
       }
 
       // QA report #1: show WHAT was actually read off each saved receipt (merchant,
       // amount, category, reference number) instead of a bare count — a clean "1 saved"
       // with nothing else read as "maybe it didn't upload" / "did it read this right?".
       if (vm.savedItems.length) {
-        summaryArea.appendChild(textHead('up-list-title', 'Saved'));
-        if (staffMsg) summaryArea.appendChild(msg('up-staff-msg', staffMsg));
-        var staffHost = el('div', 'up-staff-host');
-        summaryArea.appendChild(staffHost);
-        renderStaffGrid(staffHost);
-        loadStaffForSavedItems(staffHost);
+        summaryArea.appendChild(textHead('up-list-title', t('upload.saved')));
+        if (showStaffAssignment(opts.config)) {
+          if (staffMsg) summaryArea.appendChild(msg('up-staff-msg', staffMsg));
+          var staffHost = el('div', 'up-staff-host');
+          summaryArea.appendChild(staffHost);
+          renderStaffGrid(staffHost);
+          loadStaffForSavedItems(staffHost);
+        }
         if (switchView) {
           var viewBtn = el('button', 'up-view-activity');
           viewBtn.type = 'button';
-          Escape.setText(viewBtn, 'View in Activity');
+          Escape.setText(viewBtn, t('upload.view_in_activity'));
           viewBtn.addEventListener('click', function () { switchView('activity'); });
           summaryArea.appendChild(viewBtn);
         }
       }
 
       if (vm.flaggedCount) {
-        summaryArea.appendChild(textHead('up-list-title', 'Flagged for review'));
+        summaryArea.appendChild(textHead('up-list-title', t('upload.flagged_for_review')));
         var fl = el('ul', 'up-result-list');
         vm.flagged.forEach(function (f) {
           var li = el('li', 'up-result up-result--flagged');
@@ -524,24 +614,24 @@
             if (switchView) {
               var viewDup = el('button', 'up-flag-action');
               viewDup.type = 'button';
-              Escape.setText(viewDup, 'View');
+              Escape.setText(viewDup, t('upload.view'));
               viewDup.addEventListener('click', function () { switchView('activity'); });
               actions.appendChild(viewDup);
             }
             if (apiFetch && f.expense_id) {
               var discard = el('button', 'up-flag-action up-flag-action--discard');
               discard.type = 'button';
-              Escape.setText(discard, 'Discard');
+              Escape.setText(discard, t('upload.discard'));
               discard.addEventListener('click', function () {
                 discard.disabled = true;
                 apiFetch('/api/review/' + encodeURIComponent(f.expense_id), {
                   method: 'POST',
                   body: { decision: 'reject', note: 'discarded from upload duplicate prompt' },
                 }).then(function () {
-                  Escape.setText(discard, 'Discarded');
+                  Escape.setText(discard, t('upload.discarded'));
                 }).catch(function () {
                   discard.disabled = false;
-                  Escape.setText(discard, 'Try again');
+                  Escape.setText(discard, t('upload.try_again'));
                 });
               });
               actions.appendChild(discard);
@@ -554,13 +644,13 @@
       }
 
       if (vm.failedCount) {
-        summaryArea.appendChild(textHead('up-list-title', 'Could not process'));
+        summaryArea.appendChild(textHead('up-list-title', t('upload.could_not_process')));
         var ff = el('ul', 'up-result-list');
         vm.failed.forEach(function (f) {
           var li = el('li', 'up-result up-result--failed');
-          var label = 'File ' + (toInt(f && f.image_index) + 1) +
-            (f && f.receipt_index != null ? ', receipt ' + (toInt(f.receipt_index) + 1) : '');
-          var reason = (f && f.reason) ? str(f.reason) : 'could not process';
+          var label = tp('upload.file_label', toInt(f && f.image_index) + 1) +
+            (f && f.receipt_index != null ? tp('upload.receipt_label', toInt(f.receipt_index) + 1) : '');
+          var reason = (f && f.reason) ? str(f.reason) : t('upload.could_not_process_reason');
           Escape.setText(li, label + ' — ' + reason);   // reason is server-sanitized, escaped anyway
           ff.appendChild(li);
         });
@@ -568,7 +658,7 @@
       }
 
       if (!vm.failedCount && !vm.flaggedCount && vm.saved) {
-        summaryArea.appendChild(msg('up-notice up-notice--ok', 'All receipts saved cleanly.'));
+        summaryArea.appendChild(msg('up-notice up-notice--ok', t('upload.all_saved_cleanly')));
       }
     }
 
@@ -603,13 +693,13 @@
       for (var i = 0; i < rows.length; i++) {
         if (String(rows[i].id) === String(staffId)) return rows[i].display_name;
       }
-      return staffId ? String(staffId) : 'Unassigned';
+      return staffId ? String(staffId) : t('upload.unassigned');
     }
 
     function fillStaffSelect(sel, branchId, currentId) {
       var empty = document.createElement('option');
       empty.value = '';
-      Escape.setText(empty, 'Unassigned');
+      Escape.setText(empty, t('upload.unassigned'));
       sel.appendChild(empty);
       (staffByBranch[String(branchId || '')] || []).forEach(function (s) {
         var opt = document.createElement('option');
@@ -621,7 +711,7 @@
     }
 
     function savedLine(it) {
-      var line = str(it && it.merchant) || 'Receipt';
+      var line = str(it && it.merchant) || t('upload.receipt_fallback');
       if (it && it.amount != null) line += ' — ' + (Format ? Format.formatMoney(it.amount) : str(it.amount)) + ' ' + str(it.currency);
       if (it && it.category) line += ' · ' + str(it.category);
       if (it && it.voucher_no) line += ' · ' + str(it.voucher_no);
@@ -635,7 +725,7 @@
       var branchId = selectedBranchId(savedItemsState, savedSelected);
 
       var bulk = el('div', 'up-staff-bulk');
-      bulk.appendChild(textSpan('up-staff-bulk-label', selectedIds.length + ' selected'));
+      bulk.appendChild(textSpan('up-staff-bulk-label', tp('upload.n_selected', selectedIds.length)));
       var bulkSelect = el('select', 'up-staff-bulk-select');
       fillStaffSelect(bulkSelect, branchId || '', '');
       bulkSelect.disabled = !selectedIds.length || branchId === null || !branchId;
@@ -643,7 +733,7 @@
         clear(bulkSelect);
         var mixed = document.createElement('option');
         mixed.value = '';
-        Escape.setText(mixed, 'Pick rows from one branch');
+        Escape.setText(mixed, t('upload.pick_one_branch'));
         bulkSelect.appendChild(mixed);
       }
       bulkSelect.addEventListener('change', function () {
@@ -656,7 +746,7 @@
       var table = el('table', 'up-staff-table');
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
-      ['Select', 'Receipt', 'Staff'].forEach(function (label) {
+      [t('upload.th_select'), t('upload.th_receipt'), t('upload.th_staff')].forEach(function (label) {
         var th = document.createElement('th'); Escape.setText(th, label); hr.appendChild(th);
       });
       thead.appendChild(hr);
@@ -697,15 +787,15 @@
 
     function assignStaff(ids, staffId, host) {
       if (!apiFetch || !ids.length) return;
-      staffMsg = 'Assigning staff…';
+      staffMsg = t('upload.assigning_staff');
       renderStaffGrid(host);
       apiFetch('/api/expenses', { method: 'PATCH', body: { ids: ids, staff_user_id: staffId == null ? null : String(staffId) } }).then(function (resp) {
         applyStaffAssignResult(savedItemsState, ids, staffId, resp);
         savedSelected = {};
-        staffMsg = 'Updated ' + (resp && resp.updated != null ? resp.updated : ids.length) + ' receipt(s).';
+        staffMsg = tp('upload.updated_receipts', resp && resp.updated != null ? resp.updated : ids.length);
         renderStaffGrid(host);
       }).catch(function () {
-        staffMsg = 'Could not assign staff. Please try again.';
+        staffMsg = t('upload.assign_staff_failed');
         renderStaffGrid(host);
       });
     }
@@ -728,39 +818,39 @@
 
     var manualMerchant = el('input', 'up-manual-input');
     manualMerchant.type = 'text';
-    manualMerchant.setAttribute('aria-label', 'Merchant');
-    manualForm.appendChild(manualField('Merchant', manualMerchant));
+    manualMerchant.setAttribute('aria-label', t('upload.field_merchant'));
+    manualForm.appendChild(manualField(t('upload.field_merchant'), manualMerchant));
 
     var manualDate = el('input', 'up-manual-input');
     manualDate.type = 'date';
-    manualDate.setAttribute('aria-label', 'Date');
-    manualForm.appendChild(manualField('Date', manualDate));
+    manualDate.setAttribute('aria-label', t('upload.field_date'));
+    manualForm.appendChild(manualField(t('upload.field_date'), manualDate));
 
     var manualAmount = el('input', 'up-manual-input');
     manualAmount.type = 'number';
     manualAmount.step = 'any';
-    manualAmount.setAttribute('aria-label', 'Amount');
-    manualForm.appendChild(manualField('Amount', manualAmount));
+    manualAmount.setAttribute('aria-label', t('upload.field_amount'));
+    manualForm.appendChild(manualField(t('upload.field_amount'), manualAmount));
 
     var manualCurrency = el('input', 'up-manual-input');
     manualCurrency.type = 'text';
     manualCurrency.value = defaultCurrency;
-    manualCurrency.setAttribute('aria-label', 'Currency');
-    manualForm.appendChild(manualField('Currency', manualCurrency));
+    manualCurrency.setAttribute('aria-label', t('upload.field_currency'));
+    manualForm.appendChild(manualField(t('upload.field_currency'), manualCurrency));
 
     var manualCategory = el('select', 'up-manual-input');
-    manualCategory.setAttribute('aria-label', 'Category');
+    manualCategory.setAttribute('aria-label', t('upload.field_category'));
     manualCategories.forEach(function (c) {
       var o = el('option'); o.value = c; Escape.setText(o, c); manualCategory.appendChild(o);
     });
-    manualForm.appendChild(manualField('Category', manualCategory));
+    manualForm.appendChild(manualField(t('upload.field_category'), manualCategory));
 
     var manualRemark = el('input', 'up-manual-input');
     manualRemark.type = 'text';
-    manualRemark.setAttribute('aria-label', 'Remark (optional)');
-    manualForm.appendChild(manualField('Remark', manualRemark));
+    manualRemark.setAttribute('aria-label', t('upload.field_remark_optional'));
+    manualForm.appendChild(manualField(t('upload.field_remark'), manualRemark));
 
-    var manualSaveBtn = el('button', 'up-manual-save'); manualSaveBtn.type = 'submit'; Escape.setText(manualSaveBtn, 'Save');
+    var manualSaveBtn = el('button', 'up-manual-save'); manualSaveBtn.type = 'submit'; Escape.setText(manualSaveBtn, t('upload.save'));
     manualForm.appendChild(manualSaveBtn);
     manualSection.appendChild(manualForm);
 
@@ -788,12 +878,12 @@
       if (!v.ok) { Escape.setText(manualStatus, v.error); return; }
       manualBusy = true;
       manualSaveBtn.disabled = true;
-      Escape.setText(manualStatus, 'Saving…');
+      Escape.setText(manualStatus, t('upload.saving'));
       apiFetch('/api/expenses', { method: 'POST', body: v.body }).then(function (resp) {
         manualBusy = false;
         manualSaveBtn.disabled = false;
         var savedMerchant = (resp && typeof resp.merchant === 'string' && resp.merchant) || v.body.merchant;
-        Escape.setText(manualStatus, 'Saved: ' + savedMerchant + '.');
+        Escape.setText(manualStatus, tp('upload.saved_colon', savedMerchant));
         resetManualForm();
       }).catch(function (err) {
         manualBusy = false;
@@ -820,6 +910,7 @@
 
     // initial state
     renderList();
+    importSharedFiles();
 
     // No lazy data to load (this view is action-driven), but expose a no-op load()
     // so app.js's switcher can call it uniformly like the other views.
@@ -832,8 +923,14 @@
     summarize: summarize,
     errorMessage: errorMessage,
     selectionHints: selectionHints,
+    receiptCapturePlugin: receiptCapturePlugin,
+    readFileAsBase64: readFileAsBase64,
+    isPdfFile: isPdfFile,
+    isImageFile: isImageFile,
+    acceptedFile: acceptedFile,
     branchIdsForSavedItems: branchIdsForSavedItems,
     selectedBranchId: selectedBranchId,
+    showStaffAssignment: showStaffAssignment,
     normalizeStaff: normalizeStaff,
     applyStaffAssignResult: applyStaffAssignResult,
     flaggedDisplay: flaggedDisplay,

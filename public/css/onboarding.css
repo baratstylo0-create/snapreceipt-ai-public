@@ -24,6 +24,216 @@ body.onboard-mode {
 }
 body.onboard-mode::before, body.onboard-mode::after { display: none; }
 
+/* Native shells use the same account flow, but not the website's marketing chrome. */
+body.native-app-mode {
+  --bg: #eef4ff;
+  --bg-2: #e5edff;
+  --panel: #ffffff;
+  --txt: #101a2b;
+  --txt-soft: #5d6b80;
+  --muted: #8793a5;
+  --line: rgba(16, 26, 43, 0.12);
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-contrast: #ffffff;
+  min-height: 100dvh;
+  background:
+    radial-gradient(620px 360px at 8% -8%, rgba(37, 99, 235, 0.18), transparent 70%),
+    linear-gradient(160deg, #f8fbff 0%, #eef4ff 52%, #e5edff 100%);
+}
+body.native-app-mode .app-header,
+body.native-app-mode .app-footer { display: none; }
+body.native-app-mode .app-main { max-width: none; padding: 0; }
+body.native-app-mode .onboard-root {
+  min-height: 100dvh;
+  padding: max(28px, env(safe-area-inset-top)) 20px max(28px, env(safe-area-inset-bottom));
+}
+body.native-app-mode .login-gate {
+  max-width: 420px;
+  margin: 0;
+  padding: 34px 28px 28px;
+  border-radius: 28px;
+  border-color: rgba(37, 99, 235, 0.1);
+  box-shadow: 0 24px 70px rgba(36, 72, 140, 0.18);
+}
+.native-login-mark {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 8px;
+  border-radius: 18px;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+}
+.native-login-subtitle {
+  margin: -2px 0 10px;
+  color: var(--txt-soft);
+  font-size: 14px;
+  text-align: center;
+}
+.native-login-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+/* Native dashboard shell: the data views remain shared with web, but the app
+   gets its own compact header, touch targets, and bottom navigation. */
+body.native-app-mode .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  max-width: none;
+  padding: max(14px, env(safe-area-inset-top)) 16px 10px;
+  background: rgba(248, 251, 255, 0.92);
+  border-bottom: 1px solid rgba(37, 99, 235, 0.1);
+  box-shadow: 0 6px 24px rgba(36, 72, 140, 0.08);
+  backdrop-filter: blur(18px);
+}
+body.native-app-mode .app-header-top {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+body.native-app-mode .brand { gap: 10px; min-width: 0; }
+body.native-app-mode .emblem {
+  width: 38px;
+  height: 38px;
+  border-radius: 13px 13px 13px 5px;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.2);
+}
+body.native-app-mode .emblem svg { width: 23px; height: 23px; }
+body.native-app-mode .brand-title {
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+body.native-app-mode .brand-sub {
+  margin-top: 1px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+body.native-app-mode .header-actions {
+  margin-left: auto;
+  gap: 5px;
+  flex-wrap: nowrap;
+}
+body.native-app-mode .header-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: transparent;
+  border-color: transparent;
+}
+body.native-app-mode .header-actions .icon-btn:hover { transform: none; background: rgba(37, 99, 235, 0.08); }
+body.native-app-mode .session-chip { display: none; }
+body.native-app-mode .nav,
+body.native-app-mode .nav--native {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 40;
+  display: block;
+  width: auto;
+  padding: 6px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 36px rgba(36, 72, 140, 0.2);
+  backdrop-filter: blur(18px);
+}
+body.native-app-mode .nav-links {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+}
+body.native-app-mode .nav-link,
+body.native-app-mode .nav-link--native {
+  position: relative;
+  min-width: 0;
+  min-height: 52px;
+  padding: 22px 2px 5px;
+  border-radius: 18px;
+  color: #8290a4;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+body.native-app-mode .nav-link::before {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: currentColor;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
+}
+body.native-app-mode .nav-link[data-view="overview"]::before { content: '⌂'; }
+body.native-app-mode .nav-link[data-view="activity"]::before { content: '≡'; }
+body.native-app-mode .nav-link[data-view="upload"]::before { content: '+'; font-size: 22px; }
+body.native-app-mode .nav-link[data-view="manage"]::before { content: '▦'; }
+body.native-app-mode .nav-link[data-view="settings"]::before { content: '⚙'; font-size: 15px; }
+body.native-app-mode .nav-link.is-active {
+  color: #1d4ed8;
+  background: #eaf1ff;
+  border-color: transparent;
+}
+body.native-app-mode .app-main {
+  max-width: none;
+  padding: 16px 14px calc(96px + env(safe-area-inset-bottom));
+}
+body.native-app-mode .view {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+body.native-app-mode .view-title-row {
+  margin: 4px 2px 14px;
+  padding: 0;
+}
+body.native-app-mode .view-title {
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+body.native-app-mode .ov-kpi,
+body.native-app-mode .ov-linechart,
+body.native-app-mode .ov-donut-wrap,
+body.native-app-mode .act-card,
+body.native-app-mode .up-zone,
+body.native-app-mode .rp-toolbar,
+body.native-app-mode .tp-file-zone,
+body.native-app-mode .set-section,
+body.native-app-mode .manage-shell,
+body.native-app-mode .team-root,
+body.native-app-mode .payments {
+  border-color: rgba(16, 26, 43, 0.08);
+  box-shadow: 0 8px 24px rgba(36, 72, 140, 0.08);
+}
+body.native-app-mode button,
+body.native-app-mode input,
+body.native-app-mode select,
+body.native-app-mode textarea { min-height: 44px; }
+body.native-app-mode .sora-chat { bottom: calc(90px + env(safe-area-inset-bottom)); }
+
+@media (max-width: 420px) {
+  body.native-app-mode .header-actions .icon-btn:nth-child(1),
+  body.native-app-mode .header-actions .icon-btn:nth-child(2) { display: none; }
+  body.native-app-mode .app-main { padding-left: 12px; padding-right: 12px; }
+}
+
 .onboard-root {
   min-height: 100vh;
   display: flex;

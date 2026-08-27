@@ -17,12 +17,15 @@
 // simply isn't exercised there — no document).
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'), require('../format'), require('../api'));
+    module.exports = factory(require('../escape'), require('../format'), require('../api'), require('../i18n'));
   } else {
-    root.Activity = factory(root.Escape, root.Format, root.Api);
+    root.Activity = factory(root.Escape, root.Format, root.Api, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, Format, Api, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
+  var tp = (I18n && I18n.tp) || function (k) { return k; };
 
   // Editable fields the PATCH endpoint accepts (mirror routes/expenses.js `allow`).
   // account_id is DELIBERATELY absent — the server scopes it; the client must
@@ -39,16 +42,19 @@
   // the UI reads like a leaked internal (Owner request 2026-07-12: "needs_review" should read
   // "Need Review"). Known values get a hand-picked label; anything unknown degrades to a
   // Title-Cased version of the raw value (never throws, never shows a blank).
-  var STATUS_LABELS = {
-    saved: 'Saved',
-    needs_review: 'Need Review',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    awaiting_category: 'Awaiting Category',
-    awaiting_remark: 'Awaiting Remark',
-  };
+  function statusLabels() {
+    return {
+      saved: t('activity.status_saved'),
+      needs_review: t('activity.status_needs_review'),
+      approved: t('activity.status_approved'),
+      rejected: t('activity.status_rejected'),
+      awaiting_category: t('activity.status_awaiting_category'),
+      awaiting_remark: t('activity.status_awaiting_remark'),
+    };
+  }
   function statusLabel(status) {
     var raw = status == null ? '' : String(status);
+    var STATUS_LABELS = statusLabels();
     if (STATUS_LABELS[raw]) return STATUS_LABELS[raw];
     if (!raw) return '';
     return raw.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
@@ -63,7 +69,7 @@
   function decisionErrorText(err) {
     var msg = err && err.body && err.body.error;
     if (msg && typeof msg === 'string') return msg;
-    return 'Action failed. Please try again.';
+    return t('activity.action_failed');
   }
 
   // DYNAMIC CATEGORIES (bug fix): the category list is no longer a hardcoded,
@@ -142,7 +148,7 @@
   // result deliberately preserves the existing single-category rendering.
   function mixedCategoryLabel(row) {
     var count = lineItemCategories(row).length;
-    return count > 1 ? 'Mixed (' + count + ')' : null;
+    return count > 1 ? tp('activity.mixed_count', count) : null;
   }
 
   // Normalise the data consumed by the detail drawer without changing the
@@ -216,7 +222,7 @@
     var list = anomaly && Array.isArray(anomaly.reasons) ? anomaly.reasons : [];
     var details = list.map(function (r) { return r && typeof r === 'object' ? str(r.detail) : ''; })
       .filter(function (s) { return s !== ''; });
-    return details.length ? details.join('; ') : 'Flagged for review';
+    return details.length ? details.join('; ') : t('activity.flagged_for_review');
   }
 
   function badgesFor(rowObj) {
@@ -314,8 +320,8 @@
       if (!names[key]) names[key] = key;
     });
     var options = [
-      { value: 'all', label: 'All branches' },
-      { value: 'mine', label: 'My uploads' },
+      { value: 'all', label: t('activity.branch_all') },
+      { value: 'mine', label: t('activity.branch_mine') },
     ];
     var mapped = Object.keys(ids).map(function (id) { return { value: id, label: names[id] || id }; });
     mapped.sort(function (a, b) {
@@ -323,7 +329,7 @@
       return al < bl ? -1 : al > bl ? 1 : (a.value < b.value ? -1 : 1);
     });
     mapped.forEach(function (opt) { options.push(opt); });
-    if (unassigned) options.push({ value: 'unassigned', label: 'Unassigned' });
+    if (unassigned) options.push({ value: 'unassigned', label: t('activity.branch_unassigned') });
     return options;
   }
 
@@ -523,13 +529,13 @@
   // summarizeBulkResult({requested, updated|deleted, results}, verb) -> a short human status
   // line for the bulk action's outcome. verb is the past-tense action word ('approved'/'deleted').
   function summarizeBulkResult(json, verb) {
-    if (!json || typeof json !== 'object') return 'Something went wrong. Please try again.';
+    if (!json || typeof json !== 'object') return t('activity.bulk_something_wrong');
     var requested = typeof json.requested === 'number' ? json.requested : 0;
     var succeeded = typeof json.updated === 'number' ? json.updated
       : (typeof json.deleted === 'number' ? json.deleted : 0);
-    if (requested === 0) return 'Nothing to ' + verb + '.';
-    if (succeeded === requested) return 'All ' + requested + ' ' + verb + '.';
-    return succeeded + ' of ' + requested + ' ' + verb + ' — ' + (requested - succeeded) + ' failed.';
+    if (requested === 0) return tp('activity.bulk_nothing_to', verb);
+    if (succeeded === requested) return tp('activity.bulk_all_done', requested, verb);
+    return tp('activity.bulk_partial', succeeded, requested, verb, requested - succeeded);
   }
 
   // QA B7 (docs/qa/2026-07-09-qa-round.md PR-B): the "Recently deleted" bin + Recover action.
@@ -568,10 +574,10 @@
   // Pure URL builder for the receipt-image proxy (P6 hardening). Kept separate from the
   // render code so it's unit-testable without a DOM. fileId is untrusted (came from OCR/
   // Telegram) so it's always encodeURIComponent'd — never string-concatenated raw into a URL.
-  // The `/api/receipt/*` form (not legacy `/receipt/*`) so images ride the `/api/*` catch-all
-  // instead of a location that other co-hosted apps on the same box might also claim — a
+  // ADR-027: the `/api/receipt/*` form (not legacy `/receipt/*`) so images ride the
+  // `/api/*` → :3005 nginx catch-all that the co-tenant FrictionAI app never claims — a
   // shared `/receipt/` location can only proxy_pass to ONE backend, which is why receipt
-  // display kept breaking whenever the other app's route was fixed.
+  // display kept breaking whenever the other app's route was fixed. See docs/DECISIONS.md.
   function receiptPath(fileId) {
     return '/api/receipt/' + encodeURIComponent(str(fileId));
   }
@@ -603,7 +609,7 @@
   }
 
   function receiptLabel(row) {
-    return receiptKind(row) === 'pdf' ? 'Receipt PDF' : 'Receipt image';
+    return receiptKind(row) === 'pdf' ? t('activity.receipt_pdf') : t('activity.receipt_image');
   }
 
   // Owner-reported 2026-07-11: some receipts (mostly ones captured before ADR-018's durable
@@ -617,9 +623,9 @@
   // distinction is unit-testable without a fetch/DOM.
   function receiptErrorMessage(err) {
     if (err && err.status === 404) {
-      return 'This receipt has no photo available. If you have the original, re-send it in Telegram to attach one.';
+      return t('activity.receipt_no_photo');
     }
-    return 'Could not load the receipt. Please try again shortly.';
+    return t('activity.receipt_load_failed');
   }
 
   // Approve/Reject failure -> {message, resync}. A 409 means the row is no longer pending —
@@ -633,8 +639,8 @@
   // reload the queue and skip re-enabling the buttons — the cards are about to be rebuilt.
   function reviewDecisionError(err) {
     var status = err && err.status;
-    if (status === 409) return { message: 'Already decided — refreshing…', resync: true };
-    if (status === 401) return { message: 'Session expired — please refresh and sign in again.', resync: false };
+    if (status === 409) return { message: t('activity.already_decided'), resync: true };
+    if (status === 401) return { message: t('activity.review_session_expired'), resync: false };
     return { message: decisionErrorText(err), resync: false };
   }
 
@@ -708,7 +714,7 @@
 
   function pill(category) {
     var span = el('span', 'act-pill act-pill--' + categoryColor(category));
-    Escape.setText(span, str(category) || 'Others');
+    Escape.setText(span, str(category) || t('activity.category_others'));
     return span;
   }
 
@@ -718,14 +724,14 @@
   function categoryCell(row) {
     if (row && row.status === 'awaiting_category') {
       var chip = el('span', 'act-pill act-pill--pending');
-      Escape.setText(chip, 'Awaiting category');
+      Escape.setText(chip, t('activity.awaiting_category_chip'));
       return chip;
     }
     var mixed = mixedCategoryLabel(row);
     if (mixed) {
       var mixedChip = pill('Others');
       Escape.setText(mixedChip, mixed);
-      mixedChip.setAttribute('title', mixed + ' line-item categories');
+      mixedChip.setAttribute('title', tp('activity.mixed_title', mixed));
       mixedChip.setAttribute('aria-label', mixed);
       return mixedChip;
     }
@@ -738,13 +744,13 @@
     badgesFor(rowObj).forEach(function (b) {
       var chip = el('span', 'act-badge act-badge--' + b.kind);
       if (b.kind === 'anomaly') {
-        Escape.setText(chip, 'review');
+        Escape.setText(chip, t('activity.badge_review'));
         if (b.reason) { chip.setAttribute('title', Escape.stripControls(b.reason)); } // title is text, not HTML
       } else if (b.kind === 'low-confidence') {
-        Escape.setText(chip, 'low conf');
-        chip.setAttribute('title', 'The AI wasn’t fully confident reading one or more required fields on this receipt — worth a quick double-check.');
+        Escape.setText(chip, t('activity.badge_low_conf'));
+        chip.setAttribute('title', t('activity.badge_low_conf_title'));
       } else if (b.kind === 'converted') {
-        Escape.setText(chip, 'fx');
+        Escape.setText(chip, t('activity.badge_fx'));
         var parts = [];
         if (b.amountOriginal != null) parts.push(Format.formatMoney(b.amountOriginal) + ' ' + (b.original || ''));
         if (b.fxRate != null) parts.push('@ ' + b.fxRate);
@@ -767,7 +773,7 @@
   function loadReceiptImage(expenseId, imgWrap, opts) {
     opts = opts || {};
     var imgClassName = opts.imgClassName || 'act-receipt-image';
-    var alt = opts.alt || 'Receipt image';
+    var alt = opts.alt || t('activity.receipt_image');
     if (!Api || typeof Api.fetchBlob !== 'function') return;
     Api.fetchBlob(receiptByIdPath(expenseId)).then(function (blob) {
       var url = URL.createObjectURL(blob);
@@ -780,7 +786,7 @@
         link.target = '_blank';
         link.rel = 'noopener';
         link.download = 'receipt.pdf';
-        Escape.setText(link, 'Open receipt PDF');
+        Escape.setText(link, t('activity.open_receipt_pdf'));
         imgWrap.appendChild(link);
       } else {
         var img = el('img', imgClassName);
@@ -810,9 +816,9 @@
 
     var actions = el('div', 'tp-confirm-actions');
     var cancelBtn = el('button', 'tp-confirm-cancel'); cancelBtn.type = 'button';
-    Escape.setText(cancelBtn, 'Cancel');
+    Escape.setText(cancelBtn, t('activity.cancel'));
     var confirmBtn = el('button', 'tp-confirm-ok'); confirmBtn.type = 'button';
-    Escape.setText(confirmBtn, confirmLabel || 'Confirm');
+    Escape.setText(confirmBtn, confirmLabel || t('activity.confirm'));
     actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
     card.appendChild(actions);
@@ -844,7 +850,7 @@
       if (state.bulkStatus) bar.appendChild(msg('act-select-status muted', state.bulkStatus));
       var selectBtn = el('button', 'act-select-toggle');
       selectBtn.type = 'button';
-      Escape.setText(selectBtn, 'Select');
+      Escape.setText(selectBtn, t('activity.select'));
       selectBtn.addEventListener('click', handlers.onEnterSelectMode);
       bar.appendChild(selectBtn);
       return bar;
@@ -854,28 +860,28 @@
     var tickAll = el('input', 'act-select-tickall-input');
     tickAll.type = 'checkbox';
     tickAll.checked = allSelected(pageIds, state.selectedIds);
-    tickAll.setAttribute('aria-label', 'Select all on this page');
+    tickAll.setAttribute('aria-label', t('activity.select_all_page'));
     tickAll.addEventListener('change', function () { handlers.onToggleAllRows(pageIds, tickAll.checked); });
     tickAllWrap.appendChild(tickAll);
-    var tickAllLabel = el('span'); Escape.setText(tickAllLabel, 'Select all');
+    var tickAllLabel = el('span'); Escape.setText(tickAllLabel, t('activity.select_all'));
     tickAllWrap.appendChild(tickAllLabel);
     bar.appendChild(tickAllWrap);
 
     var count = state.selectedIds instanceof Set ? state.selectedIds.size : 0;
     var approveBtn = el('button', 'act-select-approve'); approveBtn.type = 'button';
-    Escape.setText(approveBtn, 'Approve (' + count + ')');
+    Escape.setText(approveBtn, tp('activity.approve_count', count));
     approveBtn.disabled = count === 0;
     approveBtn.addEventListener('click', handlers.onBulkApprove);
     bar.appendChild(approveBtn);
 
     var deleteBtn = el('button', 'act-select-delete'); deleteBtn.type = 'button';
-    Escape.setText(deleteBtn, 'Delete (' + count + ')');
+    Escape.setText(deleteBtn, tp('activity.delete_count', count));
     deleteBtn.disabled = count === 0;
     deleteBtn.addEventListener('click', handlers.onBulkDelete);
     bar.appendChild(deleteBtn);
 
     var cancelBtn = el('button', 'act-select-cancel'); cancelBtn.type = 'button';
-    Escape.setText(cancelBtn, 'Cancel');
+    Escape.setText(cancelBtn, t('activity.cancel'));
     cancelBtn.addEventListener('click', handlers.onExitSelectMode);
     bar.appendChild(cancelBtn);
 
@@ -886,27 +892,28 @@
 
   function buildToolbar(state, onChange) {
     var bar = el('div', 'act-toolbar');
+    bar.setAttribute('data-tour', 'review');
 
     var search = el('input', 'act-search');
     search.type = 'search';
-    search.setAttribute('placeholder', 'Search merchant / remark…');
-    search.setAttribute('aria-label', 'Search expenses');
+    search.setAttribute('placeholder', t('activity.search_placeholder'));
+    search.setAttribute('aria-label', t('activity.search_aria'));
     search.value = state.search || '';
     search.addEventListener('input', function () { onChange({ search: search.value, page: 1 }); });
     bar.appendChild(search);
 
     var statusSel = el('select', 'act-filter act-filter--status');
-    statusSel.setAttribute('aria-label', 'Filter by status');
+    statusSel.setAttribute('aria-label', t('activity.filter_status_aria'));
     ['all'].concat(STATUS_OPTIONS).forEach(function (s) {
-      var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? 'All statuses' : statusLabel(s)); statusSel.appendChild(o);
+      var o = el('option'); o.value = s; Escape.setText(o, s === 'all' ? t('activity.all_statuses') : statusLabel(s)); statusSel.appendChild(o);
     });
     statusSel.value = state.filterStatus || 'all';
     statusSel.addEventListener('change', function () { onChange({ filterStatus: statusSel.value, page: 1 }); });
     bar.appendChild(statusSel);
 
     var catSel = el('select', 'act-filter act-filter--category');
-    catSel.setAttribute('aria-label', 'Filter by category');
-    var allOpt = el('option'); allOpt.value = 'all'; Escape.setText(allOpt, 'All categories'); catSel.appendChild(allOpt);
+    catSel.setAttribute('aria-label', t('activity.filter_category_aria'));
+    var allOpt = el('option'); allOpt.value = 'all'; Escape.setText(allOpt, t('activity.all_categories')); catSel.appendChild(allOpt);
     var toolbarCategories = Array.isArray(state.categories) ? state.categories : DEFAULT_CATEGORIES;
     toolbarCategories.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); catSel.appendChild(o); });
     catSel.value = state.filterCategory || 'all';
@@ -915,7 +922,7 @@
 
     if (state.isAdmin) {
       var branchSel = el('select', 'act-filter act-filter--branch');
-      branchSel.setAttribute('aria-label', 'Filter by branch');
+      branchSel.setAttribute('aria-label', t('activity.filter_branch_aria'));
       activityBranchOptions(state.branches, state.rows, state.session).forEach(function (opt) {
         var o = el('option'); o.value = opt.value; Escape.setText(o, opt.label); branchSel.appendChild(o);
       });
@@ -929,8 +936,8 @@
     // filterSortPage range filter below — zero change to the filter itself. Custom Period
     // shows the original free From/To pair, unchanged behaviour.
     var presetSel = el('select', 'act-filter act-filter--datepreset');
-    presetSel.setAttribute('aria-label', 'Date range preset');
-    [['month', 'This Month'], ['pick', 'Month Selection'], ['custom', 'Custom Period']].forEach(function (pair) {
+    presetSel.setAttribute('aria-label', t('activity.date_preset_aria'));
+    [['month', t('activity.this_month')], ['pick', t('activity.month_selection')], ['custom', t('activity.custom_period')]].forEach(function (pair) {
       var o = el('option'); o.value = pair[0]; Escape.setText(o, pair[1]); presetSel.appendChild(o);
     });
     var preset = normaliseDatePreset(state.datePreset);
@@ -952,10 +959,10 @@
 
     if (preset === 'pick') {
       var monthWrap = el('label', 'act-filter act-filter--date');
-      var monthLab = el('span', 'act-filter-date-label'); Escape.setText(monthLab, 'Month'); monthWrap.appendChild(monthLab);
+      var monthLab = el('span', 'act-filter-date-label'); Escape.setText(monthLab, t('activity.month_label')); monthWrap.appendChild(monthLab);
       var monthInput = el('input', 'act-date-month');
       monthInput.type = 'month';
-      monthInput.setAttribute('aria-label', 'Select month');
+      monthInput.setAttribute('aria-label', t('activity.select_month_aria'));
       monthInput.value = state.selectedMonth || thisMonthRange(new Date()).from.slice(0, 7);
       monthInput.addEventListener('change', function () {
         var mm = monthInput.value;
@@ -969,20 +976,20 @@
       // TEXT (messy OCR dates normalised to ISO-ish in JS), so these feed the pure
       // dateFrom/dateTo range filter in filterSortPage — string comparison, inclusive.
       var fromWrap = el('label', 'act-filter act-filter--date');
-      var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, 'From'); fromWrap.appendChild(fromLab);
+      var fromLab = el('span', 'act-filter-date-label'); Escape.setText(fromLab, t('activity.from_label')); fromWrap.appendChild(fromLab);
       var dateFrom = el('input', 'act-date-from');
       dateFrom.type = 'date';
-      dateFrom.setAttribute('aria-label', 'From date');
+      dateFrom.setAttribute('aria-label', t('activity.from_date_aria'));
       dateFrom.value = state.dateFrom || '';
       dateFrom.addEventListener('change', function () { onChange({ dateFrom: dateFrom.value, page: 1 }); });
       fromWrap.appendChild(dateFrom);
       bar.appendChild(fromWrap);
 
       var toWrap = el('label', 'act-filter act-filter--date');
-      var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, 'To'); toWrap.appendChild(toLab);
+      var toLab = el('span', 'act-filter-date-label'); Escape.setText(toLab, t('activity.to_label')); toWrap.appendChild(toLab);
       var dateTo = el('input', 'act-date-to');
       dateTo.type = 'date';
-      dateTo.setAttribute('aria-label', 'To date');
+      dateTo.setAttribute('aria-label', t('activity.to_date_aria'));
       dateTo.value = state.dateTo || '';
       dateTo.addEventListener('change', function () { onChange({ dateTo: dateTo.value, page: 1 }); });
       toWrap.appendChild(dateTo);
@@ -999,7 +1006,7 @@
   function buildViewToggle(state, onChange) {
     var wrap = el('div', 'act-view-toggle');
     wrap.setAttribute('role', 'group');
-    wrap.setAttribute('aria-label', 'Switch between table and card view');
+    wrap.setAttribute('aria-label', t('activity.view_toggle_aria'));
 
     function modeBtn(mode, label) {
       var btn = el('button', 'act-view-btn' + (state.viewMode === mode ? ' is-active' : ''));
@@ -1009,8 +1016,8 @@
       return btn;
     }
 
-    wrap.appendChild(modeBtn('table', 'Table'));
-    wrap.appendChild(modeBtn('cards', 'Cards'));
+    wrap.appendChild(modeBtn('table', t('activity.view_table')));
+    wrap.appendChild(modeBtn('cards', t('activity.view_cards')));
     return wrap;
   }
 
@@ -1042,11 +1049,11 @@
 
   function columnLabels(fieldSpec) {
     return {
-      merchant: labelFor('merchant', fieldSpec, 'Merchant'),
-      expense_date: labelFor('expense_date', fieldSpec, 'Date'),
-      amount: labelFor('amount', fieldSpec, 'Amount'),
-      category: labelFor('category', fieldSpec, 'Category'),
-      status: 'Status',
+      merchant: labelFor('merchant', fieldSpec, t('activity.col_merchant')),
+      expense_date: labelFor('expense_date', fieldSpec, t('activity.col_date')),
+      amount: labelFor('amount', fieldSpec, t('activity.col_amount')),
+      category: labelFor('category', fieldSpec, t('activity.col_category')),
+      status: t('activity.col_status'),
     };
   }
 
@@ -1069,8 +1076,8 @@
 
     var chevron = el('button', 'act-status-chevron');
     chevron.type = 'button';
-    chevron.title = 'Recategorise';
-    chevron.setAttribute('aria-label', 'Recategorise this rejected bill');
+    chevron.title = t('activity.recategorise');
+    chevron.setAttribute('aria-label', t('activity.recategorise_aria'));
     Escape.setText(chevron, '▾'); // ▾
     actions.appendChild(chevron);
 
@@ -1079,7 +1086,7 @@
     var select = el('select', 'act-status-picker-select');
     var cats = Array.isArray(categories) && categories.length ? categories : DEFAULT_CATEGORIES;
     cats.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); select.appendChild(o); });
-    var apply = el('button', 'act-status-picker-apply'); apply.type = 'button'; Escape.setText(apply, 'Apply');
+    var apply = el('button', 'act-status-picker-apply'); apply.type = 'button'; Escape.setText(apply, t('activity.apply'));
     var pst = el('span', 'act-status-picker-msg muted');
     picker.appendChild(select); picker.appendChild(apply); picker.appendChild(pst);
     actions.appendChild(picker);
@@ -1092,14 +1099,14 @@
     apply.addEventListener('click', function (ev) {
       ev.stopPropagation();
       apply.disabled = true;
-      Escape.setText(pst, 'Saving…');
+      Escape.setText(pst, t('activity.saving'));
       handlers.onRecategorize(r, select.value, pst, apply);
     });
 
     var del = el('button', 'act-status-delete');
     del.type = 'button';
-    del.title = 'Delete permanently (no confirmation)';
-    del.setAttribute('aria-label', 'Permanently delete this rejected bill');
+    del.title = t('activity.delete_permanently_title');
+    del.setAttribute('aria-label', t('activity.delete_permanently_aria'));
     Escape.setText(del, '✖'); // ✖
     del.addEventListener('click', function (ev) {
       ev.stopPropagation();
@@ -1120,13 +1127,13 @@
     // QA B4: a leading checkbox column, only present in select mode (tick-all lives in the
     // select bar above the table, not this header — see buildSelectBar).
     if (state.selectMode) htr.appendChild(textCell('th', 'act-th act-th--select', ''));
-    htr.appendChild(textCell('th', 'act-th act-th--ref', 'Ref'));
+    htr.appendChild(textCell('th', 'act-th act-th--ref', t('activity.col_ref')));
     htr.appendChild(textCell('th', 'act-th', labels.merchant));
     htr.appendChild(sortableTh(labels.expense_date, 'date', state, handlers.onChange));
     htr.appendChild(sortableTh(labels.amount, 'amount', state, handlers.onChange));
     if (state.isAdmin) {
-      htr.appendChild(textCell('th', 'act-th act-th--branch', 'Branch'));
-      htr.appendChild(textCell('th', 'act-th act-th--staff', 'Staff'));
+      htr.appendChild(textCell('th', 'act-th act-th--branch', t('activity.col_branch')));
+      htr.appendChild(textCell('th', 'act-th act-th--staff', t('activity.col_staff')));
     }
     htr.appendChild(textCell('th', 'act-th', labels.category));
     htr.appendChild(textCell('th', 'act-th', labels.status));
@@ -1146,7 +1153,7 @@
         var rowCb = el('input', 'act-row-select');
         rowCb.type = 'checkbox';
         rowCb.checked = !!(state.selectedIds instanceof Set && state.selectedIds.has(r.id));
-        rowCb.setAttribute('aria-label', 'Select this bill');
+        rowCb.setAttribute('aria-label', t('activity.select_this_bill'));
         rowCb.addEventListener('click', function (ev) { ev.stopPropagation(); });
         rowCb.addEventListener('change', function () { handlers.onToggleRow(r.id, rowCb.checked); });
         selTd.appendChild(rowCb);
@@ -1205,7 +1212,7 @@
       var cardCb = el('input', 'act-card-select');
       cardCb.type = 'checkbox';
       cardCb.checked = !!(selectState.selectedIds instanceof Set && selectState.selectedIds.has(r.id));
-      cardCb.setAttribute('aria-label', 'Select this bill');
+      cardCb.setAttribute('aria-label', t('activity.select_this_bill'));
       cardCb.addEventListener('click', function (ev) { ev.stopPropagation(); });
       cardCb.addEventListener('change', function () { handlers.onToggleRow(r.id, cardCb.checked); });
       card.appendChild(cardCb);
@@ -1213,7 +1220,7 @@
 
     if (hasReceiptImage(r)) {
       var thumbWrap = el('div', 'act-card-thumb');
-      thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
+      thumbWrap.appendChild(msg('act-receipt-msg muted', t('activity.loading_ellipsis')));
       card.appendChild(thumbWrap);
       loadReceiptImage(r.id, thumbWrap, { imgClassName: 'act-card-thumb-image', alt: 'Receipt thumbnail', kind: receiptKind(r) });
     }
@@ -1227,16 +1234,30 @@
 
     body.appendChild(badgeChips(r));
 
+    // Bug fix (2026-08-19, Barat: "Bill details looks messy"): date/amount/branch/
+    // staff/ref used to sit as 5 siblings in one space-between flex row, which
+    // crammed together unevenly whenever admin fields were present. Split into a
+    // top row (date, amount — always exactly 2 items, space-between reads cleanly)
+    // and a wrapped sub-row for the optional branch/staff/ref chips underneath.
     var meta = el('div', 'act-card-meta');
-    meta.appendChild(textCell('span', 'act-card-date', displayDate(r.expense_date)));
+    var metaTop = el('div', 'act-card-meta-top');
+    metaTop.appendChild(textCell('span', 'act-card-date', displayDate(r.expense_date)));
     var amt = el('span', 'act-card-amount');
     Escape.setText(amt, Format.formatMoney(r.amount) + ' ' + str(r.currency));
-    meta.appendChild(amt);
+    metaTop.appendChild(amt);
+    meta.appendChild(metaTop);
+
+    var subParts = [];
     if (directory && directory.isAdmin) {
-      meta.appendChild(textCell('span', 'act-card-branch', 'Branch: ' + displayBranchName(r, directory.branchNames)));
-      meta.appendChild(textCell('span', 'act-card-staff', 'Staff: ' + displayStaffName(r, directory.staffNames)));
+      subParts.push(textCell('span', 'act-card-branch', tp('activity.branch_prefix', displayBranchName(r, directory.branchNames))));
+      subParts.push(textCell('span', 'act-card-staff', tp('activity.staff_prefix', displayStaffName(r, directory.staffNames))));
     }
-    if (refDisplay(r) !== '—') meta.appendChild(textCell('span', 'act-card-ref muted', refDisplay(r)));
+    if (refDisplay(r) !== '—') subParts.push(textCell('span', 'act-card-ref', refDisplay(r)));
+    if (subParts.length) {
+      var metaSub = el('div', 'act-card-meta-sub');
+      subParts.forEach(function (p) { metaSub.appendChild(p); });
+      meta.appendChild(metaSub);
+    }
     body.appendChild(meta);
 
     body.appendChild(buildStatusCell('span', r, categories, handlers));
@@ -1265,14 +1286,14 @@
 
   function buildPager(page, onChange) {
     var pager = el('div', 'act-pager');
-    var prev = el('button', 'act-page-prev'); prev.type = 'button'; Escape.setText(prev, 'Prev');
+    var prev = el('button', 'act-page-prev'); prev.type = 'button'; Escape.setText(prev, t('activity.prev'));
     prev.disabled = page.page <= 1;
     prev.addEventListener('click', function () { onChange({ page: page.page - 1 }); });
 
     var info = el('span', 'act-page-info');
-    Escape.setText(info, 'Page ' + page.page + ' of ' + page.pageCount + ' · ' + page.total + ' expenses');
+    Escape.setText(info, tp('activity.page_info', page.page, page.pageCount, page.total));
 
-    var next = el('button', 'act-page-next'); next.type = 'button'; Escape.setText(next, 'Next');
+    var next = el('button', 'act-page-next'); next.type = 'button'; Escape.setText(next, t('activity.next'));
     next.disabled = page.page >= page.pageCount;
     next.addEventListener('click', function () { onChange({ page: page.page + 1 }); });
 
@@ -1290,18 +1311,18 @@
 
     var drawer = el('aside', 'act-drawer');
     drawer.setAttribute('role', 'dialog');
-    drawer.setAttribute('aria-label', 'Expense detail');
+    drawer.setAttribute('aria-label', t('activity.expense_detail_aria'));
 
     var head = el('div', 'act-drawer-head');
-    head.appendChild(textCell('h3', 'act-drawer-title', rowObj.merchant || 'Expense'));
+    head.appendChild(textCell('h3', 'act-drawer-title', rowObj.merchant || t('activity.expense_fallback')));
     var close = el('button', 'act-drawer-close'); close.type = 'button';
-    close.setAttribute('aria-label', 'Close'); Escape.setText(close, '×');
+    close.setAttribute('aria-label', t('activity.close')); Escape.setText(close, '×');
     close.addEventListener('click', function () { handlers.onClose(); });
     head.appendChild(close);
     drawer.appendChild(head);
 
     // Reference number subtitle (read-only — assigned by the DB, never user-edited).
-    if (refDisplay(rowObj) !== '—') drawer.appendChild(textCell('p', 'act-drawer-ref muted', 'Ref: ' + refDisplay(rowObj)));
+    if (refDisplay(rowObj) !== '—') drawer.appendChild(textCell('p', 'act-drawer-ref muted', tp('activity.ref_prefix', refDisplay(rowObj))));
 
     // Editable fields form
     var form = el('form', 'act-edit-form');
@@ -1341,14 +1362,14 @@
     form.appendChild(field('merchant', labels.merchant));
     form.appendChild(field('expense_date', labels.expense_date));
     form.appendChild(field('amount', labels.amount, 'number'));
-    form.appendChild(field('currency', 'Currency'));
+    form.appendChild(field('currency', t('activity.currency')));
     form.appendChild(field('category', labels.category));
     form.appendChild(field('status', labels.status));
-    form.appendChild(field('remark', 'Remark'));
+    form.appendChild(field('remark', t('activity.remark')));
 
     var actions = el('div', 'act-drawer-actions');
-    var save = el('button', 'act-save'); save.type = 'submit'; Escape.setText(save, 'Save changes');
-    var del = el('button', 'act-delete'); del.type = 'button'; Escape.setText(del, 'Delete');
+    var save = el('button', 'act-save'); save.type = 'submit'; Escape.setText(save, t('activity.save_changes'));
+    var del = el('button', 'act-delete'); del.type = 'button'; Escape.setText(del, t('activity.delete'));
     var status = el('p', 'act-drawer-msg muted');
     actions.appendChild(save); actions.appendChild(del);
     form.appendChild(actions); form.appendChild(status);
@@ -1356,8 +1377,8 @@
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var body = patchBody(rowObj, edited);   // never contains account_id
-      if (!Object.keys(body).length) { Escape.setText(status, 'No changes to save.'); return; }
-      Escape.setText(status, 'Saving…');
+      if (!Object.keys(body).length) { Escape.setText(status, t('activity.no_changes')); return; }
+      Escape.setText(status, t('activity.saving'));
       handlers.onSave(rowObj, body, status);
     });
 
@@ -1366,12 +1387,12 @@
     del.addEventListener('click', function () {
       if (!confirming) {
         confirming = true;
-        Escape.setText(del, 'Confirm delete');
+        Escape.setText(del, t('activity.confirm_delete'));
         del.classList.add('is-confirming');
-        Escape.setText(status, 'Click again to permanently remove this expense.');
+        Escape.setText(status, t('activity.click_again_delete'));
         return;
       }
-      Escape.setText(status, 'Deleting…');
+      Escape.setText(status, t('activity.deleting'));
       handlers.onDelete(rowObj, status);
     });
 
@@ -1381,7 +1402,7 @@
     var items = lineItemDetails(rowObj);
     if (items.length) {
       var liWrap = el('div', 'act-lineitems');
-      liWrap.appendChild(textCell('h4', 'act-lineitems-title', 'Line items'));
+      liWrap.appendChild(textCell('h4', 'act-lineitems-title', t('activity.line_items')));
       var ul = el('ul', 'act-lineitems-list');
       items.forEach(function (it) {
         var li = el('li', 'act-lineitem');
@@ -1415,12 +1436,12 @@
       receipt.appendChild(textCell('span', 'act-receipt-label muted', receiptLabel(rowObj)));
       var imgWrap = el('div', 'act-receipt-image-wrap');
       var status2 = el('p', 'act-receipt-msg muted');
-      Escape.setText(status2, 'Loading receipt image…');
+      Escape.setText(status2, t('activity.loading_receipt_image'));
       imgWrap.appendChild(status2);
       receipt.appendChild(imgWrap);
-      loadReceiptImage(rowObj.id, imgWrap, { imgClassName: 'act-receipt-image', alt: 'Receipt image', kind: receiptKind(rowObj) });
+      loadReceiptImage(rowObj.id, imgWrap, { imgClassName: 'act-receipt-image', alt: t('activity.receipt_image'), kind: receiptKind(rowObj) });
     } else {
-      receipt.appendChild(textCell('span', 'act-receipt-label muted', 'No receipt on file'));
+      receipt.appendChild(textCell('span', 'act-receipt-label muted', t('activity.no_receipt_on_file')));
     }
     drawer.appendChild(receipt);
 
@@ -1440,15 +1461,15 @@
       if (typeof handlers.onOpen === 'function') {
         thumbWrap.setAttribute('role', 'button');
         thumbWrap.setAttribute('tabindex', '0');
-        thumbWrap.setAttribute('title', 'Open full receipt');
+        thumbWrap.setAttribute('title', t('activity.open_full_receipt'));
         thumbWrap.addEventListener('click', function () { handlers.onOpen(rowObj); });
         thumbWrap.addEventListener('keydown', function (ev) {
           if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); handlers.onOpen(rowObj); }
         });
       }
-      thumbWrap.appendChild(msg('act-receipt-msg muted', 'Loading…'));
+      thumbWrap.appendChild(msg('act-receipt-msg muted', t('activity.loading_ellipsis')));
       card.appendChild(thumbWrap);
-      loadReceiptImage(rowObj.id, thumbWrap, { imgClassName: 'act-review-thumb-image', alt: 'Receipt image', kind: receiptKind(rowObj) });
+      loadReceiptImage(rowObj.id, thumbWrap, { imgClassName: 'act-review-thumb-image', alt: t('activity.receipt_image'), kind: receiptKind(rowObj) });
     }
 
     var main = el('div', 'act-review-main');
@@ -1475,8 +1496,8 @@
     main.appendChild(textCell('p', 'act-review-reason', reason));  // untrusted reason -> escaped
 
     var actions = el('div', 'act-review-actions');
-    var approve = el('button', 'act-review-approve'); approve.type = 'button'; Escape.setText(approve, 'Approve');
-    var reject = el('button', 'act-review-reject'); reject.type = 'button'; Escape.setText(reject, 'Reject');
+    var approve = el('button', 'act-review-approve'); approve.type = 'button'; Escape.setText(approve, t('activity.approve'));
+    var reject = el('button', 'act-review-reject'); reject.type = 'button'; Escape.setText(reject, t('activity.reject'));
     var st = el('span', 'act-review-msg muted');
     // Pass BOTH buttons so onDecide can disable them for the in-flight request — without a
     // re-entrancy guard a double-click (or Approve-then-Reject before the row clears) fires a
@@ -1503,13 +1524,13 @@
     var amt = el('span', 'act-await-amount');
     Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
     card.appendChild(amt);
-    card.appendChild(textCell('p', 'act-await-note muted', 'Pick a category for this receipt:'));
+    card.appendChild(textCell('p', 'act-await-note muted', t('activity.pick_category_note')));
 
     var actions = el('div', 'act-await-actions');
     var select = el('select', 'act-await-select');
     var cats = Array.isArray(categories) && categories.length ? categories : DEFAULT_CATEGORIES;
     cats.forEach(function (c) { var o = el('option'); o.value = c; Escape.setText(o, c); select.appendChild(o); });
-    var save = el('button', 'act-await-save'); save.type = 'button'; Escape.setText(save, 'Save category');
+    var save = el('button', 'act-await-save'); save.type = 'button'; Escape.setText(save, t('activity.save_category'));
     var st = el('span', 'act-await-msg muted');
     save.addEventListener('click', function () { handlers.onPick(rowObj, select.value, card, st, save); });
     actions.appendChild(select); actions.appendChild(save); actions.appendChild(st);
@@ -1557,25 +1578,24 @@
     rootEl.appendChild(deletedHost);
     // Awaiting-category picker (dashboard parity of the bot #74 picker). Heading + area are
     // hidden entirely when nothing is pending (an exception state, not a standing queue).
-    var awaitHead = textCell('h3', 'act-await-title', 'Needs a category');
+    var awaitHead = textCell('h3', 'act-await-title', t('activity.needs_category_heading'));
     var awaitArea = el('div', 'act-await-area');
     rootEl.appendChild(awaitHead);
     rootEl.appendChild(awaitArea);
     var reviewArea = el('div', 'act-review-area');
+    reviewArea.setAttribute('data-tour', 'anomaly-review');
     // Owner request 2026-07-14: this queue is NOT "every receipt awaiting approval" — it's
     // gated entirely by lib/anomaly.js's detectAnomalies(). A receipt only lands here if it
     // was actually flagged (duplicate / unusual amount / missing-or-mismatched data / looks
     // like personal spend); everything else is saved straight through with no approval step.
     // The old plain "Review queue" title read as a manual gate on every upload, which
     // confused both an admin and the Owner into thinking all receipts needed a click here.
-    var reviewHead = textCell('h3', 'act-review-title', 'Anomaly Detection');
+    var reviewHead = textCell('h3', 'act-review-title', t('activity.anomaly_detection_heading'));
     rootEl.appendChild(reviewHead);
-    rootEl.appendChild(msg('act-review-note muted',
-      'Only receipts flagged as a possible duplicate, unusual amount, missing/mismatched data, or personal (non-business) spend show up here — the reason is printed on each card below. Everything else is saved automatically, no approval needed.'));
+    rootEl.appendChild(msg('act-review-note muted', t('activity.anomaly_detection_note')));
     // Discoverability fix (QA report #7): nothing is ever deleted by Approve/Reject —
     // both just set a status. Nobody knew that, so a mis-click felt like data loss.
-    rootEl.appendChild(msg('act-review-note muted',
-      'Approve or Reject just changes the status — nothing is deleted. Find any decision later in Activity → status filter (Approved / Rejected) to undo it.'));
+    rootEl.appendChild(msg('act-review-note muted', t('activity.approve_reject_note')));
     rootEl.appendChild(reviewArea);
 
     // DYNAMIC CATEGORIES: reuse the config already fetched at boot (app.js's
@@ -1634,23 +1654,22 @@
     function runBulkAction(action) {
       var ids = Array.from(state.selectedIds instanceof Set ? state.selectedIds : []);
       if (!ids.length || !apiFetch) return;
-      var plural = ids.length === 1 ? 'bill' : 'bills';
       var message = action === 'approve'
-        ? 'Approve ' + ids.length + ' selected ' + plural + '?'
-        : 'Delete ' + ids.length + ' selected ' + plural + '?';
-      showBulkConfirm(message, action === 'approve' ? 'Approve' : 'Delete', function () {
-        state.bulkStatus = action === 'approve' ? 'Approving…' : 'Deleting…';
+        ? tp('activity.bulk_confirm_approve', ids.length)
+        : tp('activity.bulk_confirm_delete', ids.length);
+      showBulkConfirm(message, action === 'approve' ? t('activity.approve') : t('activity.delete'), function () {
+        state.bulkStatus = action === 'approve' ? t('activity.approving') : t('activity.deleting');
         renderTable();
         var req = action === 'approve'
           ? apiFetch(bulkApprovePath(), { method: 'POST', body: { ids: ids, decision: 'approve' } })
           : apiFetch(bulkDeletePath(), { method: 'POST', body: { ids: ids } });
         req.then(function (json) {
-          state.bulkStatus = summarizeBulkResult(json, action === 'approve' ? 'approved' : 'deleted');
+          state.bulkStatus = summarizeBulkResult(json, action === 'approve' ? t('activity.verb_approved') : t('activity.verb_deleted'));
           state.selectMode = false;
           state.selectedIds = new Set();
           load(true); // refresh from the server so approved/deleted rows reflect immediately
         }).catch(function () {
-          state.bulkStatus = 'Bulk ' + action + ' failed. Please try again.';
+          state.bulkStatus = action === 'approve' ? t('activity.bulk_approve_failed') : t('activity.bulk_delete_failed');
           renderTable();
         });
       });
@@ -1659,8 +1678,8 @@
     function renderTable() {
       var focused = captureFocus(tableArea);
       clear(tableArea);
-      if (state.loading) { tableArea.appendChild(msg('act-loading muted', 'Loading expenses…')); return; }
-      if (state.error) { tableArea.appendChild(msg('act-error', 'Could not load your expenses. Please try again shortly.')); return; }
+      if (state.loading) { tableArea.appendChild(msg('act-loading muted', t('activity.loading_expenses'))); return; }
+      if (state.error) { tableArea.appendChild(msg('act-error', t('activity.load_expenses_failed'))); return; }
       var toolbarEl = buildToolbar(state, onChange);
       toolbarEl.appendChild(buildBinButton());
       tableArea.appendChild(toolbarEl);
@@ -1671,7 +1690,7 @@
       var pageIds = pageData.rows.map(function (r) { return r.id; });
       tableArea.appendChild(buildSelectBar(state, pageIds, selectHandlers));
       if (pageData.total === 0) {
-        tableArea.appendChild(msg('act-empty muted', state.rows.length ? 'No expenses match your filters.' : 'No expenses yet. Send a receipt to your Telegram bot to get started.'));
+        tableArea.appendChild(msg('act-empty muted', state.rows.length ? t('activity.no_expenses_match_filters') : t('activity.no_expenses_yet')));
         return;
       }
       var rowHandlers = {
@@ -1722,13 +1741,13 @@
               // Merge server truth back into our cached row.
               var idx = state.rows.findIndex(function (r) { return r.id === orig.id; });
               if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], body, updated && typeof updated === 'object' ? updated : {});
-              Escape.setText(statusEl, 'Saved.');
+              Escape.setText(statusEl, t('activity.saved_period'));
               renderTable();
               // Re-open the row we just saved. On a cache miss (idx === -1) re-open `orig`,
               // NOT state.rows[0] — that would swap the drawer to an unrelated expense (B#2).
               openDrawer(idx !== -1 ? state.rows[idx] : orig);
             })
-            .catch(function () { Escape.setText(statusEl, 'Save failed. Please try again.'); });
+            .catch(function () { Escape.setText(statusEl, t('activity.save_failed')); });
         },
         onDelete: function (orig, statusEl) {
           apiFetch('/api/expenses/' + encodeURIComponent(orig.id), { method: 'DELETE' })
@@ -1737,7 +1756,7 @@
               closeDrawer();
               renderTable();
             })
-            .catch(function () { Escape.setText(statusEl, 'Delete failed. Please try again.'); });
+            .catch(function () { Escape.setText(statusEl, t('activity.delete_failed')); });
         },
       }, { categories: state.categories, fieldSpec: state.fieldSpec }));
       document.addEventListener('keydown', onDrawerKeydown);
@@ -1756,9 +1775,9 @@
     function buildBinButton() {
       var btn = el('button', 'act-bin-btn');
       btn.type = 'button';
-      btn.title = 'Recently deleted';
-      btn.setAttribute('aria-label', 'View recently deleted bills');
-      Escape.setText(btn, '🗑 Recently deleted'); // trash-can + label
+      btn.title = t('activity.recently_deleted');
+      btn.setAttribute('aria-label', t('activity.view_recently_deleted_aria'));
+      Escape.setText(btn, '🗑 ' + t('activity.recently_deleted')); // trash-can + label
       btn.addEventListener('click', openDeletedPanel);
       return btn;
     }
@@ -1776,7 +1795,7 @@
       Escape.setText(amt, Format.formatMoney(rowObj.amount) + ' ' + str(rowObj.currency));
       item.appendChild(amt);
       item.appendChild(textCell('span', 'act-deleted-date muted', displayDate(rowObj.expense_date)));
-      var recover = el('button', 'act-deleted-recover'); recover.type = 'button'; Escape.setText(recover, 'Recover');
+      var recover = el('button', 'act-deleted-recover'); recover.type = 'button'; Escape.setText(recover, t('activity.recover'));
       var st = el('span', 'act-deleted-msg muted');
       recover.addEventListener('click', function () { handlers.onRecover(rowObj, st, recover); });
       item.appendChild(recover);
@@ -1786,31 +1805,31 @@
       // stated retention policy (see purgeReminderDate's own comment — no auto-purge job
       // exists yet). Omitted entirely for a row with no/invalid deleted_at.
       var reminder = purgeReminderDate(rowObj.deleted_at);
-      if (reminder) row.appendChild(textCell('div', 'act-deleted-purge muted', 'Permanently removed on ' + reminder));
+      if (reminder) row.appendChild(textCell('div', 'act-deleted-purge muted', tp('activity.permanently_removed_on', reminder)));
       return row;
     }
 
     function renderDeletedList() {
       if (!deletedListArea) return;
       clear(deletedListArea);
-      if (deletedState.loading) { deletedListArea.appendChild(msg('act-loading muted', 'Loading…')); return; }
-      if (deletedState.error) { deletedListArea.appendChild(msg('act-error', 'Could not load recently deleted bills.')); return; }
+      if (deletedState.loading) { deletedListArea.appendChild(msg('act-loading muted', t('activity.loading_ellipsis'))); return; }
+      if (deletedState.error) { deletedListArea.appendChild(msg('act-error', t('activity.load_deleted_failed'))); return; }
       if (!deletedState.rows.length) {
-        deletedListArea.appendChild(msg('act-empty muted', 'Nothing here — bills you delete show up in this list and can be recovered.'));
+        deletedListArea.appendChild(msg('act-empty muted', t('activity.deleted_empty')));
         return;
       }
       deletedState.rows.forEach(function (r) {
         deletedListArea.appendChild(buildDeletedItem(r, {
           onRecover: function (rowObj, st, btn) {
             btn.disabled = true;
-            Escape.setText(st, 'Restoring…');
+            Escape.setText(st, t('activity.restoring'));
             apiFetch(restorePath(rowObj.id), { method: 'POST' })
               .then(function () {
                 deletedState.rows = deletedState.rows.filter(function (x) { return x.id !== rowObj.id; });
                 renderDeletedList();
                 load(true); // refresh the main table so the recovered bill reappears there
               })
-              .catch(function () { btn.disabled = false; Escape.setText(st, 'Restore failed. Please try again.'); });
+              .catch(function () { btn.disabled = false; Escape.setText(st, t('activity.restore_failed')); });
           },
         }));
       });
@@ -1838,15 +1857,15 @@
       clear(deletedHost);
       var wrap = el('div', 'act-drawer');
       var head = el('div', 'act-drawer-head');
-      head.appendChild(textCell('h3', 'act-drawer-title', 'Recently deleted'));
+      head.appendChild(textCell('h3', 'act-drawer-title', t('activity.recently_deleted')));
       var close = el('button', 'act-drawer-close');
       close.type = 'button';
-      close.setAttribute('aria-label', 'Close');
+      close.setAttribute('aria-label', t('activity.close'));
       Escape.setText(close, '×'); // ×
       close.addEventListener('click', closeDeletedPanel);
       head.appendChild(close);
       wrap.appendChild(head);
-      wrap.appendChild(msg('act-await-note muted', 'Bills deleted from Activity land here and can be recovered.'));
+      wrap.appendChild(msg('act-await-note muted', t('activity.deleted_land_note')));
       deletedListArea = el('div', 'act-deleted-list');
       wrap.appendChild(deletedListArea);
       deletedHost.appendChild(wrap);
@@ -1864,7 +1883,7 @@
     // awaiting-category picker (recategorizeBody) — a recategorised rejected bill becomes an
     // ordinary saved row, out of the Rejected filter.
     function onRecategorizeRejected(rowObj, category, statusEl, applyBtn) {
-      if (!category) { Escape.setText(statusEl, 'Pick a category first.'); applyBtn.disabled = false; return; }
+      if (!category) { Escape.setText(statusEl, t('activity.pick_category_first')); applyBtn.disabled = false; return; }
       var body = recategorizeBody(category);
       apiFetch('/api/expenses/' + encodeURIComponent(rowObj.id), { method: 'PATCH', body: body })
         .then(function (updated) {
@@ -1872,7 +1891,7 @@
           if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], body, updated && typeof updated === 'object' ? updated : {});
           renderTable();
         })
-        .catch(function () { applyBtn.disabled = false; Escape.setText(statusEl, 'Save failed. Please try again.'); });
+        .catch(function () { applyBtn.disabled = false; Escape.setText(statusEl, t('activity.save_failed')); });
     }
 
     // QA B8: ONE CLICK, no confirmation (Owner explicit) — this fires the DELETE the instant
@@ -1901,16 +1920,16 @@
       rows.forEach(function (r) {
         awaitArea.appendChild(buildAwaitingItem(r, state.categories, {
           onPick: function (rowObj, category, card, st, saveBtn) {
-            if (!category) { Escape.setText(st, 'Pick a category first.'); return; }
+            if (!category) { Escape.setText(st, t('activity.pick_category_first')); return; }
             saveBtn.disabled = true;
-            Escape.setText(st, 'Saving…');
+            Escape.setText(st, t('activity.saving'));
             apiFetch('/api/expenses/' + encodeURIComponent(rowObj.id), { method: 'PATCH', body: { category: category, status: 'saved' } })
               .then(function (updated) {
                 var idx = state.rows.findIndex(function (x) { return x.id === rowObj.id; });
                 if (idx !== -1) state.rows[idx] = Object.assign({}, state.rows[idx], { category: category, status: 'saved' }, updated && typeof updated === 'object' ? updated : {});
                 renderTable(); // re-renders the table AND (via its call) this picker
               })
-              .catch(function () { saveBtn.disabled = false; Escape.setText(st, 'Save failed. Please try again.'); });
+              .catch(function () { saveBtn.disabled = false; Escape.setText(st, t('activity.save_failed')); });
           },
         }));
       });
@@ -1918,16 +1937,16 @@
 
     function renderReview() {
       clear(reviewArea);
-      if (reviewState.loading) { reviewArea.appendChild(msg('act-loading muted', 'Loading review queue…')); return; }
-      if (reviewState.error) { reviewArea.appendChild(msg('act-error', 'Could not load the review queue.')); return; }
-      if (!reviewState.rows.length) { reviewArea.appendChild(msg('act-empty muted', 'Nothing to review. 🎉')); return; }
+      if (reviewState.loading) { reviewArea.appendChild(msg('act-loading muted', t('activity.loading_review_queue'))); return; }
+      if (reviewState.error) { reviewArea.appendChild(msg('act-error', t('activity.load_review_queue_failed'))); return; }
+      if (!reviewState.rows.length) { reviewArea.appendChild(msg('act-empty muted', t('activity.nothing_to_review'))); return; }
       reviewState.rows.forEach(function (r) {
         reviewArea.appendChild(buildReviewItem(r, {
           onOpen: openDrawer, // clicking the receipt thumbnail opens the full detail drawer
           onDecide: function (rowObj, decision, card, st, btns) {
             btns = btns || [];
             btns.forEach(function (b) { b.disabled = true; }); // re-entrancy guard: no second POST while this one is in flight
-            Escape.setText(st, decision === 'approve' ? 'Approving…' : 'Rejecting…');
+            Escape.setText(st, decision === 'approve' ? t('activity.approving') : t('activity.rejecting'));
             apiFetch('/api/review/' + encodeURIComponent(rowObj.id), { method: 'POST', body: { decision: decision } })
               .then(function () {
                 reviewState.rows = reviewState.rows.filter(function (x) { return x.id !== rowObj.id; });

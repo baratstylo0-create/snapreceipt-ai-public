@@ -16,12 +16,14 @@
 // UMD shim so the pure step-state helper is unit-testable without a DOM.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../escape'));
+    module.exports = factory(require('../escape'), require('../i18n'));
   } else {
-    root.Onboarding = factory(root.Escape);
+    root.Onboarding = factory(root.Escape, root.I18n);
   }
-})(typeof self !== 'undefined' ? self : this, function (Escape) {
+})(typeof self !== 'undefined' ? self : this, function (Escape, I18n) {
   'use strict';
+
+  var t = (I18n && I18n.t) || function (k) { return k; };
 
   var STEPS = ['signup', 'welcome', 'connect', 'done'];
 
@@ -54,8 +56,8 @@
   function validateSignup(email, password) {
     var e = (email === null || email === undefined ? '' : String(email)).trim();
     var p = password === null || password === undefined ? '' : String(password);
-    if (!e || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok: false, error: 'Enter a valid email address.' };
-    if (!p || p.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };
+    if (!e || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok: false, error: t('onboarding.invalid_email') };
+    if (!p || p.length < 8) return { ok: false, error: t('onboarding.password_too_short') };
     return { ok: true };
   }
 
@@ -65,17 +67,6 @@
   function el(tag, className) { var n = document.createElement(tag); if (className) n.className = className; return n; }
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
   function text(tag, className, value) { var n = el(tag, className); Escape.setText(n, value); return n; }
-
-  // buildWordmark() — the "SnapReceipt AI" two-tone text logo, same markup/classes as
-  // landing.js/nav.js (global .landing-wordmark* rules in landing.css, loaded on every
-  // page) so onboarding matches the landing page and dashboard header exactly.
-  function buildWordmark() {
-    var wrap = el('span', 'landing-wordmark landing-wordmark--dark');
-    wrap.appendChild(text('span', 'landing-wordmark-snap', 'Snap'));
-    wrap.appendChild(text('span', 'landing-wordmark-receipt', 'Receipt'));
-    wrap.appendChild(text('span', 'landing-wordmark-badge', 'AI'));
-    return wrap;
-  }
 
   function stepDots(active) {
     var wrap = el('div', 'onboard-dots');
@@ -147,23 +138,23 @@
       var host = el('div', 'onboard-guest-explainer-host');
       var card = el('div', 'onboard-guest-explainer-card');
       card.appendChild(text('div', 'onboard-guest-explainer-badge', '🕒'));
-      card.appendChild(text('h2', 'onboard-guest-explainer-title', 'Try it as a guest'));
+      card.appendChild(text('h2', 'onboard-guest-explainer-title', t('onboarding.guest_explainer_title')));
       var body = el('ul', 'onboard-guest-explainer-list');
       [
-        'No email or password needed — you\'re in immediately.',
-        'Try up to 4 receipts on the real Telegram bot and dashboard.',
-        'Your guest data is temporary — it\'s deleted once you close this tab (or automatically within 24 hours).',
-        'Sign up any time to keep going with unlimited receipts.'
+        t('onboarding.guest_explainer_1'),
+        t('onboarding.guest_explainer_2'),
+        t('onboarding.guest_explainer_3'),
+        t('onboarding.guest_explainer_4')
       ].forEach(function (line) {
         body.appendChild(text('li', '', line));
       });
       card.appendChild(body);
 
       var actions = el('div', 'onboard-guest-explainer-actions');
-      var cancelBtn = text('button', 'onboard-btn onboard-btn--secondary', 'Cancel');
+      var cancelBtn = text('button', 'onboard-btn onboard-btn--secondary', t('onboarding.cancel'));
       cancelBtn.type = 'button';
       cancelBtn.addEventListener('click', close);
-      var continueBtn = text('button', 'onboard-btn onboard-btn--primary', 'Continue');
+      var continueBtn = text('button', 'onboard-btn onboard-btn--primary', t('onboarding.continue'));
       continueBtn.type = 'button';
       continueBtn.addEventListener('click', function () {
         close();
@@ -189,7 +180,7 @@
       var wrap = el('div', 'onboard-step onboard-signup');
       var badge = el('div', 'onboard-badge'); badge.textContent = '🔒';
       wrap.appendChild(badge);
-      wrap.appendChild(text('h1', 'onboard-title', 'Create your account'));
+      wrap.appendChild(text('h1', 'onboard-title', t('onboarding.create_account')));
 
       // Google sign-in (wired to the real backend 2026-07-30) — opts.onGoogleSignup
       // is a PLAIN function (not a Promise): clicking it navigates the whole page to
@@ -207,7 +198,7 @@
         + '<path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>'
         + '</svg>';
       googleBtn.appendChild(gIcon);
-      googleBtn.appendChild(text('span', '', 'Continue with Google'));
+      googleBtn.appendChild(text('span', '', t('onboarding.google_signup')));
       var googleError = text('p', 'onboard-error', '');
       googleError.hidden = true;
       googleBtn.addEventListener('click', function () {
@@ -223,7 +214,7 @@
         // instead of faking success.
         if (typeof opts.onGoogleSignup !== 'function') {
           googleError.hidden = false;
-          Escape.setText(googleError, 'Google sign-in isn’t available yet — please use email and password below.');
+          Escape.setText(googleError, t('login.google_unavailable'));
           return;
         }
         googleBtn.disabled = true;
@@ -240,19 +231,19 @@
       // (mountOnboarding only does when cfg.guest_mode is on) — an un-flagged deployment is
       // byte-for-byte unchanged.
       if (opts.onGuest) {
-        var guestBtn = text('button', 'onboard-btn onboard-btn--guest', 'Continue as guest');
+        var guestBtn = text('button', 'onboard-btn onboard-btn--guest', t('onboarding.guest'));
         guestBtn.type = 'button';
         guestBtn.addEventListener('click', function () { showGuestExplainer(); });
         wrap.appendChild(guestBtn);
       }
 
       var divider = el('div', 'onboard-divider');
-      divider.appendChild(text('span', '', 'or'));
+      divider.appendChild(text('span', '', t('onboarding.or')));
       wrap.appendChild(divider);
 
       var form = el('form', 'onboard-form');
 
-      var emailLabel = text('label', 'onboard-label', 'Email');
+      var emailLabel = text('label', 'onboard-label', t('onboarding.email'));
       var emailInput = el('input', 'onboard-input');
       emailInput.type = 'email';
       emailInput.autocomplete = 'email';
@@ -260,11 +251,11 @@
       form.appendChild(emailLabel);
       form.appendChild(emailInput);
 
-      var pwLabel = text('label', 'onboard-label', 'Password');
+      var pwLabel = text('label', 'onboard-label', t('onboarding.password'));
       var pwInput = el('input', 'onboard-input');
       pwInput.type = 'password';
       pwInput.autocomplete = 'new-password';
-      pwInput.placeholder = 'At least 8 characters';
+      pwInput.placeholder = t('onboarding.password_hint');
       form.appendChild(pwLabel);
       form.appendChild(pwInput);
 
@@ -272,7 +263,7 @@
       errorMsg.hidden = true;
       form.appendChild(errorMsg);
 
-      var submit = text('button', 'onboard-btn onboard-btn--primary', 'Create account');
+      var submit = text('button', 'onboard-btn onboard-btn--primary', t('onboarding.create_account_btn'));
       submit.type = 'submit';
       form.appendChild(submit);
 
@@ -283,15 +274,15 @@
         if (typeof opts.onSignup !== 'function') { goTo('welcome'); return; } // preview/no-backend mode
         submit.disabled = true;
         errorMsg.hidden = true;
-        Escape.setText(submit, 'Creating account…');
+        Escape.setText(submit, t('onboarding.creating_account'));
         opts.onSignup(emailInput.value.trim(), pwInput.value).then(function (result) {
           bindToken = (result && result.bindToken) || null;
           goTo('welcome');
         }).catch(function (err) {
           submit.disabled = false;
-          Escape.setText(submit, 'Create account');
+          Escape.setText(submit, t('onboarding.create_account_btn'));
           errorMsg.hidden = false;
-          Escape.setText(errorMsg, (err && err.message) || 'Could not create your account. Please try again.');
+          Escape.setText(errorMsg, (err && err.message) || t('onboarding.signup_failed'));
         });
       });
 
@@ -301,10 +292,10 @@
       // account yet? Sign up now" link exactly, so both entry points are symmetric.
       if (opts.onLogin) {
         var loginRow = el('p', 'login-register-row');
-        loginRow.appendChild(document.createTextNode('Already have an account? '));
+        loginRow.appendChild(document.createTextNode(t('onboarding.already_have_account')));
         var loginLink = el('button', 'login-register-link');
         loginLink.type = 'button';
-        loginLink.textContent = 'Log in';
+        loginLink.textContent = t('onboarding.log_in');
         loginLink.addEventListener('click', function () { opts.onLogin(); });
         loginRow.appendChild(loginLink);
         wrap.appendChild(loginRow);
@@ -318,17 +309,14 @@
       var wrap = el('div', 'onboard-step onboard-welcome');
       var badge = el('div', 'onboard-badge'); badge.textContent = '🌿';
       wrap.appendChild(badge);
-      var welcomeTitle = el('h1', 'onboard-title');
-      welcomeTitle.appendChild(document.createTextNode('Welcome to '));
-      welcomeTitle.appendChild(buildWordmark());
-      wrap.appendChild(welcomeTitle);
-      wrap.appendChild(text('p', 'onboard-sub', 'Snap a receipt · auto-extract · auto-categorize'));
+      wrap.appendChild(text('h1', 'onboard-title', t('onboarding.welcome_title')));
+      wrap.appendChild(text('p', 'onboard-sub', t('onboarding.welcome_sub')));
 
       var list = el('ol', 'onboard-steps-list');
       [
-        'Connect your Telegram bot',
-        'Send a receipt photo',
-        'Watch it land on your dashboard'
+        t('onboarding.welcome_step1'),
+        t('onboarding.welcome_step2'),
+        t('onboarding.welcome_step3')
       ].forEach(function (label, i) {
         var li = el('li', 'onboard-steps-item');
         var num = el('span', 'onboard-steps-num'); num.textContent = String(i + 1);
@@ -338,7 +326,7 @@
       });
       wrap.appendChild(list);
 
-      var cta = text('button', 'onboard-btn onboard-btn--primary', "Let's get connected");
+      var cta = text('button', 'onboard-btn onboard-btn--primary', t('onboarding.get_connected'));
       cta.type = 'button';
       cta.addEventListener('click', function () { goTo('connect'); });
       wrap.appendChild(cta);
@@ -348,11 +336,11 @@
     // --- Connect ---
     function renderConnect() {
       var wrap = el('div', 'onboard-step onboard-connect');
-      wrap.appendChild(text('h1', 'onboard-title onboard-title--sm', 'Connect your Telegram bot'));
-      wrap.appendChild(text('p', 'onboard-sub', "This is how you'll send receipts — snap a photo, send it, done."));
+      wrap.appendChild(text('h1', 'onboard-title onboard-title--sm', t('onboarding.connect_title')));
+      wrap.appendChild(text('p', 'onboard-sub', t('onboarding.connect_sub')));
 
       var link = telegramDeepLink(opts.botUsername, bindToken);
-      var openBtn = text('a', 'onboard-btn onboard-btn--primary onboard-telegram-btn', 'Open Telegram');
+      var openBtn = text('a', 'onboard-btn onboard-btn--primary onboard-telegram-btn', t('onboarding.open_telegram'));
       if (link) { openBtn.href = link; openBtn.target = '_blank'; openBtn.rel = 'noopener noreferrer'; }
       else { openBtn.setAttribute('aria-disabled', 'true'); }
       wrap.appendChild(openBtn);
@@ -364,7 +352,7 @@
 
       var status = el('div', 'onboard-status');
       var dot = el('span', 'onboard-status-dot');
-      var statusText = text('span', 'onboard-status-text', 'Waiting for your first receipt…');
+      var statusText = text('span', 'onboard-status-text', t('onboarding.waiting_receipt'));
       status.appendChild(dot);
       status.appendChild(statusText);
       wrap.appendChild(status);
@@ -377,14 +365,14 @@
         status.classList.add('is-done');
         Escape.setText(dot, '');
         dot.classList.add('is-success');
-        Escape.setText(statusText, 'Got it! Here is what came in:');
+        Escape.setText(statusText, t('onboarding.got_it'));
         result.hidden = false;
         clear(result);
         var merchant = text('div', 'onboard-result-merchant', (row && row.merchant) || 'Receipt');
         var amount = text('div', 'onboard-result-amount', formatAmount(row));
         result.appendChild(merchant);
         result.appendChild(amount);
-        var cta = text('button', 'onboard-btn onboard-btn--primary', 'Continue');
+        var cta = text('button', 'onboard-btn onboard-btn--primary', t('onboarding.continue'));
         cta.type = 'button';
         cta.addEventListener('click', function () { goTo('done'); });
         result.appendChild(cta);
@@ -414,12 +402,12 @@
       // by the time the user comes back from Telegram — they don't have to wait for it. Not
       // the same as "I'll do this later" below (which flags them as still-unconnected and
       // shows the persistent Overview reminder); this one means "I already connected."
-      var manualContinue = text('button', 'onboard-btn onboard-btn--secondary', 'Continue');
+      var manualContinue = text('button', 'onboard-btn onboard-btn--secondary', t('onboarding.continue'));
       manualContinue.type = 'button';
       manualContinue.addEventListener('click', function () { stopPolling(); goTo('done'); });
       wrap.appendChild(manualContinue);
 
-      var skip = text('button', 'onboard-skip', "I'll do this later");
+      var skip = text('button', 'onboard-skip', t('onboarding.do_later'));
       skip.type = 'button';
       skip.addEventListener('click', function () {
         if (typeof opts.onSkip === 'function') opts.onSkip();
@@ -434,26 +422,26 @@
       var wrap = el('div', 'onboard-step onboard-done');
       var badge = el('div', 'onboard-badge'); badge.textContent = '✅';
       wrap.appendChild(badge);
-      wrap.appendChild(text('h1', 'onboard-title', "You're all set"));
-      wrap.appendChild(text('p', 'onboard-sub', 'Your dashboard updates automatically every time you send a receipt.'));
+      wrap.appendChild(text('h1', 'onboard-title', t('onboarding.done_title')));
+      wrap.appendChild(text('p', 'onboard-sub', t('onboarding.done_sub')));
 
       var tabs = [
-        ['Overview', 'Totals, trends, and category breakdown'],
-        ['Activity', 'Every receipt — search, review, edit'],
-        ['Upload', 'Drag in a photo/PDF, or type an expense by hand'],
-        ['Manage', 'Your custom fields and category list'],
-        ['Settings', 'Theme, default page, and preferences']
+        [t('onboarding.tab_overview'), t('onboarding.tab_overview_desc')],
+        [t('onboarding.tab_activity'), t('onboarding.tab_activity_desc')],
+        [t('onboarding.tab_upload'), t('onboarding.tab_upload_desc')],
+        [t('onboarding.tab_manage'), t('onboarding.tab_manage_desc')],
+        [t('onboarding.tab_settings'), t('onboarding.tab_settings_desc')]
       ];
       var list = el('div', 'onboard-tabs-list');
-      tabs.forEach(function (t) {
+      tabs.forEach(function (row2) {
         var row = el('div', 'onboard-tabs-row');
-        row.appendChild(text('span', 'onboard-tabs-name', t[0]));
-        row.appendChild(text('span', 'onboard-tabs-desc', t[1]));
+        row.appendChild(text('span', 'onboard-tabs-name', row2[0]));
+        row.appendChild(text('span', 'onboard-tabs-desc', row2[1]));
         list.appendChild(row);
       });
       wrap.appendChild(list);
 
-      var cta = text('button', 'onboard-btn onboard-btn--primary', 'Go to Dashboard');
+      var cta = text('button', 'onboard-btn onboard-btn--primary', t('onboarding.go_to_dashboard'));
       cta.type = 'button';
       cta.addEventListener('click', function () { if (typeof opts.onFinished === 'function') opts.onFinished(); });
       wrap.appendChild(cta);

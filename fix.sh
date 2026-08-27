@@ -1,34 +1,46 @@
 #!/bin/bash
-# SnapReceipt AI — Emergency fix: replace corrupted files with correct versions
+# SnapReceipt AI — Full frontend sync: replace ALL frontend files with latest from repo
 set -e
 APP=/opt/snapreceipt-ai/public
 BASE=https://raw.githubusercontent.com/baratstylo0-create/snapreceipt-ai-public/deploy-script
 
-echo "=== SnapReceipt AI — Emergency Fix ==="
+echo "=== SnapReceipt AI — Full Frontend Sync ==="
 echo ""
 
-echo "[1/5] Replacing app.js (was corrupted at line 868)..."
-curl -sL "$BASE/public/js/app.js" -o "$APP/js/app.js"
-node -c "$APP/js/app.js" 2>&1 && echo "  OK — syntax valid" || { echo "  FAIL"; exit 1; }
+# Core JS files
+echo "[1/4] Syncing core JS files..."
+for f in app.js api.js authgate.js escape.js exportGuards.js format.js render.js i18n.js legal-theme.js native-security.js; do
+  curl -sL "$BASE/public/js/$f" -o "$APP/js/$f"
+  echo "  $f OK"
+done
 
-echo "[2/5] Replacing accountPanel.js..."
-curl -sL "$BASE/public/js/components/accountPanel.js" -o "$APP/js/components/accountPanel.js"
-node -c "$APP/js/components/accountPanel.js" 2>&1 && echo "  OK" || echo "  WARN"
+# JS Components (ALL of them)
+echo "[2/4] Syncing all JS components..."
+for f in accountPanel.js activity.js agent.js emailverify.js falc.js grid.js landing.js legal.js login.js manage.js nav.js onboarding.js overview.js payments.js ratemeter.js reports.js resetpassword.js settings.js team.js templates.js tour.js upload.js; do
+  curl -sL "$BASE/public/js/components/$f" -o "$APP/js/components/$f"
+  echo "  $f OK"
+done
 
-echo "[3/5] Replacing settings.js..."
-curl -sL "$BASE/public/js/components/settings.js" -o "$APP/js/components/settings.js"
-node -c "$APP/js/components/settings.js" 2>&1 && echo "  OK" || echo "  WARN"
+# CSS files
+echo "[3/4] Syncing CSS files..."
+for f in app.css landing.css onboarding.css tour.css; do
+  curl -sL "$BASE/public/css/$f" -o "$APP/css/$f"
+  echo "  $f OK"
+done
 
-echo "[4/5] Replacing index.html..."
+# index.html
 curl -sL "$BASE/public/index.html" -o "$APP/index.html"
-echo "  OK"
+echo "  index.html OK"
 
-echo "[5/5] Replacing app.css..."
-curl -sL "$BASE/public/css/app.css" -o "$APP/css/app.css"
-echo "  OK"
+# Syntax check critical files
+echo ""
+echo "[4/4] Syntax verification..."
+node -c "$APP/js/app.js" 2>&1 && echo "  app.js OK" || echo "  app.js FAIL"
+node -c "$APP/js/components/nav.js" 2>&1 && echo "  nav.js OK" || echo "  nav.js FAIL"
+node -c "$APP/js/components/settings.js" 2>&1 && echo "  settings.js OK" || echo "  settings.js FAIL"
 
 echo ""
 echo "Restarting pm2..."
 pm2 restart snapreceipt-ai --update-env
 echo ""
-echo "=== Fix complete! Hard-refresh (Ctrl+Shift+R) the site. ==="
+echo "=== Full sync complete! Hard-refresh (Ctrl+Shift+R) the site. ==="
