@@ -2,12 +2,24 @@
 set -e
 APP=/opt/snapreceipt-ai/public
 
-echo "=== SnapReceipt AI — Account Panel Deploy ==="
+echo "=== SnapReceipt AI — Account Panel Deploy v2 ==="
 echo ""
 
-# 1. Write accountPanel.js (new file)
-echo "[1/5] Writing accountPanel.js..."
-mkdir -p "$APP/js/components"
+# 0. Show what's currently there
+echo "[0] Current state check..."
+if [ -f "$APP/js/components/accountPanel.js" ]; then
+  echo "  accountPanel.js exists. First line:"
+  head -1 "$APP/js/components/accountPanel.js"
+  echo "  Checking for CURRENT ACCOUNT text:"
+  grep -c "CURRENT ACCOUNT" "$APP/js/components/accountPanel.js" || echo "  NOT FOUND — old version detected"
+else
+  echo "  accountPanel.js does NOT exist."
+fi
+echo ""
+
+# 1. FORCE write accountPanel.js (delete old first)
+echo "[1/5] Force-writing accountPanel.js..."
+rm -f "$APP/js/components/accountPanel.js"
 cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -91,6 +103,30 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
     for (var j = 0; j < chips.length; j++) chips[j].setAttribute('aria-expanded', 'false');
   }
 
+  function buildMenuRow(icon, title, desc, onClick) {
+    var row = el('button', 'acct-menu-row');
+    row.type = 'button';
+    var iconWrap = el('span', 'acct-menu-icon');
+    iconWrap.appendChild(icon);
+    row.appendChild(iconWrap);
+
+    var textWrap = el('div', 'acct-menu-text');
+    var titleEl = el('div', 'acct-menu-title');
+    setText(titleEl, title);
+    textWrap.appendChild(titleEl);
+    var descEl = el('div', 'acct-menu-desc');
+    setText(descEl, desc);
+    textWrap.appendChild(descEl);
+    row.appendChild(textWrap);
+
+    var arrow = el('span', 'acct-menu-arrow');
+    arrow.appendChild(chevronIcon());
+    row.appendChild(arrow);
+
+    row.addEventListener('click', function () { if (onClick) onClick(); });
+    return row;
+  }
+
   function openPanel(anchorEl, deps) {
     if (!hasDom()) return;
     var win = typeof self !== 'undefined' ? self : this;
@@ -108,15 +144,16 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
     document.body.appendChild(host);
 
     var rect = anchorEl.getBoundingClientRect();
-    var panelW = 370;
     var right = (win.innerWidth || 1024) - rect.right;
     panel.style.top = (rect.bottom + 8) + 'px';
     panel.style.right = Math.max(8, right) + 'px';
 
+    // Header
     var header = el('div', 'acct-header');
     setText(header, 'CURRENT ACCOUNT');
     panel.appendChild(header);
 
+    // Account card
     var card = el('div', 'acct-card');
     var cardAvatar = el('div', 'acct-avatar acct-avatar--lg');
     setText(cardAvatar, initial);
@@ -155,6 +192,7 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
     panel.appendChild(card);
     panel.appendChild(el('div', 'acct-divider'));
 
+    // Menu rows
     var profileRow = buildMenuRow(userIcon(), 'Profile & account', 'Manage your profile information', function () {
       closePanel();
       if (deps.switchView) deps.switchView('settings');
@@ -175,6 +213,7 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
 
     panel.appendChild(el('div', 'acct-divider'));
 
+    // Log out row
     var logoutRow = el('button', 'acct-menu-row acct-menu-row--danger');
     logoutRow.type = 'button';
     var logoutIconWrap = el('span', 'acct-menu-icon acct-menu-icon--danger');
@@ -194,6 +233,7 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
     });
     panel.appendChild(logoutRow);
 
+    // Click-outside + Escape to close
     function onDocClick(e) {
       if (!host.contains(e.target) && e.target !== anchorEl && !anchorEl.contains(e.target)) {
         closePanel();
@@ -206,30 +246,6 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
       document.removeEventListener('click', onDocClick);
       document.removeEventListener('keydown', onKeydown);
     };
-  }
-
-  function buildMenuRow(icon, title, desc, onClick) {
-    var row = el('button', 'acct-menu-row');
-    row.type = 'button';
-    var iconWrap = el('span', 'acct-menu-icon');
-    iconWrap.appendChild(icon);
-    row.appendChild(iconWrap);
-
-    var textWrap = el('div', 'acct-menu-text');
-    var titleEl = el('div', 'acct-menu-title');
-    setText(titleEl, title);
-    textWrap.appendChild(titleEl);
-    var descEl = el('div', 'acct-menu-desc');
-    setText(descEl, desc);
-    textWrap.appendChild(descEl);
-    row.appendChild(textWrap);
-
-    var arrow = el('span', 'acct-menu-arrow');
-    arrow.appendChild(chevronIcon());
-    row.appendChild(arrow);
-
-    row.addEventListener('click', function () { if (onClick) onClick(); });
-    return row;
   }
 
   function buildChip(deps) {
@@ -286,7 +302,9 @@ cat > "$APP/js/components/accountPanel.js" << 'ACCOUNTPANEL_EOF'
   };
 });
 ACCOUNTPANEL_EOF
-echo "  Done."
+echo "  Written. Verifying..."
+grep -c "CURRENT ACCOUNT" "$APP/js/components/accountPanel.js" && echo "  VERIFIED: new version." || echo "  ERROR: write failed!"
+echo ""
 
 # 2. Append account panel CSS if not already present
 echo "[2/5] Patching app.css..."
@@ -300,7 +318,6 @@ else
    Scoped under body.personal-mode so business is byte-identical.
    ============================================================ */
 
-/* --- Chip (header pill) --- */
 body.personal-mode .account-chip {
   display: inline-flex;
   align-items: center;
@@ -540,12 +557,10 @@ var s = fs.readFileSync(f, "utf8");
 var changed = false;
 
 if (s.indexOf("AccountPanel") === -1) {
-  // Add dep
   s = s.replace(
     /([ \t]*\} catch \(e\) \{ return null; \})/,
     "        if (name === 'AccountPanel') return require('./components/accountPanel');\n$1"
   );
-  // Add chip branch after business logout appendChild
   var marker = "rateMeterHost.appendChild(out);";
   var idx = s.lastIndexOf(marker);
   if (idx !== -1) {
@@ -554,6 +569,7 @@ if (s.indexOf("AccountPanel") === -1) {
     s = s.slice(0, insertAt) + patch + s.slice(insertAt);
   }
   fs.writeFileSync(f, s);
+  changed = true;
   console.log("  Added AccountPanel dep + chip branch.");
 } else {
   console.log("  AccountPanel already present.");
@@ -578,9 +594,25 @@ if (s.indexOf("openDeleteAccountModal: openDeleteAccountModal") !== -1) {
 }
 NODEOF
 
+# 6. Bump cache-bust on script tags so browsers reload
+echo ""
+echo "[6] Bumping cache-bust version in index.html..."
+node << 'NODEOF'
+var fs = require("fs");
+var f = "/opt/snapreceipt-ai/public/index.html";
+var s = fs.readFileSync(f, "utf8");
+var ts = Date.now().toString(36);
+s = s.replace(/accountPanel\.js\?v=[^"']*/g, "accountPanel.js?v=" + ts);
+s = s.replace(/(app\.js)\?v=[^"']*/g, "$1?v=" + ts);
+s = s.replace(/(app\.css)\?v=[^"']*/g, "$1?v=" + ts);
+s = s.replace(/(settings\.js)\?v=[^"']*/g, "$1?v=" + ts);
+fs.writeFileSync(f, s);
+console.log("  Cache-bust set to: " + ts);
+NODEOF
+
 echo ""
 echo "Restarting app..."
 pm2 restart snapreceipt-ai --update-env
 echo ""
 echo "=== Deploy complete! ==="
-echo "Visit https://snapreceiptai.friction.com.my/ to verify."
+echo "Hard-refresh (Ctrl+Shift+R) https://snapreceiptai.friction.com.my/ to verify."
