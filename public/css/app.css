@@ -1900,6 +1900,7 @@ body.theme-ocean-dark .act-view-btn.is-active { color: var(--bg); }
   border-radius: 8px;
   cursor: pointer;
 }
+.up-camera { background: var(--teal); color: #0e1117; }
 
 .up-hints { display: flex; flex-direction: column; gap: 6px; }
 .up-hint {
